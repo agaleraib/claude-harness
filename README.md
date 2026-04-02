@@ -313,6 +313,106 @@ The criteria files are starting points. Adapt them to your domain:
 
 ---
 
+## Session Hygiene
+
+The harness gives you better agents and criteria, but how you **manage sessions** determines whether Opus 4.6 performs at its best or degrades into confused loops. These practices come directly from [Anthropic's best practices](https://code.claude.com/docs/en/best-practices) and production experience.
+
+### The One Rule
+
+> **Context is your most precious resource.** Everything else follows from this.
+
+Claude's performance degrades as context fills. At 0-20% usage, output is reliable. Past 60%, retrieval starts failing and instructions get lost. The status line (`ctx: 42% used`) tells you where you are.
+
+### Practices
+
+| Practice | When | Why |
+|---|---|---|
+| **`/clear` between tasks** | After finishing a feature, before starting something unrelated | Resets context completely. Single biggest quality improvement. |
+| **`/compact Focus on [X]`** | When you can't clear but context is growing | Summarizes old context while preserving what matters. |
+| **Two corrections → `/clear`** | After correcting Claude twice on the same issue | Failed approaches pollute context. Start fresh with a better prompt that includes what you learned. |
+| **`/rename` your sessions** | When starting meaningful work | `claude --resume` shows session names. "oauth-migration" beats "session-47". |
+| **Use subagents for research** | When Claude needs to read many files | Research in a subagent returns a summary. Direct exploration fills YOUR context with file contents. |
+| **`/btw` for side questions** | Quick questions mid-task | Answer appears in overlay, never enters conversation history. Zero context cost. |
+
+### Permission Mode
+
+Use **auto mode** to eliminate permission prompts without compromising safety:
+
+```json
+// In ~/.claude/settings.json
+{
+  "permissions": {
+    "mode": "auto",
+    "allow": ["Bash(*)", "Read(*)", "Write(*)", "Edit(*)", "Glob(*)", "Grep(*)"]
+  }
+}
+```
+
+Auto mode uses a classifier to approve routine actions and block risky ones (scope escalation, unknown infrastructure, hostile-content-driven actions). Your explicit allowlist acts as a fast path — the classifier only evaluates actions not already permitted.
+
+For unattended builds: `claude --permission-mode auto -p "fix all lint errors"`. Auto mode aborts if the classifier repeatedly blocks actions, since there's no user to fall back to.
+
+### Hooks (Deterministic Automation)
+
+Unlike CLAUDE.md instructions (which Opus 4.6 can ignore under load), hooks **always fire**:
+
+```json
+// In ~/.claude/settings.json
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if [ -f tsconfig.json ]; then npx tsc --noEmit --pretty 2>&1 | tail -20; fi"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+This runs `tsc --noEmit` after every file edit in TypeScript projects. Claude sees type errors immediately without being told to check. Other high-value hooks:
+
+| Hook | Trigger | What It Does |
+|---|---|---|
+| Type-check after edit | `PostToolUse` on `Edit\|Write` | Catches type errors instantly |
+| Lint before commit | `PreToolUse` on `Bash(git commit*)` | Prevents committing lint failures |
+| Format after edit | `PostToolUse` on `Edit\|Write` | Auto-formats with prettier/biome |
+
+**Rule of thumb:** If you find yourself writing "always run X after Y" in CLAUDE.md, convert it to a hook instead. Hooks are guaranteed; CLAUDE.md instructions are advisory.
+
+### Status Line
+
+Track context usage in real time:
+
+```json
+// In ~/.claude/settings.json
+{
+  "statusLine": {
+    "type": "command",
+    "command": "input=$(cat); used=$(echo \"$input\" | jq -r '.context_window.used_percentage // empty'); remaining=$(echo \"$input\" | jq -r '.context_window.remaining_percentage // empty'); if [ -n \"$used\" ]; then printf \"ctx: %.0f%% used (%.0f%% left)\" \"$used\" \"$remaining\"; else printf \"ctx: waiting...\"; fi"
+  }
+}
+```
+
+Shows `ctx: 42% used (58% left)` in your terminal. When you see it climbing past 50%, consider `/compact` or `/clear`.
+
+### Anti-Patterns
+
+| Pattern | Problem | Fix |
+|---|---|---|
+| **Kitchen sink session** | Start with one task, ask something unrelated, go back | `/clear` between unrelated tasks |
+| **Correction spiral** | Correct → still wrong → correct again → context full of failures | After 2 corrections: `/clear` + better initial prompt |
+| **Infinite exploration** | "Investigate X" without scoping it. Claude reads 100 files. | Scope narrowly or use subagents |
+| **Bloated CLAUDE.md** | 500+ lines, half outdated. Claude ignores most of it. | Keep under 200 lines. Under 50 is better. |
+| **Trust-then-verify gap** | Claude produces plausible code that fails edge cases | Always provide verification: tests, build, screenshots |
+
+---
+
 ## What This Replaces
 
 | Before (Superpowers + heavy CLAUDE.md) | After (this harness) |
