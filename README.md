@@ -413,6 +413,112 @@ Shows `ctx: 42% used (58% left)` in your terminal. When you see it climbing past
 
 ---
 
+## Git Branching Guide
+
+### When to Branch vs Work on Master
+
+> **If you'll finish it in this session → master. If it'll span sessions or could break things → branch.**
+
+| Situation | Strategy | Why |
+|---|---|---|
+| Small fix (typo, config, one-file bug) | **Master** | Done in one commit, no risk |
+| Cron job tweak, registry update | **Master** | Contained change, easy to verify |
+| Multi-session feature | **Branch** | Protects master from half-done work |
+| Risky refactor | **Branch** | Easy rollback if it goes wrong |
+| Parallel experiments | **Branch** | Try two approaches without conflicts |
+| Generator agent building for hours | **Branch** | Review before merging to master |
+| Multiple agents working simultaneously | **Branch per agent** | Prevents stepping on each other |
+
+### Branch Naming
+
+```bash
+feat/board-v2           # New feature
+fix/reconciliation-dup  # Bug fix
+refactor/scheduler      # Restructuring
+experiment/qwen3-eval   # Throwaway experiment
+```
+
+### Branch Lifecycle
+
+```bash
+# 1. Create from up-to-date master
+git checkout master
+git pull
+git checkout -b feat/my-feature
+
+# 2. Work, commit incrementally
+# ... make changes ...
+git add src/specific-file.ts
+git commit -m "feat: add webhook retry logic"
+
+# 3. Keep in sync (if branch lives more than a day)
+git merge master              # or: git rebase master
+
+# 4. Merge back with --no-ff (preserves history)
+git checkout master
+git merge --no-ff feat/my-feature
+
+# 5. Clean up
+git branch -d feat/my-feature
+```
+
+**Critical rule:** Always merge with `--no-ff`. Fast-forward merges lose branch history and make rollbacks harder.
+
+### Git Worktrees (Parallel Sessions)
+
+Worktrees let you have the same repo checked out in **multiple directories simultaneously** — each with its own branch. This is essential when:
+
+- You want to **run Claude Code in parallel** on different features (each session needs its own directory)
+- The **generator agent** is building for hours and you want to keep coding something else
+- You want to keep a **dev server running** on master while working on a branch
+- A **scheduled Claude agent** is working on one task while you work on another
+
+```bash
+# Create a worktree for a feature
+git worktree add ../myproject-feat-X feat/X
+
+# Work in it (separate directory, separate Claude session)
+cd ../myproject-feat-X
+claude
+
+# When done, merge from the main directory
+cd ../myproject
+git merge --no-ff feat/X
+
+# Clean up
+git worktree remove ../myproject-feat-X
+```
+
+Each worktree is a full working copy with its own `.claude/agents/` and `criteria/` — the harness works in worktrees automatically.
+
+### Safety Rules
+
+These rules exist because of a [real incident](https://github.com/agaleraib/claude-harness#philosophy) where 174 files were accidentally deleted during a git operation:
+
+1. **Never let a branch diverge 50+ commits from master.** Merge to master frequently.
+2. **Check master freshness before branching.** If master is days behind, merge current work first.
+3. **Always `--no-ff` merges.** Preserves history, makes rollbacks possible.
+4. **Never `git add -A` or `git add .`** Stage specific files by name.
+5. **Pre-push deletion check.** If more than 10 files are deleted in the diff, stop and verify:
+   ```bash
+   git diff origin/master --stat | grep "delete" | wc -l
+   ```
+
+### Decision Flowchart
+
+```
+Will I finish this in one session?
+├── Yes → Is it risky? (refactor, schema change, breaking API)
+│   ├── No  → Work on master
+│   └── Yes → Branch (easy rollback)
+└── No → Branch
+    └── Will I need Claude Code running in parallel?
+        ├── No  → Regular branch (same directory)
+        └── Yes → Git worktree (separate directory)
+```
+
+---
+
 ## What This Replaces
 
 | Before (Superpowers + heavy CLAUDE.md) | After (this harness) |
