@@ -61,6 +61,7 @@ your-project/                       # Project-level (specific projects)
 |---|---|---|
 | **code-reviewer** | `~/.claude/agents/` | Every project, always |
 | **spec-planner** | `~/.claude/agents/` | Every project, always |
+| **project-tracker** | `~/.claude/agents/` | Every project, always |
 | **ui-evaluator** | `<project>/.claude/agents/` | That project only |
 | **generator** | `<project>/.claude/agents/` | That project only |
 
@@ -103,6 +104,33 @@ Use the spec-planner — I want to add a webhook notification system
 **Output:** Writes spec to `docs/specs/YYYY-MM-DD-<topic>.md`.
 
 **What it does NOT do:** Write code or implementation plans. It defines WHAT to build, not HOW.
+
+---
+
+### project-tracker (Universal)
+
+**What it does:** Saves the current Claude Code session as a project in Second Brain for later resumption. Auto-gathers git state, recent commits, files changed, specs, and plan content. Creates or updates the project with branch/workstream tracking.
+
+**When to use:** When you're working on something that spans multiple sessions and you want to resume later with full context. Not every session needs this — only use it for work that needs continuity.
+
+**How to invoke:**
+```
+Use the project-tracker to save this as a project
+```
+Or to update an existing project:
+```
+Use the project-tracker to update this project
+```
+
+**What it does:**
+- **CREATE mode** (new project): Gathers context, asks for a name + priority, creates the project in Second Brain via MCP tools (`sb_create_project`, `sb_create_branch`, `sb_create_task`), saves spec/plan content and context snapshot
+- **UPDATE mode** (existing project): Refreshes the branch's context snapshot, marks completed tasks, adds a session note
+
+**Prerequisites:**
+- Second Brain MCP server configured (provides `sb_create_project`, `sb_create_branch`, etc.)
+- A git repository (the agent reads branch, commits, and diff)
+
+**What it does NOT do:** Automatically track every session. You invoke it explicitly when you want continuity.
 
 ---
 
@@ -172,6 +200,7 @@ Every criteria file defines hard fails — if ANY dimension scores 3 or below, t
 # Copy the universal agents to your user config
 cp .claude/agents/code-reviewer.md ~/.claude/agents/
 cp .claude/agents/spec-planner.md ~/.claude/agents/
+cp .claude/agents/project-tracker.md ~/.claude/agents/
 ```
 
 That's it. These agents are now available in every Claude Code session across all your projects.

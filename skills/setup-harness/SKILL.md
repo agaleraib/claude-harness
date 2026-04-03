@@ -156,6 +156,7 @@ Check that the universal agents are installed:
 ```bash
 ls ~/.claude/agents/code-reviewer.md 2>/dev/null
 ls ~/.claude/agents/spec-planner.md 2>/dev/null
+ls ~/.claude/agents/project-tracker.md 2>/dev/null
 ```
 
 If missing, install them:
@@ -164,6 +165,7 @@ If missing, install them:
 mkdir -p ~/.claude/agents
 cp ~/.claude/harness/.claude/agents/code-reviewer.md ~/.claude/agents/
 cp ~/.claude/harness/.claude/agents/spec-planner.md ~/.claude/agents/
+cp ~/.claude/harness/.claude/agents/project-tracker.md ~/.claude/agents/
 ```
 
 ## Step 6: Update Harness Source
