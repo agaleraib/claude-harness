@@ -107,30 +107,25 @@ Use the spec-planner — I want to add a webhook notification system
 
 ---
 
-### project-tracker (Universal)
+### project-tracker (Universal, Proactive)
 
 **What it does:** Saves the current Claude Code session as a project in Second Brain for later resumption. Auto-gathers git state, recent commits, files changed, specs, and plan content. Creates or updates the project with branch/workstream tracking.
 
-**When to use:** When you're working on something that spans multiple sessions and you want to resume later with full context. Not every session needs this — only use it for work that needs continuity.
+**When it runs:** Proactively — before commits when meaningful work was done (new features, bug fixes, spec changes). No manual invocation needed. Can also be invoked explicitly.
 
-**How to invoke:**
-```
-Use the project-tracker to save this as a project
-```
-Or to update an existing project:
-```
-Use the project-tracker to update this project
-```
+**How it works:**
+- **CREATE mode** (new repo, no project in SB): Gathers context, asks for project name + priority (only questions it asks), creates the project via SB API with repo and branch linked, saves spec/plan content, creates tasks from plan files
+- **UPDATE mode** (project exists for this repo): Refreshes the branch's context snapshot, marks completed tasks, adds a session note — all silently, no questions asked
 
-**What it does:**
-- **CREATE mode** (new project): Gathers context, asks for a name + priority, creates the project in Second Brain via MCP tools (`sb_create_project`, `sb_create_branch`, `sb_create_task`), saves spec/plan content and context snapshot
-- **UPDATE mode** (existing project): Refreshes the branch's context snapshot, marks completed tasks, adds a session note
+**Communication:** Direct HTTP calls to the Second Brain API (`curl`). No MCP dependency — works in any repo without special configuration.
+
+**Complementary automation:** A global git `post-commit` hook (`~/.git-hooks/post-commit`) handles updates outside Claude Code sessions — manual commits, cron snapshots, other tools. It updates commit hash, dirty files, and auto-completes tasks by matching commit messages. The agent and hook write to the same API and don't conflict.
 
 **Prerequisites:**
-- Second Brain MCP server configured (provides `sb_create_project`, `sb_create_branch`, etc.)
+- Second Brain API reachable (default: `http://10.1.10.82:3001`, override with `SB_URL` env var)
 - A git repository (the agent reads branch, commits, and diff)
 
-**What it does NOT do:** Automatically track every session. You invoke it explicitly when you want continuity.
+**What it does NOT do:** Fix code or make decisions. It only records state.
 
 ---
 
@@ -413,6 +408,28 @@ This runs `tsc --noEmit` after every file edit in TypeScript projects. Claude se
 | Format after edit | `PostToolUse` on `Edit\|Write` | Auto-formats with prettier/biome |
 
 **Rule of thumb:** If you find yourself writing "always run X after Y" in CLAUDE.md, convert it to a hook instead. Hooks are guaranteed; CLAUDE.md instructions are advisory.
+
+#### Global Git Post-Commit Hook
+
+A git `post-commit` hook at `~/.git-hooks/post-commit` updates Second Brain automatically on every commit across all repos:
+
+- Updates the project's last commit hash and message
+- Reports dirty worktree state (uncommitted files)
+- Auto-completes tasks by fuzzy-matching commit messages against pending task titles
+- Creates branch records for new branches automatically
+
+**Setup:**
+```bash
+# Set global hooks path (once)
+git config --global core.hooksPath ~/.git-hooks
+
+# Install the hook
+mkdir -p ~/.git-hooks
+cp scripts/git-post-commit.sh ~/.git-hooks/post-commit
+chmod +x ~/.git-hooks/post-commit
+```
+
+The hook fires on every `git commit` in any repo. If the repo name doesn't match a project in SB, it silently does nothing. It runs `curl` in the background so it never slows down commits.
 
 ### Status Line
 
