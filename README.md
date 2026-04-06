@@ -38,6 +38,7 @@ Research and production experience show that heavy instruction systems degrade O
 ~/.claude/                          # User-level (ALL projects)
 ├── agents/
 │   ├── code-reviewer.md            # Adversarial code reviewer (tests + types + review)
+│   ├── project-tracker.md          # Save/resume sessions via Second Brain
 │   └── spec-planner.md             # Discovery-based specification writer
 │
 your-project/                       # Project-level (specific projects)
@@ -51,6 +52,8 @@ your-project/                       # Project-level (specific projects)
 │   ├── frontend-ui-design.md       # Web apps only
 │   ├── performance-accessibility.md # Web apps only
 │   └── ux-user-flows.md            # Web apps only
+├── scripts/
+│   └── git-post-commit.sh          # Global post-commit hook for Second Brain
 ├── CLAUDE.md                       # Build commands + non-obvious conventions
 └── .mcp.json                       # Playwright MCP (web apps only)
 ```

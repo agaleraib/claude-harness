@@ -29,10 +29,12 @@ SB_URL="${SB_URL:-http://10.1.10.82:3001}"
 
 2. **Check if project already exists**:
    ```bash
+   # $REPO is a shell variable — set it before running this block
    curl -sf "$SB_URL/api/t-projects" | python3 -c "
-   import sys,json
+   import sys,json,os
+   repo = os.environ.get('REPO', '')  # pass REPO as env var, or substitute inline
    projects = json.load(sys.stdin)
-   match = [p for p in projects if p.get('repo') == '$REPO']
+   match = [p for p in projects if p.get('repo') == repo]
    if match: print(json.dumps(match[0]))
    else: print('null')
    "

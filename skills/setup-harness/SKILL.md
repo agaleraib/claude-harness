@@ -199,7 +199,7 @@ If there are new commits, inform the user:
 
 > Your harness source is behind by X commits. Run `cd ~/.claude/harness && git pull` to update.
 
-## Step 7: Summary
+## Step 8: Summary
 
 Report what was installed:
 
