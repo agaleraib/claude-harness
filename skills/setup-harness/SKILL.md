@@ -168,16 +168,15 @@ cp ~/.claude/harness/.claude/agents/spec-planner.md ~/.claude/agents/
 cp ~/.claude/harness/.claude/agents/project-tracker.md ~/.claude/agents/
 ```
 
-## Step 6: Install Global Git Hook
+## Step 6: Verify Global Git Hook (first-time only)
 
-Check if the post-commit hook is installed:
+The global post-commit hook is installed once and applies to all repos automatically. Only check if it's missing:
 
 ```bash
-ls ~/.git-hooks/post-commit 2>/dev/null
 git config --global core.hooksPath 2>/dev/null
 ```
 
-If missing, install it:
+If empty, this is a first-time setup — install it:
 
 ```bash
 mkdir -p ~/.git-hooks
@@ -186,9 +185,7 @@ chmod +x ~/.git-hooks/post-commit
 git config --global core.hooksPath ~/.git-hooks
 ```
 
-**What this does:** Every `git commit` in any repo automatically updates the matching Second Brain project — commit hash, dirty files, and task completion via commit message matching. Runs silently in the background, never slows down commits.
-
-**Warning:** Setting `core.hooksPath` means per-repo `.git/hooks/` are ignored. If any repo has custom hooks there, inform the user before proceeding.
+If already set, skip this step entirely. The hook is global — no per-project action needed.
 
 ## Step 7: Update Harness Source
 
