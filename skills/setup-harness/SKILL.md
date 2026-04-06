@@ -168,7 +168,29 @@ cp ~/.claude/harness/.claude/agents/spec-planner.md ~/.claude/agents/
 cp ~/.claude/harness/.claude/agents/project-tracker.md ~/.claude/agents/
 ```
 
-## Step 6: Update Harness Source
+## Step 6: Install Global Git Hook
+
+Check if the post-commit hook is installed:
+
+```bash
+ls ~/.git-hooks/post-commit 2>/dev/null
+git config --global core.hooksPath 2>/dev/null
+```
+
+If missing, install it:
+
+```bash
+mkdir -p ~/.git-hooks
+cp ~/.claude/harness/scripts/git-post-commit.sh ~/.git-hooks/post-commit
+chmod +x ~/.git-hooks/post-commit
+git config --global core.hooksPath ~/.git-hooks
+```
+
+**What this does:** Every `git commit` in any repo automatically updates the matching Second Brain project — commit hash, dirty files, and task completion via commit message matching. Runs silently in the background, never slows down commits.
+
+**Warning:** Setting `core.hooksPath` means per-repo `.git/hooks/` are ignored. If any repo has custom hooks there, inform the user before proceeding.
+
+## Step 7: Update Harness Source
 
 Check if the local harness is outdated:
 
@@ -198,6 +220,11 @@ Report what was installed:
 ### Already available (user-level):
 - ~/.claude/agents/code-reviewer.md — "use the code-reviewer to check my changes"
 - ~/.claude/agents/spec-planner.md — "use the spec-planner for [feature idea]"
+- ~/.claude/agents/project-tracker.md — runs proactively before commits
+
+### Automation:
+- Global post-commit hook — updates Second Brain on every commit
+- Project-tracker agent — captures specs, plans, session notes proactively
 
 ### Quick start:
 - Review and edit CLAUDE.md to add project-specific conventions
