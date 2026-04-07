@@ -124,6 +124,21 @@ Use the spec-planner — I want to add a webhook notification system
 
 **Complementary automation:** A global git `post-commit` hook (`~/.git-hooks/post-commit`) handles updates outside Claude Code sessions — manual commits, cron snapshots, other tools. It updates commit hash, dirty files, and auto-completes tasks by matching commit messages. The agent and hook write to the same API and don't conflict.
 
+**Backfill example — reconciling drifted task state:**
+
+```
+Use the project-tracker to walk the git history and mark completed tasks
+```
+
+Walks recent commits on the current branch, fuzzy-matches each commit message against the project's pending tasks in Second Brain, and marks matched tasks as done. Use this when:
+
+- You've been committing **outside** Claude Code (manual commits, IDE commits, another machine without the post-commit hook installed) and the tracker has fallen behind
+- You **just installed** the post-commit hook on a project that already has commit history — past commits won't trigger the hook, so this backfills them in one pass
+- A task list and the actual code have **drifted** and you want to reconcile in bulk instead of manually ticking items
+- You're **resuming a project after weeks away** and want to know what's actually done before deciding what to do next
+
+It's read-only against git (only `git log` / `git show`) and only writes task completions to Second Brain — it won't touch code, branches, or commits.
+
 **Prerequisites:**
 - Second Brain API reachable (default: `http://10.1.10.82:3001`, override with `SB_URL` env var)
 - A git repository (the agent reads branch, commits, and diff)
