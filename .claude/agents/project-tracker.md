@@ -9,11 +9,31 @@ You are the project tracker. Your job is to save the current work session as a p
 
 ## API
 
-All calls go to the Second Brain API. Use the `SB_URL` env var if set, otherwise default to `http://10.1.10.82:3001`.
+Dual-write pattern — writes always go to production, and optionally also to a dev server:
 
 ```bash
-SB_URL="${SB_URL:-http://10.1.10.82:3001}"
+SB_URL="${SB_URL:-http://10.1.10.82:3001}"      # Production (always)
+SB_DEV_URL="${SB_DEV_URL:-}"                     # Dev (optional, if set)
 ```
+
+**Every write (POST/PATCH) should target both URLs if `SB_DEV_URL` is set.** Fire production first (must succeed), then fire dev (best-effort, don't fail the whole operation if it errors). This ensures real work never loses data while still allowing dev testing.
+
+Helper pattern:
+```bash
+write_both() {
+  local method="$1"; local path="$2"; local body="$3"
+  curl -sf -X "$method" "${SB_URL}${path}" \
+    -H "Content-Type: application/json" \
+    -d "$body" || return 1
+  if [ -n "$SB_DEV_URL" ]; then
+    curl -sf -X "$method" "${SB_DEV_URL}${path}" \
+      -H "Content-Type: application/json" \
+      -d "$body" > /dev/null 2>&1 || true
+  fi
+}
+```
+
+For read operations (GET), always read from production (`$SB_URL`) — dev might have test data you don't want to act on.
 
 ## When Invoked
 
