@@ -1,102 +1,134 @@
-# Claude Harness
+# Claude Code Harness
 
-A toolbox of optional skills, agents, and quality criteria for Claude Code. Use what helps, skip what doesn't.
+A lean agent harness for Claude Code, designed for Opus 4.6's native capabilities. Inspired by [Anthropic's harness design research](https://www.anthropic.com/engineering/harness-design-long-running-apps) and adapted based on their [best practices documentation](https://code.claude.com/docs/en/best-practices).
 
-## Quick Start
+## Philosophy
 
-```bash
-# Install to a project (auto-detects type)
-/setup-harness
+> *"Every component in a harness encodes an assumption about what the model can't do on its own, and those assumptions are worth stress testing."*
+> — Anthropic Engineering
 
-# Create project profile
-/project-init
+Opus 4.6 plans carefully, sustains long tasks, debugs effectively, and follows conventions without step-by-step instructions. This harness **doesn't tell the model HOW to think** — it tells the model **WHAT to check against**.
+
+### What This Is
+- Adversarial evaluation agents that catch what self-assessment misses
+- Scoring rubrics that define measurable quality standards
+- A spec-planner that ensures requirements are clear before coding starts
+- Optional workflow skills you can reach for when you want structure
+
+### What This Is NOT
+- Process enforcement (everything is optional — use what helps, skip what doesn't)
+- Step-by-step checklists loaded into every session
+- Elaborate workflow orchestration that fights the model's reasoning
+
+### Why Not Superpowers / Heavy Skill Systems?
+
+Research and production experience show that heavy instruction systems degrade Opus 4.6 performance:
+
+- **Context bloat**: 22k+ tokens of skills loaded at startup = 11% of context consumed before any work begins ([GitHub Issue #190](https://github.com/obra/superpowers/issues/190))
+- **Instruction ignoring**: Opus 4.6 systematically ignores CLAUDE.md and skills under load ([#23936](https://github.com/anthropics/claude-code/issues/23936), [#28158](https://github.com/anthropics/claude-code/issues/28158))
+- **Negative ROI on process skills**: AGENTbench research (arXiv:2602.11988) found LLM-generated context files *decreased* success rates
+- **Anthropic's own conclusion**: With Opus 4.6, they removed sprint decomposition, reduced evaluator rounds, and simplified the generator — scaffolding that was essential for earlier models became counterproductive
+
+**This harness keeps context overhead under 500 tokens at session start** (agent descriptions only). Full agent/skill content loads only when invoked.
+
+---
+
+## Architecture
+
 ```
+~/.claude/                          # User-level (ALL projects)
+├── agents/
+│   ├── code-reviewer.md            # Adversarial code reviewer (tests + types + review)
+│   ├── project-tracker.md          # Save/resume sessions via Second Brain
+│   └── spec-planner.md             # Discovery-based specification writer
+├── skills/                         # Optional workflow skills
+│   ├── session-start/              # Context injection at start of day
+│   ├── session-end/                # Exit ritual + project-tracker
+│   ├── micro/                      # Focused work blocks
+│   ├── park/                       # Side-quest capture
+│   ├── commit/                     # Review → fix/park → commit → plan update
+│   ├── project-init/               # One-time project profile setup
+│   ├── setup-harness/              # Install harness to a project
+│   ├── deploy-check/               # Pre-deploy validation
+│   ├── api-smoke-test/             # End-to-end API testing
+│   ├── migration-check/            # DB migration safety review
+│   └── a11y-check/                 # Accessibility audit
+│
+your-project/                       # Project-level (specific projects)
+├── .claude/
+│   └── agents/
+│       ├── ui-evaluator.md         # Playwright-based UI testing (web apps only)
+│       └── generator.md            # Sustained builder (web apps only)
+├── criteria/                       # Quality rubrics (choose per project)
+│   ├── code-architecture.md        # ALL projects
+│   ├── data-integrity.md           # ALL projects
+│   ├── frontend-ui-design.md       # Web apps only
+│   ├── performance-accessibility.md # Web apps only
+│   └── ux-user-flows.md            # Web apps only
+├── procedures/
+│   └── api-security-checklist.md   # API security reference
+├── .harness-profile                # Project metadata (audience, stakes, stack)
+├── parking_lot.md                  # Side-quests and deferred issues
+├── scripts/
+│   └── git-post-commit.sh          # Global post-commit hook for Second Brain
+├── CLAUDE.md                       # Build commands + non-obvious conventions
+└── .mcp.json                       # Playwright MCP (web apps only)
+```
+
+### Scope Rules
+
+| Component | Location | Available In |
+|---|---|---|
+| **code-reviewer** | `~/.claude/agents/` | Every project, always |
+| **spec-planner** | `~/.claude/agents/` | Every project, always |
+| **project-tracker** | `~/.claude/agents/` | Every project, always |
+| **ui-evaluator** | `<project>/.claude/agents/` | That project only |
+| **generator** | `<project>/.claude/agents/` | That project only |
+| **All skills** | `~/.claude/skills/` | Every project, always |
+
+Criteria files live per-project because quality dimensions differ (a cron job doesn't need UI design rubrics).
 
 ---
 
 ## Skills
 
-### Setup
+All skills are optional — invoke them when you want structure, skip them when you don't. They load on demand (zero context cost until invoked).
 
-| Skill | What it does | Example |
-|---|---|---|
-| `setup-harness` | Installs harness files (criteria, agents, CLAUDE.md) into a project | `/setup-harness fullstack` |
-| `project-init` | Creates `.harness-profile` — project metadata (audience, stakes, stack) | `/project-init` |
+### Setup Skills
 
-### Workflow
+#### `setup-harness`
 
-| Skill | What it does | Example |
-|---|---|---|
-| `session-start` | Loads project context, last exit note, parking lot. Asks for today's goal | `/session-start` |
-| `session-end` | Checks pending commits, captures state, triages parking lot, saves to Second Brain | `/session-end` |
-| `micro` | Frames a focused work block with one goal and time budget | `/micro "wire the /translate endpoint"` |
-| `park` | Captures a side-quest to `parking_lot.md` without switching context | `/park "refactor the round loop"` |
-| `commit` | Reviews staged changes, surfaces related parking lot items, commits, updates plan.md | `/commit` |
+Installs harness files (criteria, agents, CLAUDE.md) into a project. Auto-detects project type or accepts one as argument.
 
-### Safety Checks
-
-| Skill | What it does | Example |
-|---|---|---|
-| `deploy-check` | Validates env vars, secrets, rollback plan, monitoring before deploy | `/deploy-check` |
-| `api-smoke-test` | Generates or runs curl/jq smoke tests against a live URL | `/api-smoke-test run http://localhost:3000` |
-| `migration-check` | Reviews a DB migration for reversibility, locking, backfill safety | `/migration-check migrations/0042_add_email.sql` |
-| `a11y-check` | Runs axe-core accessibility audit via Playwright | `/a11y-check http://localhost:3000` |
-
----
-
-## Agents
-
-Invoke by asking Claude to use them.
-
-### `code-reviewer`
-
-Adversarial code reviewer. Runs tests, checks types, finds real issues. Scores against `criteria/` rubrics if present. Not a polite rubber stamp.
+**When to use:** Once, when starting a new project or adding harness to an existing one.
 
 ```
-"use the code-reviewer to review my changes"
-"review src/lib/scheduler/ with the code-reviewer"
+/setup-harness fullstack
+/setup-harness              # auto-detects type
 ```
 
-### `spec-planner`
+#### `project-init`
 
-Expands a rough idea into a full specification through discovery questions. Outputs an actionable spec to `docs/specs/`.
+Creates `.harness-profile` — a YAML file capturing your project's audience, stakes, quality bar, and stack. Other tools (like `session-start`) read this for context.
 
-```
-"use the spec-planner for the new billing dashboard"
-```
-
-### `project-tracker`
-
-Saves session context (git state, files, specs, decisions) to Second Brain. Runs automatically at session-end. Can also be invoked manually.
+**When to use:** Once per project, right after `setup-harness`.
 
 ```
-"save this session with project-tracker"
-"use project-tracker to backfill completed tasks from git history"
+/project-init
+/project-init --force       # regenerate an existing profile
 ```
 
-### `ui-evaluator` *(webapp/fullstack only)*
+### Workflow Skills
 
-Tests a running app via Playwright. Takes screenshots, tests interactions, scores against criteria rubrics.
+#### `session-start`
 
-```
-"use the ui-evaluator to test localhost:3000"
-```
+Loads project context at the start of a work session: reads your profile, last exit note, parking lot, recent commits. Asks you to pick today's goal.
 
-### `generator` *(webapp/fullstack only)*
-
-Reads a spec and builds continuously — data layer, structure, functionality, polish. Commits working increments.
+**When to use:** Beginning of a coding day or when sitting down to work after a break.
 
 ```
-"use the generator to build from docs/specs/2026-04-02-dashboard.md"
+/session-start
 ```
-
----
-
-## Skill Details
-
-### `session-start`
-
-Reads `.harness-profile`, last exit note, parking lot, and recent commits. Shows a context header and asks you to pick today's goal.
 
 **Example output:**
 ```
@@ -109,20 +141,37 @@ Open parking lot items: 3
 > Tomorrow's first move: wire the /translate endpoint
 ```
 
-### `session-end`
+#### `session-end`
 
-1. Checks for uncommitted changes — offers to run `/commit`
-2. Shows session summary (commits, parking lot)
-3. Asks how the day went (hit / partial / drifted / blocked)
-4. Offers parking lot triage
-5. Asks for tomorrow's first move
-6. Writes exit note to `.harness-state/last_exit.md`
-7. Runs project-tracker to save session to Second Brain
+Checks for pending commits (offers to run `/commit`), captures state of play, triages parking lot, writes exit note, and saves session to Second Brain via project-tracker.
 
-### `micro`
+**When to use:** End of a coding day, before closing the laptop.
 
-Frames a work block: one goal, one budget (10–90 min or done-condition). Side-quests go to `park`.
+```
+/session-end
+```
 
+**Flow:**
+1. Check for uncommitted changes → offer `/commit` or leave as-is
+2. Show session summary
+3. Ask how the day went (hit / partial / drifted / blocked)
+4. Offer parking lot triage
+5. Ask for tomorrow's first move
+6. Write exit note
+7. Run project-tracker automatically
+
+#### `micro`
+
+Frames a focused work block with one goal and a time budget. Keeps you from drifting into side-quests.
+
+**When to use:** When starting a chunk of work and you want focus. Good for 10–90 minute blocks.
+
+```
+/micro "wire the /translate endpoint to the profile store"
+/micro                      # asks you for the goal interactively
+```
+
+**Example frame:**
 ```
 🎯 Micro-session open
 Goal: wire the /translate endpoint to the profile store
@@ -131,81 +180,680 @@ Started: 14:22
 ⏰ End of budget: ~14:52
 ```
 
-### `commit`
+#### `park`
 
-1. Checks staged changes
-2. Scans parking lot for items related to staged files
-3. If related items found — ask: resolve now or acknowledge?
-4. Runs code-reviewer on staged diff
-5. If issues found — **fix all / review individually / park all**
-6. Commits
-7. Updates `plan.md` if the commit moves a plan item forward
+Captures a side-quest or unplanned issue to `parking_lot.md` without switching context. One line, keep going.
 
-Max 2 re-review rounds to prevent loops. Parked items tagged `[code-review]`.
+**When to use:** Anytime you notice something that isn't your current task — a bug, a refactor idea, a question to investigate later.
 
-### `park`
+```
+/park "glossary-patcher returns undefined on empty input"
+/park "add retry logic to Anthropic SDK calls"
+/park                       # asks you interactively
+```
 
-Appends one line to `parking_lot.md` with date and source context. That's it — fast capture, no context switch.
-
+**Output:** One line appended to `parking_lot.md`:
 ```
 - [2026-04-12] glossary-patcher returns undefined on empty input (source: micro — wire translate endpoint)
 ```
+
+#### `commit`
+
+Reviews staged changes before committing, surfaces related parking lot items, lets you fix or park issues, and updates plan.md if the commit moves a plan item forward.
+
+**When to use:** When you're ready to commit. Replaces raw `git commit` with a reviewed commit.
+
+```
+/commit
+/commit "feat: add webhook retry logic"    # override commit message
+```
+
+**Flow:**
+1. Check staged changes
+2. Scan parking lot for items related to staged files — ask: resolve now or acknowledge?
+3. Run code-reviewer on staged diff
+4. If issues found → **fix all / review individually / park all**
+5. Commit (max 2 re-review rounds)
+6. Update `plan.md` if the commit moves a plan item forward
+
+Parked review items are tagged `[code-review]` with file:line references.
+
+### Safety Check Skills
+
+#### `deploy-check`
+
+Validates deployment readiness: env vars, secrets, rollback plan, smoke test, monitoring. Catches the things you forget at 5pm on a Friday.
+
+**When to use:** Before any production deploy.
+
+```
+/deploy-check
+```
+
+**What it checks:**
+- Required env vars are set (not placeholders)
+- No hardcoded secrets in code
+- Rollback plan exists
+- Smoke test script exists and is runnable
+- Monitoring/alerting is configured
+
+#### `api-smoke-test`
+
+Generates or runs a curl/jq-based bash script that tests your API's critical paths against a live URL.
+
+**When to use:** After deploying, or when you want a quick end-to-end sanity check.
+
+```
+/api-smoke-test generate                    # creates the smoke test script
+/api-smoke-test run http://localhost:3000    # runs it against a URL
+```
+
+#### `migration-check`
+
+Reviews a database migration file for safety: reversibility, concurrent-write safety, backfill behavior, index locking.
+
+**When to use:** Before running any schema change in production.
+
+```
+/migration-check migrations/0042_add_user_email.sql
+/migration-check            # asks which file to check
+```
+
+**What it checks:**
+- Is the migration reversible (has a down/rollback)?
+- Will it lock tables under concurrent writes?
+- Are backfills safe for large tables?
+- Are new indexes created concurrently?
+
+#### `a11y-check`
+
+Runs an accessibility audit using axe-core via Playwright. Flags WCAG violations on your pages.
+
+**When to use:** For webapp/fullstack projects, after building UI features.
+
+```
+/a11y-check http://localhost:3000
+/a11y-check http://localhost:3000/dashboard,http://localhost:3000/settings
+```
+
+---
+
+## Agents
+
+### code-reviewer (Universal)
+
+**What it does:** Runs tests, checks types, reviews code adversarially. Scores against `criteria/` if present.
+
+**When to use:** After implementing a feature, fixing a bug, or before committing. Works on any code — backend, frontend, scripts, infrastructure. Also runs automatically as part of the `/commit` skill.
+
+**How to invoke:**
+```
+Use the code-reviewer to review my changes
+```
+Or more specifically:
+```
+Use the code-reviewer to review src/lib/scheduler/ — I refactored the job runner
+```
+
+**What it does NOT do:** Fix code. It reports problems with enough specificity that fixes are obvious.
+
+---
+
+### spec-planner (Universal)
+
+**What it does:** Interviews you about your idea (1-3 rounds of questions), then writes a detailed spec with testable requirements, data model, build phases, and explicit out-of-scope section.
+
+**When to use:** Before starting any non-trivial feature or module. If the diff would be more than ~50 lines, spec it first.
+
+**How to invoke:**
+```
+Use the spec-planner — I want to add a webhook notification system
+```
+
+**Output:** Writes spec to `docs/specs/YYYY-MM-DD-<topic>.md`.
+
+**What it does NOT do:** Write code or implementation plans. It defines WHAT to build, not HOW.
+
+---
+
+### project-tracker (Universal, Proactive)
+
+**What it does:** Saves the current Claude Code session as a project in Second Brain for later resumption. Auto-gathers git state, recent commits, files changed, specs, and plan content. Creates or updates the project with branch/workstream tracking.
+
+**When it runs:** Automatically at session-end. Also proactively before commits when meaningful work was done (new features, bug fixes, spec changes). Can be invoked explicitly.
+
+**How it works:**
+- **CREATE mode** (new repo, no project in SB): Gathers context, asks for project name + priority (only questions it asks), creates the project via SB API with repo and branch linked, saves spec/plan content, creates tasks from plan files
+- **UPDATE mode** (project exists for this repo): Refreshes the branch's context snapshot, marks completed tasks, adds a session note — all silently, no questions asked
+
+**Communication:** Direct HTTP calls to the Second Brain API (`curl`). No MCP dependency — works in any repo without special configuration.
+
+**Complementary automation:** A global git `post-commit` hook (`~/.git-hooks/post-commit`) handles updates outside Claude Code sessions — manual commits, cron snapshots, other tools. It updates commit hash, dirty files, and auto-completes tasks by matching commit messages. The agent and hook write to the same API and don't conflict.
+
+**Backfill example — reconciling drifted task state:**
+
+```
+Use the project-tracker to walk the git history and mark completed tasks
+```
+
+Walks recent commits on the current branch, fuzzy-matches each commit message against the project's pending tasks in Second Brain, and marks matched tasks as done. Use this when:
+
+- You've been committing **outside** Claude Code (manual commits, IDE commits, another machine without the post-commit hook installed) and the tracker has fallen behind
+- You **just installed** the post-commit hook on a project that already has commit history — past commits won't trigger the hook, so this backfills them in one pass
+- A task list and the actual code have **drifted** and you want to reconcile in bulk instead of manually ticking items
+- You're **resuming a project after weeks away** and want to know what's actually done before deciding what to do next
+
+It's read-only against git (only `git log` / `git show`) and only writes task completions to Second Brain — it won't touch code, branches, or commits.
+
+**Prerequisites:**
+- Second Brain API reachable (default: `http://10.1.10.82:3001`, override with `SB_URL` env var)
+- A git repository (the agent reads branch, commits, and diff)
+
+**What it does NOT do:** Fix code or make decisions. It only records state.
+
+---
+
+### ui-evaluator (Web Apps Only)
+
+**What it does:** Launches Playwright, navigates your running app, takes screenshots, tests every interaction, and scores against all `criteria/` rubrics. Reports with specific evidence (hex values, pixel measurements, viewport sizes).
+
+**When to use:** After the generator completes a build, or after you've made significant UI changes.
+
+**Prerequisites:**
+- A running dev server (typically `localhost:3000`)
+- Playwright MCP configured in `.mcp.json`
+- Criteria files in `criteria/`
+
+**How to invoke:**
+```
+Use the ui-evaluator to test the app running on localhost:3000
+```
+
+**What it does NOT do:** Fix code. It's the critic, not the fixer.
+
+---
+
+### generator (Web Apps Only)
+
+**What it does:** Reads a spec from `docs/specs/` or `docs/plan.md` and builds continuously — data layer first, then structure, then functionality, then polish. Commits working increments. Iterates on evaluator feedback.
+
+**When to use:** For sustained multi-feature web app builds where you want the full plan → build → evaluate loop.
+
+**How to invoke:**
+```
+Use the generator to implement the spec in docs/specs/2026-04-02-dashboard.md
+```
+
+---
+
+## Criteria
+
+Criteria files define what "good" means with specific, scorable dimensions. The evaluator and code-reviewer use these as their grading rubric.
+
+### For ALL Projects
+
+| File | What It Scores | Key Dimensions |
+|---|---|---|
+| `code-architecture.md` | Code quality | Structure, Maintainability, Patterns, Type Safety |
+| `data-integrity.md` | Data correctness | Data Modeling (1.5x), Error Handling (1.5x), Consistency, Validation |
+
+### For Web App Projects (add these)
+
+| File | What It Scores | Key Dimensions |
+|---|---|---|
+| `frontend-ui-design.md` | Visual quality | Design Quality (2x), Originality (2x), Craft, Functionality |
+| `performance-accessibility.md` | Speed & a11y | Load Perf, Runtime Perf, Semantic HTML, Responsive |
+| `ux-user-flows.md` | User experience | Task Completion (1.5x), Info Architecture (1.5x), Product Depth (1.5x), Feedback, Onboarding |
+
+### Hard Fail Thresholds
+
+Every criteria file defines hard fails — if ANY dimension scores 3 or below, the entire category fails regardless of the weighted average. Some criteria have stricter thresholds (e.g., Data Consistency at 4 or below also fails).
 
 ---
 
 ## Files
 
-| File | Purpose |
-|---|---|
-| `.harness-profile` | Project metadata (type, audience, stakes, stack). Read by session-start |
-| `parking_lot.md` | Side-quests and deferred issues. Append via `park`, triage at session-end |
-| `plan.md` | Project plan. Written by spec-planner, updated by commit skill |
-| `criteria/` | Quality rubrics used by code-reviewer and ui-evaluator |
-| `procedures/api-security-checklist.md` | API security reference checklist |
-| `.harness-state/last_exit.md` | Exit note from last session. Read by session-start |
-
-### Criteria files
-
-| File | Installed for |
-|---|---|
-| `code-architecture.md` | All projects |
-| `data-integrity.md` | All except script/tooling |
-| `frontend-ui-design.md` | Webapp, fullstack |
-| `performance-accessibility.md` | Webapp, fullstack |
-| `ux-user-flows.md` | Webapp, fullstack |
+| File | Purpose | Created by |
+|---|---|---|
+| `.harness-profile` | Project metadata (type, audience, stakes, stack) | `project-init` |
+| `parking_lot.md` | Side-quests and deferred issues | `park` (append), `session-end` (triage) |
+| `plan.md` | Project plan | `spec-planner` (create), `commit` (update) |
+| `.harness-state/last_exit.md` | Exit note from last session | `session-end` |
+| `criteria/` | Quality rubrics for code-reviewer and ui-evaluator | `setup-harness` |
+| `procedures/api-security-checklist.md` | API security reference checklist | `setup-harness` |
+| `CLAUDE.md` | Build commands + non-obvious conventions | `setup-harness` |
 
 ---
 
-## Architecture
+## Setup
+
+### 1. Install User-Level Components (once, applies everywhere)
+
+```bash
+# Copy the universal agents to your user config
+cp .claude/agents/code-reviewer.md ~/.claude/agents/
+cp .claude/agents/spec-planner.md ~/.claude/agents/
+cp .claude/agents/project-tracker.md ~/.claude/agents/
+
+# Copy all skills
+for skill in session-start session-end micro park commit project-init \
+             setup-harness deploy-check api-smoke-test migration-check a11y-check; do
+  mkdir -p ~/.claude/skills/$skill
+  cp skills/$skill/SKILL.md ~/.claude/skills/$skill/
+done
+```
+
+That's it. These agents and skills are now available in every Claude Code session across all your projects.
+
+Or use the skill to automate setup for a specific project:
 
 ```
-~/.claude/                          # User-level (all projects)
-├── agents/
-│   ├── code-reviewer.md
-│   ├── spec-planner.md
-│   └── project-tracker.md
-├── skills/                         # Optional workflow skills
-│   ├── session-start/
-│   ├── session-end/
-│   ├── micro/
-│   ├── park/
-│   ├── commit/
-│   ├── project-init/
-│   ├── deploy-check/
-│   ├── api-smoke-test/
-│   ├── migration-check/
-│   └── a11y-check/
-
-your-project/                       # Project-level
-├── .claude/agents/
-│   ├── ui-evaluator.md             # Webapp/fullstack only
-│   └── generator.md                # Webapp/fullstack only
-├── .harness-profile
-├── parking_lot.md
-├── criteria/
-├── procedures/
-└── CLAUDE.md
+/setup-harness fullstack
+/project-init
 ```
+
+### 2. Set Up a New Project
+
+**For a backend/API/script project:**
+
+```bash
+cd your-project
+
+# Add criteria (pick what applies)
+mkdir -p criteria
+cp /path/to/claude-harness/criteria/code-architecture.md criteria/
+cp /path/to/claude-harness/criteria/data-integrity.md criteria/
+
+# Write a lean CLAUDE.md (see examples/backend-project/)
+# Include: build commands, test commands, non-obvious conventions
+# Keep under 200 lines. Under 50 is better.
+```
+
+No project-level agents needed — the user-level code-reviewer and spec-planner handle everything.
+
+**For a web application project:**
+
+```bash
+cd your-project
+
+# Add all criteria
+mkdir -p criteria .claude/agents
+cp /path/to/claude-harness/criteria/*.md criteria/
+
+# Add UI-specific agents
+cp /path/to/claude-harness/.claude/agents/ui-evaluator.md .claude/agents/
+cp /path/to/claude-harness/.claude/agents/generator.md .claude/agents/
+
+# Add Playwright MCP
+cat > .mcp.json << 'EOF'
+{
+  "mcpServers": {
+    "playwright": {
+      "command": "npx",
+      "args": ["@playwright/mcp@latest"]
+    }
+  }
+}
+EOF
+
+# Write a lean CLAUDE.md (see examples/web-app-project/)
+```
+
+### 3. Write Your CLAUDE.md
+
+Follow [Anthropic's guidelines](https://code.claude.com/docs/en/best-practices):
+
+```markdown
+# Project Name
+
+## Build & Test
+bun run build
+bun test
+
+## Conventions
+- TypeScript strict. No `any`.
+- [Only rules Claude can't figure out from reading the code]
+
+## Verification
+After changes: `bun run build && bun test`
+```
+
+**Rules for CLAUDE.md:**
+- Under 200 lines. Under 50 is better.
+- Only include what Claude would get wrong without the instruction
+- If Claude already does it correctly, delete the rule
+- Treat it like code: prune regularly
+
+---
+
+## Workflows
+
+### Workflow A: Quick Feature (any project)
+
+```
+You:   "Add retry logic to the webhook sender"
+Claude: [implements it using native planning + execution]
+You:   /commit
+Claude: [reviews changes, fix/park issues, commits, updates plan]
+```
+
+**Total context overhead: ~200 tokens** (code-reviewer description). Full agent loads only when invoked.
+
+### Workflow B: New Module (any project)
+
+```
+You:   "Use the spec-planner — I want to add a rate limiter"
+Claude: [spec-planner asks 2-6 questions, writes spec]
+You:   [review spec, approve]
+You:   "Implement the spec in docs/specs/2026-04-02-rate-limiter.md"
+Claude: [implements from spec]
+You:   /commit
+Claude: [code-review → fix/park → commit → plan.md updated]
+```
+
+### Workflow C: Full Web App Build (UI projects only)
+
+```
+You:   "Use the spec-planner for the analytics dashboard"
+Claude: [discovery → spec → docs/specs/]
+You:   "Use the generator to build phase 1 from the spec"
+Claude: [sustained implementation, commits incrementally]
+You:   "Use the ui-evaluator to test localhost:3000"
+Claude: [Playwright testing, screenshots, scoring against all criteria]
+You:   "Fix the critical issues from the evaluation"
+Claude: [implements fixes]
+You:   "Evaluate again"
+Claude: [re-scores, verifies fixes]
+```
+
+### Workflow D: Full Day Session
+
+```
+You:   /session-start                    # context injection, pick today's goal
+You:   /micro "wire the translate API"   # frame a focused block
+       ... work ...
+You:   /park "refactor the round loop"   # side-quest captured, keep going
+       ... work ...
+You:   /commit                           # review → commit → plan update
+You:   /session-end                      # exit note, triage, save to Second Brain
+```
+
+---
+
+## Adapting Criteria for Your Domain
+
+The criteria files are starting points. Adapt them to your domain:
+
+**Financial applications (FinFlow):**
+- Add data density and chart readability to frontend criteria
+- Add regulatory compliance to data integrity
+- Add multi-language/white-label to UX criteria
+
+**Infrastructure tools (monitoring dashboards):**
+- Add real-time update performance to frontend criteria
+- Add alerting accuracy to data integrity
+
+**API services:**
+- Skip all frontend criteria
+- Add API contract compliance to code architecture
+- Add rate limiting and auth to data integrity
+
+---
+
+## Session Hygiene
+
+The harness gives you better agents and criteria, but how you **manage sessions** determines whether Opus 4.6 performs at its best or degrades into confused loops. These practices come directly from [Anthropic's best practices](https://code.claude.com/docs/en/best-practices) and production experience.
+
+### The One Rule
+
+> **Context is your most precious resource.** Everything else follows from this.
+
+Claude's performance degrades as context fills. At 0-20% usage, output is reliable. Past 60%, retrieval starts failing and instructions get lost. The status line (`ctx: 42% used`) tells you where you are.
+
+### Practices
+
+| Practice | When | Why |
+|---|---|---|
+| **`/clear` between tasks** | After finishing a feature, before starting something unrelated | Resets context completely. Single biggest quality improvement. |
+| **`/compact Focus on [X]`** | When you can't clear but context is growing | Summarizes old context while preserving what matters. |
+| **Two corrections → `/clear`** | After correcting Claude twice on the same issue | Failed approaches pollute context. Start fresh with a better prompt that includes what you learned. |
+| **`/rename` your sessions** | When starting meaningful work | `claude --resume` shows session names. "oauth-migration" beats "session-47". |
+| **Use subagents for research** | When Claude needs to read many files | Research in a subagent returns a summary. Direct exploration fills YOUR context with file contents. |
+| **`/btw` for side questions** | Quick questions mid-task | Answer appears in overlay, never enters conversation history. Zero context cost. |
+
+### Permission Mode
+
+Use **auto mode** to eliminate permission prompts without compromising safety:
+
+```json
+// In ~/.claude/settings.json
+{
+  "permissions": {
+    "mode": "auto",
+    "allow": ["Bash(*)", "Read(*)", "Write(*)", "Edit(*)", "Glob(*)", "Grep(*)"]
+  }
+}
+```
+
+Auto mode uses a classifier to approve routine actions and block risky ones (scope escalation, unknown infrastructure, hostile-content-driven actions). Your explicit allowlist acts as a fast path — the classifier only evaluates actions not already permitted.
+
+For unattended builds: `claude --permission-mode auto -p "fix all lint errors"`. Auto mode aborts if the classifier repeatedly blocks actions, since there's no user to fall back to.
+
+### Hooks (Deterministic Automation)
+
+Unlike CLAUDE.md instructions (which Opus 4.6 can ignore under load), hooks **always fire**:
+
+```json
+// In ~/.claude/settings.json
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if [ -f tsconfig.json ]; then npx tsc --noEmit --pretty 2>&1 | tail -20; fi"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+This runs `tsc --noEmit` after every file edit in TypeScript projects. Claude sees type errors immediately without being told to check. Other high-value hooks:
+
+| Hook | Trigger | What It Does |
+|---|---|---|
+| Type-check after edit | `PostToolUse` on `Edit\|Write` | Catches type errors instantly |
+| Lint before commit | `PreToolUse` on `Bash(git commit*)` | Prevents committing lint failures |
+| Format after edit | `PostToolUse` on `Edit\|Write` | Auto-formats with prettier/biome |
+
+**Rule of thumb:** If you find yourself writing "always run X after Y" in CLAUDE.md, convert it to a hook instead. Hooks are guaranteed; CLAUDE.md instructions are advisory.
+
+**Caveat:** Avoid using Stop hooks for blocking signals — they fire on every turn and can create infinite loops with no escape hatch. Use hooks for deterministic automation (type-check, lint, format), not for advisory feedback.
+
+#### Global Git Post-Commit Hook
+
+A git `post-commit` hook at `~/.git-hooks/post-commit` updates Second Brain automatically on every commit across all repos:
+
+- Updates the project's last commit hash and message
+- Reports dirty worktree state (uncommitted files)
+- Auto-completes tasks by fuzzy-matching commit messages against pending task titles
+- Creates branch records for new branches automatically
+
+**Setup:**
+```bash
+# Set global hooks path (once)
+git config --global core.hooksPath ~/.git-hooks
+
+# Install the hook
+mkdir -p ~/.git-hooks
+cp scripts/git-post-commit.sh ~/.git-hooks/post-commit
+chmod +x ~/.git-hooks/post-commit
+```
+
+The hook fires on every `git commit` in any repo. If the repo name doesn't match a project in SB, it silently does nothing. It runs `curl` in the background so it never slows down commits.
+
+### Status Line
+
+Track context usage in real time:
+
+```json
+// In ~/.claude/settings.json
+{
+  "statusLine": {
+    "type": "command",
+    "command": "input=$(cat); used=$(echo \"$input\" | jq -r '.context_window.used_percentage // empty'); remaining=$(echo \"$input\" | jq -r '.context_window.remaining_percentage // empty'); if [ -n \"$used\" ]; then printf \"ctx: %.0f%% used (%.0f%% left)\" \"$used\" \"$remaining\"; else printf \"ctx: waiting...\"; fi"
+  }
+}
+```
+
+Shows `ctx: 42% used (58% left)` in your terminal. When you see it climbing past 50%, consider `/compact` or `/clear`.
+
+### Anti-Patterns
+
+| Pattern | Problem | Fix |
+|---|---|---|
+| **Kitchen sink session** | Start with one task, ask something unrelated, go back | `/clear` between unrelated tasks |
+| **Correction spiral** | Correct → still wrong → correct again → context full of failures | After 2 corrections: `/clear` + better initial prompt |
+| **Infinite exploration** | "Investigate X" without scoping it. Claude reads 100 files. | Scope narrowly or use subagents |
+| **Bloated CLAUDE.md** | 500+ lines, half outdated. Claude ignores most of it. | Keep under 200 lines. Under 50 is better. |
+| **Trust-then-verify gap** | Claude produces plausible code that fails edge cases | Always provide verification: tests, build, screenshots |
+
+---
+
+## Git Branching Guide
+
+### When to Branch vs Work on Master
+
+> **If you'll finish it in this session → master. If it'll span sessions or could break things → branch.**
+
+| Situation | Strategy | Why |
+|---|---|---|
+| Small fix (typo, config, one-file bug) | **Master** | Done in one commit, no risk |
+| Cron job tweak, registry update | **Master** | Contained change, easy to verify |
+| Multi-session feature | **Branch** | Protects master from half-done work |
+| Risky refactor | **Branch** | Easy rollback if it goes wrong |
+| Parallel experiments | **Branch** | Try two approaches without conflicts |
+| Generator agent building for hours | **Branch** | Review before merging to master |
+| Multiple agents working simultaneously | **Branch per agent** | Prevents stepping on each other |
+
+### Branch Naming
+
+```bash
+feat/board-v2           # New feature
+fix/reconciliation-dup  # Bug fix
+refactor/scheduler      # Restructuring
+experiment/qwen3-eval   # Throwaway experiment
+```
+
+### Branch Lifecycle
+
+```bash
+# 1. Create from up-to-date master
+git checkout master
+git pull
+git checkout -b feat/my-feature
+
+# 2. Work, commit incrementally
+# ... make changes ...
+git add src/specific-file.ts
+git commit -m "feat: add webhook retry logic"
+
+# 3. Keep in sync (if branch lives more than a day)
+git merge master              # or: git rebase master
+
+# 4. Merge back with --no-ff (preserves history)
+git checkout master
+git merge --no-ff feat/my-feature
+
+# 5. Clean up
+git branch -d feat/my-feature
+```
+
+**Critical rule:** Always merge with `--no-ff`. Fast-forward merges lose branch history and make rollbacks harder.
+
+### Git Worktrees (Parallel Sessions)
+
+Worktrees let you have the same repo checked out in **multiple directories simultaneously** — each with its own branch. This is essential when:
+
+- You want to **run Claude Code in parallel** on different features (each session needs its own directory)
+- The **generator agent** is building for hours and you want to keep coding something else
+- You want to keep a **dev server running** on master while working on a branch
+- A **scheduled Claude agent** is working on one task while you work on another
+
+```bash
+# Create a worktree for a feature
+git worktree add ../myproject-feat-X feat/X
+
+# Work in it (separate directory, separate Claude session)
+cd ../myproject-feat-X
+claude
+
+# When done, merge from the main directory
+cd ../myproject
+git merge --no-ff feat/X
+
+# Clean up
+git worktree remove ../myproject-feat-X
+```
+
+Each worktree is a full working copy with its own `.claude/agents/` and `criteria/` — the harness works in worktrees automatically.
+
+### Safety Rules
+
+These rules exist because of a [real incident](https://github.com/agaleraib/claude-harness#philosophy) where 174 files were accidentally deleted during a git operation:
+
+1. **Never let a branch diverge 50+ commits from master.** Merge to master frequently.
+2. **Check master freshness before branching.** If master is days behind, merge current work first.
+3. **Always `--no-ff` merges.** Preserves history, makes rollbacks possible.
+4. **Never `git add -A` or `git add .`** Stage specific files by name.
+5. **Pre-push deletion check.** If more than 10 files are deleted in the diff, stop and verify:
+   ```bash
+   git diff origin/master --stat | grep "delete" | wc -l
+   ```
+
+### Decision Flowchart
+
+```
+Will I finish this in one session?
+├── Yes → Is it risky? (refactor, schema change, breaking API)
+│   ├── No  → Work on master
+│   └── Yes → Branch (easy rollback)
+└── No → Branch
+    └── Will I need Claude Code running in parallel?
+        ├── No  → Regular branch (same directory)
+        └── Yes → Git worktree (separate directory)
+```
+
+---
+
+## What This Replaces
+
+| Before (Superpowers + heavy CLAUDE.md) | After (this harness) |
+|---|---|
+| 22k tokens at startup | ~500 tokens at startup |
+| 14 skills loaded every session | Agent/skill descriptions only (loaded on demand) |
+| Process enforcement skills | Optional workflow tools — use when helpful |
+| Polite code reviewer | Adversarial reviewer that runs tests |
+| No design quality standards | 5 weighted scoring rubrics |
+| Brainstorming → writing-plans → executing-plans | spec-planner → build → code-reviewer |
+| Skills telling model how to think | Criteria telling model what to check |
+
+---
+
+## References
+
+- [Harness Design for Long-Running Apps](https://www.anthropic.com/engineering/harness-design-long-running-apps) — Anthropic Engineering
+- [Best Practices for Claude Code](https://code.claude.com/docs/en/best-practices) — Claude Code Docs
+- [Extend Claude Code](https://code.claude.com/docs/en/features-overview) — Skills, Subagents, Hooks overview
+- [Custom Subagents](https://code.claude.com/docs/en/sub-agents) — Agent definition reference
+- [Skills](https://code.claude.com/docs/en/skills) — Skill system reference
+- [Building Effective Agents](https://www.anthropic.com/engineering/building-effective-agents) — "Start simple, add complexity only when needed"
+- [How We Built Our Multi-Agent Research System](https://www.anthropic.com/engineering/multi-agent-research-system) — Orchestrator-worker patterns, model routing
+- [Context Window Visualization](https://code.claude.com/docs/en/context-window) — Understanding what consumes your context
 
 ## License
 
