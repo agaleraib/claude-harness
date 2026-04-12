@@ -149,10 +149,35 @@ Use `AskUserQuestion` to confirm before editing:
 > - **Yes** — mark done with commit hash
 > - **No** — leave plan.md unchanged
 
+## Step 7: Update spec task checklist (if applicable)
+
+If Step 6 identified a plan.md item and the plan entry references a spec file (e.g., `docs/specs/2026-04-12-editorial-memory.md`), read that spec file and check for task checklists (`- [ ] Task N`).
+
+If the completed plan item corresponds to a phase in the spec (e.g., "Phase 1 complete"), mark all tasks in that phase as done:
+
+```
+- [ ] Task 1: ...  →  - [x] Task 1: ... (done in abc1234)
+```
+
+Use `AskUserQuestion` to confirm which tasks to mark:
+
+> Plan.md says Phase 1 of `editorial-memory.md` is complete. These spec tasks look done:
+>
+> 1. [ ] Task 1 — description
+> 2. [ ] Task 2 — description
+> ...
+>
+> - **Mark all done** — check off all Phase 1 tasks
+> - **Let me pick** — go through individually
+> - **Skip** — leave spec unchanged
+
+If no spec file is referenced in the plan entry, skip this step.
+
 ## Rules
 
 1. **Never skip the review.** The whole point is that every commit gets a second look.
 2. **Don't loop forever.** Re-review happens at most twice. After two rounds, commit with remaining issues parked.
 3. **Parking is not failure.** It's a deliberate decision to defer. No guilt, no nagging.
 4. **plan.md updates are optional.** Only touch it when a plan item clearly moved. When in doubt, don't.
-5. **Respect the user's commit message.** If they pass one via arguments, use it. Don't rewrite it.
+5. **Spec updates follow plan.md.** Only check spec tasks when a plan item was just marked done. Don't scan specs independently.
+6. **Respect the user's commit message.** If they pass one via arguments, use it. Don't rewrite it.
