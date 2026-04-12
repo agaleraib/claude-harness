@@ -407,29 +407,62 @@ Use the generator to implement the spec in docs/specs/2026-04-02-dashboard.md
 
 ### orchestrator (Universal)
 
-**What it does:** Reads spec tasks and dispatches each to opus, sonnet, or haiku subagents based on task complexity — decided at runtime, not at spec time. Follows Anthropic's orchestrator-worker pattern. Runs each completed task through `/commit` (review + plan update + spec checklist).
-
-**When to use:** When you have a spec with multiple tasks and want to build a full phase efficiently with automatic model routing.
+**What it does:** Reads spec tasks and dispatches each to opus, sonnet, or haiku subagents based on task complexity — decided at runtime, not at spec time. Follows [Anthropic's orchestrator-worker pattern](https://www.anthropic.com/research/building-effective-agents). Runs each completed task through `/commit` (code-reviewer + plan update + spec checklist).
 
 **Prerequisites:**
 - A spec file with tasks in spec-planner format (`Files:`, `Depends on:`, `Verify:` per task)
 - `model_routing: on` in `.harness-profile` for full routing (without it, runs as a guided executor on the current model)
 
-**How to invoke:**
+#### Three ways to work
+
+You choose the level of automation. All three go through code-reviewer on every commit — you're always in the loop on quality.
+
+**1. Fully manual** — you write the code, orchestrator not involved:
 ```
-Use the orchestrator to build Phase 1 from docs/specs/2026-04-12-editorial-memory.md
-Use the orchestrator to run Task 3 from docs/specs/2026-04-12-editorial-memory.md
+/micro "Task 6 — harness wiring"
+... you write the code ...
+"block done"                        → triggers /commit (review + plan update)
 ```
 
-**Routing logic (runtime, not hardcoded):**
-- Haiku → read-only, boilerplate, mechanical tasks
-- Sonnet → standard implementation following existing patterns
-- Opus → architecture, ambiguity, security, complex algorithms
-- High-stakes projects → never route code to haiku
+**2. Orchestrator per task** — you pick the task, orchestrator implements it:
+```
+/micro "Task 6 — harness wiring"
+Use the orchestrator to run Task 6 from docs/specs/2026-04-12-editorial-memory.md
+"block done"                        → triggers /commit
+```
+The orchestrator picks the right model, dispatches a subagent, verifies the result. You stay in control of which task runs when.
 
-**Safety:** Every task goes through `/commit` (code-reviewer catches quality issues). Failed verification → auto-retry with opus promotion. Two failures → stops and asks.
+**3. Orchestrator per phase** — hand off a full phase:
+```
+Use the orchestrator to build Phase 2 from docs/specs/2026-04-12-editorial-memory.md
+```
+The orchestrator runs every task in the phase automatically: pick model → dispatch → verify → `/commit` → next task. It stops whenever code-reviewer finds issues and asks you what to do (fix all / review individually / park all). You're hands-off until something needs judgment.
 
-**Parallel execution:** Tasks with no dependency and no file overlap run in parallel using worktrees. Shared state (migrations, config) is always sequential.
+#### Routing logic (runtime, not hardcoded)
+
+The orchestrator evaluates each task at execution time and decides:
+- **Haiku** → read-only, scanning, boilerplate, mechanical tasks
+- **Sonnet** → standard implementation following existing patterns
+- **Opus** → architecture, ambiguity, security, complex algorithms
+- High-stakes projects (`stakes.level: high`) → never route code-writing to haiku
+
+#### Safety chain
+
+Every task, regardless of which model wrote it, goes through:
+
+```
+orchestrator completes task → verify step → /commit → code-reviewer → fix/park → commit → plan.md → spec checklist
+```
+
+Failed verification → auto-promotes to opus and retries once. Two failures → stops and asks you.
+
+#### Logging
+
+All routing decisions, verifications, promotions, and durations are logged to `.harness-state/orchestrator.log` for review. Persists across phases.
+
+#### Parallel execution
+
+Tasks with no dependency and no file overlap run in parallel using worktrees. Shared state (migrations, config) is always sequential.
 
 ---
 
