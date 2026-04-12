@@ -1,7 +1,6 @@
 ---
 name: park
 description: Log a side-quest to parking_lot.md without context-switching. Use whenever an issue, idea, or secondary task surfaces during a micro-session — instead of dropping your current goal to chase it.
-disable-model-invocation: true
 argument-hint: "\"description of the side-quest\""
 ---
 

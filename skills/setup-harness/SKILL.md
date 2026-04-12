@@ -1,7 +1,6 @@
 ---
 name: setup-harness
 description: Set up Claude Code harness (agents, criteria, CLAUDE.md) for the current project. Detects project type automatically or accepts a type argument. Use when starting a new project or adding harness to an existing one.
-disable-model-invocation: true
 argument-hint: "[backend|webapp|fullstack|script|auto]"
 ---
 

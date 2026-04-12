@@ -1,7 +1,6 @@
 ---
 name: micro
 description: Frame a focused micro-session — captures goal, budget (time or done-condition), and starts the work block. Run at the start of every 30-60 minute work block within a day session.
-disable-model-invocation: true
 argument-hint: "[\"goal description\"]"
 ---
 

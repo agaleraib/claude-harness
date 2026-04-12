@@ -1,7 +1,6 @@
 ---
 name: session-end
 description: Close a coding day with an exit ritual. Captures state of play, triages parking lot, writes last_exit.md for tomorrow's session-start to read. Run before closing the laptop.
-disable-model-invocation: true
 ---
 
 # Session End

@@ -1,7 +1,6 @@
 ---
 name: deploy-check
 description: Validate everything needed to deploy safely — env vars, secrets, rollback plan, smoke test script, monitoring. Run at the start of Deploy phase and before every production deploy.
-disable-model-invocation: true
 ---
 
 # Deploy Check

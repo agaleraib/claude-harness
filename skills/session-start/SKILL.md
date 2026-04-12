@@ -1,7 +1,6 @@
 ---
 name: session-start
 description: Open a coding day. Reads .harness-profile, current plan, parking lot, last exit note; sets today's primary goal. Run at the start of every session before any work.
-disable-model-invocation: true
 ---
 
 # Session Start

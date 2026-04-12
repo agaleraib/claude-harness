@@ -1,15 +1,4 @@
 {
   "hooks": {
-    "Stop": [
-      {
-        "matcher": "",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash ~/.claude/harness/scripts/drift-detector.sh"
-          }
-        ]
-      }
-    ]
   }
 }

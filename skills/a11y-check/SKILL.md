@@ -1,7 +1,6 @@
 ---
 name: a11y-check
 description: Run accessibility audit on key screens using axe-core via the Playwright MCP. Flags WCAG violations. Run in Test phase for webapp/fullstack projects.
-disable-model-invocation: true
 argument-hint: "[URL or comma-separated URLs]"
 ---
 

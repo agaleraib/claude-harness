@@ -1,7 +1,6 @@
 ---
 name: migration-check
 description: Verify a database migration is reversible, concurrent-safe, and backfill-safe before running in production. Run in Test or Deploy phase whenever schema changes are in play.
-disable-model-invocation: true
 argument-hint: "[path/to/migration-file]"
 ---
 

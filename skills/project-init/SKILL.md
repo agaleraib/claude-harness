@@ -1,7 +1,6 @@
 ---
 name: project-init
 description: Initialize a project's .harness-profile — captures audience, stakes, quality bar, stack, and methodology settings. Run once per project, right after setup-harness. The profile drives session-start injection, drift detector sensitivity, and phase gate strictness.
-disable-model-invocation: true
 argument-hint: "[--force]"
 ---
 

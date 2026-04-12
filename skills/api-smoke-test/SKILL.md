@@ -1,7 +1,6 @@
 ---
 name: api-smoke-test
 description: Generate or run an end-to-end API smoke test (curl/jq-based bash script). Tests critical user paths against a live URL. Run in Test phase and after every deploy.
-disable-model-invocation: true
 argument-hint: "[generate|run <BASE_URL>]"
 ---
 
