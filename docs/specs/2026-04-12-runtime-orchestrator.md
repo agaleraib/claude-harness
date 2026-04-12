@@ -90,44 +90,44 @@ Before dispatching tasks, the orchestrator analyzes which tasks can run in paral
 
 ### Phase 1
 
-- [ ] **Task 1:** Create orchestrator agent definition
+- [x] **Task 1:** Create orchestrator agent definition (done in cdf12ad)
   - **Files:** `.claude/agents/orchestrator.md`
   - **Depends on:** Nothing
   - **Verify:** Agent is loadable, description is clear, can be invoked with "use the orchestrator to build Phase 1 from docs/specs/X.md"
 
-- [ ] **Task 2:** Implement routing logic
+- [x] **Task 2:** Implement routing logic (done in cdf12ad)
   - **Files:** `.claude/agents/orchestrator.md` (routing guidelines section)
   - **Depends on:** Task 1
   - **Verify:** Given a sample spec with mixed-complexity tasks, orchestrator assigns different models and logs justifications
 
-- [ ] **Task 3:** Wire `/commit` integration
+- [x] **Task 3:** Wire `/commit` integration (done in cdf12ad)
   - **Files:** `.claude/agents/orchestrator.md` (post-task commit section)
   - **Depends on:** Task 2
   - **Verify:** After a task completes and passes verification, `/commit` runs automatically with review + plan.md + spec checklist updates
 
-- [ ] **Task 4:** Add `.harness-profile` toggle
+- [x] **Task 4:** Add `.harness-profile` toggle (done in cdf12ad)
   - **Files:** `.claude/agents/orchestrator.md`, `.harness-profile` schema docs
   - **Depends on:** Task 1
   - **Verify:** `model_routing: off` runs all tasks on current model; `model_routing: on` spawns subagents with selected models
 
-- [ ] **Task 5:** Implement retry-with-promotion
+- [x] **Task 5:** Implement retry-with-promotion (done in cdf12ad)
   - **Files:** `.claude/agents/orchestrator.md` (failure handling section)
   - **Depends on:** Task 2
   - **Verify:** Sonnet task that fails verification → automatically retried with opus; opus failure → stops and asks user
 
 ### Phase 2
 
-- [ ] **Task 6:** File overlap analysis
+- [x] **Task 6:** File overlap analysis (done in cdf12ad)
   - **Files:** `.claude/agents/orchestrator.md` (parallel execution section)
   - **Depends on:** Task 3
   - **Verify:** Given a phase with 4 tasks, correctly identifies which can run in parallel based on Files field and dependencies
 
-- [ ] **Task 7:** Parallel dispatch with worktrees
+- [x] **Task 7:** Parallel dispatch with worktrees (done in cdf12ad)
   - **Files:** `.claude/agents/orchestrator.md` (worktree dispatch section)
   - **Depends on:** Task 6
   - **Verify:** Two independent tasks run in parallel worktrees, both complete, changes merge cleanly
 
-- [ ] **Task 8:** Shared state guards
+- [x] **Task 8:** Shared state guards (done in cdf12ad)
   - **Files:** `.claude/agents/orchestrator.md` (shared state section)
   - **Depends on:** Task 6
   - **Verify:** Tasks touching migrations or config files are forced sequential even if file overlap analysis says parallel is safe
