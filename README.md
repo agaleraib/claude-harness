@@ -39,6 +39,7 @@ Research and production experience show that heavy instruction systems degrade O
 ~/.claude/                          # User-level (ALL projects)
 ├── agents/
 │   ├── code-reviewer.md            # Adversarial code reviewer (tests + types + review)
+│   ├── orchestrator.md              # Runtime model routing — dispatches to opus/sonnet/haiku
 │   ├── project-tracker.md          # Save/resume sessions via Second Brain
 │   └── spec-planner.md             # Discovery-based specification writer
 ├── skills/                         # Optional workflow skills
@@ -81,6 +82,7 @@ your-project/                       # Project-level (specific projects)
 |---|---|---|
 | **code-reviewer** | `~/.claude/agents/` | Every project, always |
 | **spec-planner** | `~/.claude/agents/` | Every project, always |
+| **orchestrator** | `~/.claude/agents/` | Every project, always |
 | **project-tracker** | `~/.claude/agents/` | Every project, always |
 | **ui-evaluator** | `<project>/.claude/agents/` | That project only |
 | **generator** | `<project>/.claude/agents/` | That project only |
@@ -392,6 +394,34 @@ Use the ui-evaluator to test the app running on localhost:3000
 ```
 Use the generator to implement the spec in docs/specs/2026-04-02-dashboard.md
 ```
+
+---
+
+### orchestrator (Universal)
+
+**What it does:** Reads spec tasks and dispatches each to opus, sonnet, or haiku subagents based on task complexity — decided at runtime, not at spec time. Follows Anthropic's orchestrator-worker pattern. Runs each completed task through `/commit` (review + plan update + spec checklist).
+
+**When to use:** When you have a spec with multiple tasks and want to build a full phase efficiently with automatic model routing.
+
+**Prerequisites:**
+- A spec file with tasks in spec-planner format (`Files:`, `Depends on:`, `Verify:` per task)
+- `model_routing: on` in `.harness-profile` for full routing (without it, runs as a guided executor on the current model)
+
+**How to invoke:**
+```
+Use the orchestrator to build Phase 1 from docs/specs/2026-04-12-editorial-memory.md
+Use the orchestrator to run Task 3 from docs/specs/2026-04-12-editorial-memory.md
+```
+
+**Routing logic (runtime, not hardcoded):**
+- Haiku → read-only, boilerplate, mechanical tasks
+- Sonnet → standard implementation following existing patterns
+- Opus → architecture, ambiguity, security, complex algorithms
+- High-stakes projects → never route code to haiku
+
+**Safety:** Every task goes through `/commit` (code-reviewer catches quality issues). Failed verification → auto-retry with opus promotion. Two failures → stops and asks.
+
+**Parallel execution:** Tasks with no dependency and no file overlap run in parallel using worktrees. Shared state (migrations, config) is always sequential.
 
 ---
 
