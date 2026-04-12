@@ -154,18 +154,45 @@ After each task passes verification:
 
 For parallel tasks: each task commits independently after verification. Order doesn't matter since they touched different files.
 
-## Step 8: Phase complete
+## Step 8: Log
+
+After each task completes (pass or fail), append to `.harness-state/orchestrator.log`:
+
+```
+[YYYY-MM-DD HH:MM] Task 3 — "API endpoints for editorial memory"
+  Model: Sonnet → reason: standard CRUD following existing pattern
+  Files: src/api/memory.ts, src/api/memory.test.ts
+  Verify: PASS
+  Commit: abc1234
+  Duration: ~8 min
+```
+
+For promotions:
+
+```
+[YYYY-MM-DD HH:MM] Task 5 — "Cross-tenant embedding matrix"
+  Model: Sonnet → FAIL (verification: embedding dimensions mismatch)
+  Promoted: Opus → PASS
+  Commit: def5678
+  Duration: ~12 min (Sonnet 5min + Opus 7min)
+```
+
+The log persists across phases — append, don't overwrite. This lets you review routing quality over time.
+
+## Step 9: Phase complete
 
 After all tasks in the phase are done:
 
 ```
 ✅ Phase [N] complete — [M] tasks, [N] commits
 
-| Task | Model | Result | Commit |
-|------|-------|--------|--------|
-| 1 | Sonnet | ✅ Pass | abc1234 |
-| 2 | Sonnet | ✅ Pass | def5678 |
-| 3 | Opus (promoted) | ✅ Pass (retry) | ghi9012 |
+| Task | Model | Result | Commit | Duration |
+|------|-------|--------|--------|----------|
+| 1 | Sonnet | ✅ Pass | abc1234 | ~5 min |
+| 2 | Sonnet | ✅ Pass | def5678 | ~8 min |
+| 3 | Opus (promoted) | ✅ Pass (retry) | ghi9012 | ~12 min |
+
+📋 Full log: .harness-state/orchestrator.log
 
 Next: "Use the orchestrator to build Phase [N+1]" or review the results first.
 ```
