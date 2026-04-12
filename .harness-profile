@@ -1,0 +1,58 @@
+# .harness-profile — generated 2026-04-11 for claude-harness
+# First real execution of the methodology, dogfooded on the harness repo itself.
+# Hand-editable. Drives tool manifest, session-start injection, drift detector.
+profile_version: 1
+
+project:
+  name: claude-harness
+  type: tooling
+  created: 2026-04-11
+  description: "Methodology + skills + agents + procedures distributed to target projects via setup-harness. Installed at ~/.claude/harness/ on target machines."
+
+audience:
+  kind: internal
+  size_estimate: "1"   # only used by me for now
+  data_sensitivity: none
+
+stakes:
+  level: medium
+  why: "Central methodology source — errors propagate to every project that installs from it"
+
+quality_bar:
+  level: production
+  typecheck_blocking: false   # no TS code
+  lint_blocking: false        # no lint config
+  test_required: false        # no runnable tests yet
+
+stack:
+  runtime: none               # tooling repo, no runtime
+  languages: [markdown, bash]
+  frameworks: []
+  database: none
+  llm_apis: []
+
+# workstreams: skipped — this is a single-track repo (mode: single)
+
+deployment:
+  targets: [none]             # nothing deploys, consumed via `setup-harness` from other projects
+  hosting: "git (source of truth is ~/.claude/harness/, cloned into user machines)"
+  rollback_required: false
+  smoke_test_required: false
+
+compliance:
+  frameworks: []
+  notes: null
+
+team:
+  size: solo
+  handoff_ready: false
+
+methodology:
+  phase_gates: advisory        # not strict — methodology changes are usually small
+  drift_detector: on
+  drift_sensitivity: low       # harness changes are infrequent
+  parking_lot_enabled: true
+  exit_ritual_mode: prompted-and-advisory
+  pivot_check_auto_days: 30    # methodology pivots slowly
+  session_state_local: .harness-state/
+  session_state_remote: second-brain

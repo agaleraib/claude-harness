@@ -1,0 +1,10 @@
+# Session state — local, per-machine, regenerated on each session-start
+.harness-state/
+
+# macOS
+.DS_Store
+
+# Editor
+.idea/
+.vscode/
+*.swp
