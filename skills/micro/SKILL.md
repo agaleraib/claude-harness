@@ -86,11 +86,21 @@ Print: `⏰ End of budget: ~[HH:MM + budget minutes]`.
 
 This is advisory — no hard timer — but having the end time visible keeps it in mind.
 
+## Closing a micro-session
+
+When the user ends the block ("block done", "micro done", "done", etc.):
+
+1. Print a one-line summary of what moved.
+2. Run the `commit` skill (review → fix/park → commit → plan.md update).
+3. Remove `.harness-state/current_micro.md`.
+
+If the block was exploratory/research with nothing to commit, skip the commit skill and note that explicitly.
+
 ## Rules
 
 1. **One goal per micro-session.** Not "implement X and also fix Y". If two things need doing, two blocks.
 2. **Budget is mandatory.** No open-ended blocks. Open-ended = drift.
 3. **The goal must be more specific than today's goal.** If today's goal is "finish translation engine", a micro-goal of "finish translation engine" is invalid. Break it down.
 4. **Side-quests during a block → `park`, not context switch.** The goal is to finish THIS block, not every issue you discover.
-5. **Every micro-session ends with a commit.** Even if it's WIP. This is what makes the progress real and reversible.
-6. **Ending a block without a commit is allowed only for exploratory/research blocks** — and you must note that explicitly in the exit note.
+5. **Every micro-session ends with a commit via the `commit` skill.** This means every commit gets reviewed and plan.md stays current.
+6. **Ending a block without a commit is allowed only for exploratory/research blocks** — and you must note that explicitly.
