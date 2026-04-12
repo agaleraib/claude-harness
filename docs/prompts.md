@@ -40,6 +40,17 @@ Use the spec-planner to compare these specs and tell me which to build first:
 - docs/specs/<spec-b>.md
 ```
 
+### Write a spec that builds on an existing one
+
+Use when extending or adding to a feature that already has a spec.
+
+```
+Use the spec-planner — I want to add [new capability] to [existing feature].
+Build on docs/specs/<existing-spec>.md
+```
+
+Spec-planner reads the existing spec and includes a Prior Work section linking what the new spec builds on, assumes, and changes.
+
 ---
 
 ## Session Management

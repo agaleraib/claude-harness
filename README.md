@@ -321,6 +321,14 @@ Use the spec-planner to compare these two specs and tell me which to build first
 
 Compares specs on dependencies, scope, risk, value unlocked, and readiness. Gives a clear recommendation.
 
+**Prior Work mode — building on an existing spec:**
+```
+Use the spec-planner — I want to add contradiction detection to editorial memory.
+Build on docs/specs/2026-04-12-editorial-memory.md
+```
+
+Reads the referenced spec and includes a `## Prior Work` section in the new spec linking what it builds on, assumes, and changes. Prevents contradicting or duplicating existing work.
+
 **Output:** Writes spec to `docs/specs/YYYY-MM-DD-<topic>.md`.
 
 **What it does NOT do:** Write code or implementation plans. It defines WHAT to build, not HOW.
