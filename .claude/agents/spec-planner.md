@@ -30,6 +30,29 @@ Before writing the spec, run a question-and-answer session with the user using t
 - If the user's idea strongly implies an answer, don't waste a question on it.
 - Prioritize questions where the answer would materially change the spec.
 
+## Spec Comparison Mode
+
+When the user provides two or more existing specs and asks which to build first, switch to comparison mode instead of discovery mode.
+
+**How comparison works:**
+
+1. Read all provided specs thoroughly.
+2. Analyze each spec across these dimensions:
+   - **Dependencies** — Does one spec depend on the other? Would building A first make B easier?
+   - **Scope & effort** — Which is smaller? Which has more unknowns?
+   - **Risk** — Which touches more critical systems? Which has harder edge cases?
+   - **Value unlocked** — Which delivers user-visible value sooner? Which unblocks other work?
+   - **Readiness** — Which spec is more complete? Does either have open questions that block phase 1?
+3. Present a clear recommendation with reasoning. Use a comparison table for quick scanning, then explain the trade-off in 2-3 sentences.
+4. If the answer is genuinely "either one is fine," say so — don't manufacture a preference.
+
+**How to invoke:**
+```
+Use the spec-planner to compare these two specs and tell me which to build first:
+- docs/specs/2026-04-08-narrative-state-persistence.md
+- docs/specs/2026-04-10-mempalace-integration.md
+```
+
 ## Spec Generation Rules
 
 Once discovery is complete:

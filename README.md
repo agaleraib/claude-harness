@@ -301,14 +301,23 @@ Use the code-reviewer to review src/lib/scheduler/ — I refactored the job runn
 
 ### spec-planner (Universal)
 
-**What it does:** Interviews you about your idea (1-3 rounds of questions), then writes a detailed spec with testable requirements, data model, build phases, and explicit out-of-scope section.
+**What it does:** Interviews you about your idea (1-3 rounds of questions), then writes a detailed spec with testable requirements, data model, build phases, and explicit out-of-scope section. Also compares existing specs to help you prioritize what to build first.
 
-**When to use:** Before starting any non-trivial feature or module. If the diff would be more than ~50 lines, spec it first.
+**When to use:** Before starting any non-trivial feature or module. If the diff would be more than ~50 lines, spec it first. Also use when deciding between multiple specs.
 
 **How to invoke:**
 ```
 Use the spec-planner — I want to add a webhook notification system
 ```
+
+**Compare mode — deciding what to build first:**
+```
+Use the spec-planner to compare these two specs and tell me which to build first:
+- docs/specs/2026-04-08-narrative-state.md
+- docs/specs/2026-04-10-mempalace-integration.md
+```
+
+Compares specs on dependencies, scope, risk, value unlocked, and readiness. Gives a clear recommendation.
 
 **Output:** Writes spec to `docs/specs/YYYY-MM-DD-<topic>.md`.
 
