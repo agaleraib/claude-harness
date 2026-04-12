@@ -149,29 +149,35 @@ Use `AskUserQuestion` to confirm before editing:
 > - **Yes** — mark done with commit hash
 > - **No** — leave plan.md unchanged
 
-## Step 7: Update spec task checklist (if applicable)
+## Step 7: Update spec task checklist (MANDATORY after Step 6)
 
-If Step 6 identified a plan.md item and the plan entry references a spec file (e.g., `docs/specs/2026-04-12-editorial-memory.md`), read that spec file and check for task checklists (`- [ ] Task N`).
+**This step runs every time Step 6 touches plan.md.** Do not skip it.
 
-If the completed plan item corresponds to a phase in the spec (e.g., "Phase 1 complete"), mark all tasks in that phase as done:
+After updating plan.md, find the spec file it relates to:
+
+1. Check if the plan.md entry explicitly references a spec path (e.g., `docs/specs/2026-04-12-editorial-memory.md`)
+2. If not, scan `docs/specs/` for a spec whose title matches the plan item topic
+3. If no spec found, skip this step
+
+Once you have the spec file, read it and find unchecked tasks (`- [ ]`) that match what was just committed. Match by:
+- Task number if the commit message mentions one ("Task 11")
+- Task description if it matches the committed changes
+- All tasks in a phase if the plan.md update marks a full phase complete
+
+Mark matching tasks as done:
 
 ```
-- [ ] Task 1: ...  →  - [x] Task 1: ... (done in abc1234)
+- [ ] **Task 11:** PostgresEditorialMemoryStore  →  - [x] **Task 11:** PostgresEditorialMemoryStore (done in ef147c4)
 ```
 
-Use `AskUserQuestion` to confirm which tasks to mark:
+Ask the user to confirm:
 
-> Plan.md says Phase 1 of `editorial-memory.md` is complete. These spec tasks look done:
+> These spec tasks look done based on this commit:
 >
-> 1. [ ] Task 1 — description
-> 2. [ ] Task 2 — description
-> ...
+> 1. Task 11 — PostgresEditorialMemoryStore
 >
-> - **Mark all done** — check off all Phase 1 tasks
-> - **Let me pick** — go through individually
+> - **Mark done** — check them off with commit hash
 > - **Skip** — leave spec unchanged
-
-If no spec file is referenced in the plan entry, skip this step.
 
 ## Rules
 
