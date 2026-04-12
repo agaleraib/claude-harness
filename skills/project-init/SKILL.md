@@ -90,11 +90,15 @@ Use `AskUserQuestion` for the fields that can't be auto-detected. Group into at 
 2. **(If quality_bar ≥ production)** Should typecheck, lint, and tests **block commits**?
    - Options: `yes all`, `typecheck only`, `typecheck + lint`, `none`
 
-3. **Where does this deploy?**
+3. **Enable model routing for the orchestrator?** The orchestrator can dispatch tasks to different models (opus/sonnet/haiku) based on complexity. Saves cost on mechanical tasks while keeping opus for hard problems.
+   - `on` — orchestrator routes tasks to appropriate models
+   - `off` — everything runs on your current model (Recommended for now — try it later)
+
+4. **Where does this deploy?**
    - Multi-select: `local`, `staging`, `production`, `not yet`
    - If `production` selected, follow up: `rollback_required` yes/no?
 
-4. **(If data_sensitivity ≠ none)** Any compliance frameworks apply? `gdpr` / `soc2` / `hipaa` / `pci` / `none` / multi-select
+5. **(If data_sensitivity ≠ none)** Any compliance frameworks apply? `gdpr` / `soc2` / `hipaa` / `pci` / `none` / multi-select
 
 ### Round 3 — Workstreams & team (only if relevant)
 
@@ -115,21 +119,10 @@ Use `AskUserQuestion` for the fields that can't be auto-detected. Group into at 
 
 Before writing the file, set `methodology:` defaults based on answers:
 
-| Condition | Default |
-|---|---|
-| `stakes = low` + `team.size = solo` | `phase_gates: advisory`, `drift_sensitivity: low` |
-| `stakes = medium` | `phase_gates: strict`, `drift_sensitivity: medium` |
-| `stakes ∈ {high, mission-critical}` | `phase_gates: strict`, `drift_sensitivity: high` |
-| `audience.data_sensitivity ∈ {pii, financial, health, regulated}` | force `security-checklist` + `secret-scan` hooks in tool manifest (Layer 2) |
-| `quality_bar = mission-critical` | all hooks blocking, `test_required: true` |
-| `project.type = tooling` | `phase_gates: advisory`, `drift_sensitivity: low`, `pivot_check_auto_days: 30`, skip Phase 4 Deploy |
-
-Always set:
-- `methodology.parking_lot_enabled: true`
-- `methodology.exit_ritual_mode: prompted-and-advisory`
-- `methodology.pivot_check_auto_days: 14`
-- `methodology.session_state_local: .harness-state/`
-- `methodology.session_state_remote: second-brain`
+- `methodology.model_routing` — from Round 2 question (default: `off`)
+- `methodology.parking_lot_enabled: true` — always
+- `methodology.session_state_local: .harness-state/` — always
+- `methodology.session_state_remote: second-brain` — always
 
 ## Step 5: Write `.harness-profile`
 
@@ -192,12 +185,8 @@ team:
   handoff_ready: [true|false]
 
 methodology:
-  phase_gates: [advisory|strict|strict-with-signoff]
-  drift_detector: on
-  drift_sensitivity: [low|medium|high]
+  model_routing: [on|off]
   parking_lot_enabled: true
-  exit_ritual_mode: prompted-and-advisory
-  pivot_check_auto_days: 14
   session_state_local: .harness-state/
   session_state_remote: second-brain
 ```
