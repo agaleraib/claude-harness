@@ -1,4 +1,4 @@
-# .harness-profile — generated 2026-04-11 for claude-harness
+ # .harness-profile — generated 2026-04-11 for claude-harness
 # First real execution of the methodology, dogfooded on the harness repo itself.
 # Hand-editable. Drives tool manifest, session-start injection, drift detector.
 profile_version: 1
