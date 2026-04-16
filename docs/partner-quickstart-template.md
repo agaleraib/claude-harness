@@ -1,6 +1,6 @@
 # Partner Quickstart — {{PROJECT_NAME}}
 
-One-page onboarding. Read this first, then read the [co-vibe protocol](https://github.com/{{GITHUB_ORG}}/claude-harness/blob/{{HARNESS_TAG}}/docs/co-vibe-protocol.md) for the full rules.
+One-page onboarding. Read this first, then read the [co-vibe protocol](https://github.com/agaleraib/claude-harness/blob/{{HARNESS_TAG}}/docs/co-vibe-protocol.md) for the full rules.
 
 ---
 
@@ -22,8 +22,8 @@ Run these in order. All commands copy-paste verbatim.
 
 ```bash
 cd ~
-git clone {{REPO_URL}} {{PROJECT_DIR}}
-cd {{PROJECT_DIR}}
+git clone {{REPO_URL}} ~/{{PROJECT_DIR}}
+cd ~/{{PROJECT_DIR}}
 ```
 
 ### 2. Install Claude Code
@@ -34,8 +34,8 @@ If not already installed: https://claude.com/product/claude-code
 
 ```bash
 cd ~
-git clone https://github.com/{{GITHUB_ORG}}/claude-harness.git
-cd claude-harness
+git clone https://github.com/agaleraib/claude-harness.git
+cd ~/claude-harness
 git checkout {{HARNESS_TAG}}
 ```
 
@@ -63,7 +63,7 @@ The following are **committed to the repo** — you already have them after clon
 Verify they exist:
 
 ```bash
-cd {{PROJECT_DIR}}
+cd ~/{{PROJECT_DIR}}
 ls .harness-profile CLAUDE.md criteria/ procedures/
 ```
 
@@ -72,7 +72,7 @@ All four should be present. If anything is missing, ping {{INTEGRATOR_NAME}} on 
 ### 5. Create your branch
 
 ```bash
-cd {{PROJECT_DIR}}
+cd ~/{{PROJECT_DIR}}
 git checkout master
 git pull
 git checkout -b {{BRANCH_NAME}} master
@@ -97,7 +97,7 @@ git commit -m "chore: add {{WORKSTREAM_ID}} plan file"
 - The assigned spec (above) — your full assignment
 - Any parent spec the integrator points you to (frozen contracts — read only, do not redesign)
 - [`CLAUDE.md`](../CLAUDE.md) at repo root — project coding conventions
-- [Co-vibe protocol](https://github.com/{{GITHUB_ORG}}/claude-harness/blob/{{HARNESS_TAG}}/docs/co-vibe-protocol.md) — full rules
+- [Co-vibe protocol](https://github.com/agaleraib/claude-harness/blob/{{HARNESS_TAG}}/docs/co-vibe-protocol.md) — full rules
 
 ### 8. Gate with the integrator
 
@@ -108,7 +108,7 @@ Screen-share your first `/session-start` + `/micro` on {{CHANNEL_TYPE}}. If that
 ## Daily loop
 
 ```bash
-cd {{PROJECT_DIR}}
+cd ~/{{PROJECT_DIR}}
 git checkout master && git pull
 git checkout {{BRANCH_NAME}}
 git merge master
@@ -202,7 +202,6 @@ Fill in these placeholders before sending to the partner:
 | Placeholder | Description | Example |
 |---|---|---|
 | `{{PROJECT_NAME}}` | Project display name | `wordwideAI` |
-| `{{GITHUB_ORG}}` | GitHub org or user | `agaleraib` |
 | `{{REPO_URL}}` | Clone URL | `https://github.com/agaleraib/wordwideAI.git` |
 | `{{PROJECT_DIR}}` | Local folder name (cloned into ~/) | `wordwideAI` |
 | `{{HARNESS_TAG}}` | Pinned harness version | `v0.1-co-vibe` |
