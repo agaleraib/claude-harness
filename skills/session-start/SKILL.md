@@ -29,6 +29,7 @@ Parse the YAML and extract:
 In parallel:
 
 ```bash
+git fetch origin --prune --quiet 2>/dev/null         # sync remote refs (catches schedule-pushed branches)
 cat .harness-state/last_exit.md 2>/dev/null          # exit note from last session
 cat .harness-state/current_phase 2>/dev/null         # Architect|Code|Test|Deploy
 cat parking_lot.md 2>/dev/null                        # open side-quests
@@ -38,6 +39,8 @@ stat -f "%Sm" docs/plan.md 2>/dev/null                # freshness of plan
 git log --oneline -10                                 # recent commits
 git status --short                                    # current working state
 ```
+
+The `git fetch` is intentional — it ensures branches pushed by automated routines (e.g. the Anthropic-reviews scheduler) are visible locally without moving master. Skip silently if there's no `origin` remote or no network.
 
 ## Step 3: Inject the context reminder
 
@@ -85,13 +88,44 @@ If >5: warn:
 
 > You have [N] open parking-lot items. Consider triaging before starting new work — either resolve them, promote one to today's goal, or accept and move on.
 
-## Step 7: Set today's primary goal
+## Step 7: Anthropic-reviews PRs awaiting triage (optional)
+
+Only runs if BOTH conditions hold:
+- `test -d anthropic-reviews` — the project uses the Anthropic-posts review routine
+- `command -v gh` — the GitHub CLI is installed and authenticated
+
+If either is false, skip this step silently — no header, no warning.
+
+If both are true:
+
+```bash
+gh pr list --label anthropic-review --state open --json number,title,createdAt,url 2>/dev/null
+```
+
+If the count is 0, skip this step silently (the routine produces noise only when there's something to triage).
+
+If count > 0, print under `### Anthropic-reviews PRs awaiting triage`:
+
+```
+- PR #N: "[title]" (opened YYYY-MM-DD) — [url]
+- PR #M: "[title]" (opened YYYY-MM-DD) — [url]
+...
+```
+
+If count > 3, add a soft warning:
+
+> [N] open suggestion PRs queued. Consider triaging some today before the queue grows. Triage convention: `anthropic-reviews/README.md`.
+
+This step is read-only — never auto-merge, auto-close, or modify PRs. The user decides what to do with them in Step 8.
+
+## Step 8: Set today's primary goal
 
 Build the options list dynamically based on available state:
 
 - **Always include:** "Something else (describe it)"
 - **If `last_exit.md` has a `Tomorrow's first move:` line:** include "Continue where I left off: `<next move from exit note>`" as the first option
 - **If `parking_lot.md` has open items:** include "Work a parking-lot item: `<first open item>`" as an option
+- **If Step 7 found open Anthropic-reviews PRs:** include "Triage Anthropic-reviews PR #N: `<title of oldest open>`" as an option. If selected, today's goal is triage (PR comments + Status updates per `anthropic-reviews/README.md`) — implementation of any approved suggestion is a follow-up micro-session, not the same goal.
 - **If `current_phase = Architect`:** include "Exploratory / research (no fixed goal — Architect only)"
 - **If `workstreams.mode = multi`:** prepend a workstream picker question first — "Which workstream is today's focus?" — and scope the goal to that workstream
 
@@ -128,7 +162,7 @@ echo 0 > .harness-state/drift_ignores_today
 git rev-parse HEAD 2>/dev/null > .harness-state/session_start_commit || true
 ```
 
-## Step 8: Remind of the ritual
+## Step 9: Remind of the ritual
 
 Final output:
 
