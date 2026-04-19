@@ -61,7 +61,7 @@ The whole README leans on "Opus 4.6's native capabilities" as justification for 
 Keeps the harness's core claim ("tuned for the current Opus") true, unlocks the better file-system memory for the project-tracker skill, and removes one obvious piece of staleness a reader will hit in the first 30 lines of the README.
 
 **Recommended verdict:** apply — README demonstrably stale; `.harness-profile` model pin is a clean staleness guard.
-**Status:** APPLY — maintainer accepted on 2026-04-19; implementation scheduled as follow-up micro-session.
+**Status:** PARTIAL — §1a APPLIED in commit 623a242 · §1b SPEC'd in docs/specs/2026-04-19-harness-model-pin-and-effort-routing.md · §1c APPLIED in commit 623a242 (text swap + re-measure TODO; full re-measure deferred until a 4.7 tokenizer harness exists) · §1d SPEC'd in docs/specs/2026-04-19-harness-model-pin-and-effort-routing.md · 2026-04-19
 
 ---
 
@@ -257,7 +257,7 @@ Right now a new user reads the README and thinks "one agent, one task." After th
 Positions the harness against the current trend without adding new code — just honest naming of what's already there.
 
 **Recommended verdict:** apply — cheap, honest naming of what already ships in `.claude/agents/` (orchestrator, generator, ui-evaluator, code-reviewer, project-tracker); pairs naturally with §1.
-**Status:** APPLY — maintainer accepted on 2026-04-19; implementation scheduled as follow-up micro-session (likely paired with §1).
+**Status:** APPLIED in commit 623a242 · 2026-04-19
 
 ---
 
