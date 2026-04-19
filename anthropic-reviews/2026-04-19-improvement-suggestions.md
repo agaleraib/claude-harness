@@ -45,6 +45,8 @@ The whole README leans on "Opus 4.6's native capabilities" as justification for 
 ### Expected payoff
 Keeps the harness's core claim ("tuned for the current Opus") true, unlocks the better file-system memory for the project-tracker skill, and removes one obvious piece of staleness a reader will hit in the first 30 lines of the README.
 
+**Status:** PENDING — awaiting triage in PR review
+
 ---
 
 ## 2. Adopt the brain/hands split in the orchestrator agent
@@ -72,6 +74,8 @@ After (brain/hands split):
 
 ### Expected payoff
 Lets you host the same agent prompts under Claude Managed Agents later (their hosted sandbox *is* the hands) without rewriting anything. Also makes the "which tool does what" picture scannable in one file instead of five.
+
+**Status:** PENDING — awaiting triage in PR review
 
 ---
 
@@ -106,6 +110,8 @@ Anthropic's official guidance: a skill is a folder with a `SKILL.md` (YAML front
 
 ### Expected payoff
 Aligns with Anthropic's open skill standard (cross-platform portability), enforces the lean-context promise mechanically, and gives you a free migration path for users who install via `setup-harness` on machines that already have Claude.ai or Agent SDK skills.
+
+**Status:** PENDING — awaiting triage in PR review
 
 ---
 
@@ -155,6 +161,8 @@ A fresh session running `/session-start` knows instantly what "next" is without 
 ### Expected payoff
 Closes the biggest gap Anthropic identifies in their own harness work with ~30 lines of documentation and two one-line skill edits.
 
+**Status:** PENDING — awaiting triage in PR review
+
 ---
 
 ## 5. Formalize evals for the adversarial reviewers
@@ -188,6 +196,8 @@ Swap `code-reviewer.md` from "be thorough" to "be adversarial":
 
 ### Expected payoff
 Stops the rubrics from silently rotting. Turns "adversarial agents catch what self-assessment misses" from a claim into a measurement.
+
+**Status:** PENDING — awaiting triage in PR review
 
 ---
 
@@ -225,6 +235,8 @@ Right now a new user reads the README and thinks "one agent, one task." After th
 
 ### Expected payoff
 Positions the harness against the current trend without adding new code — just honest naming of what's already there.
+
+**Status:** PENDING — awaiting triage in PR review
 
 ---
 
