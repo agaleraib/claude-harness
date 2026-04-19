@@ -14,12 +14,16 @@ If no new in-scope posts surface in a run, the tracker is updated with a `no new
 | File | Purpose |
 |---|---|
 | `reviewed-posts.md` | Durable cross-run tracker. One row per Anthropic post: URL + status (`relevant` / `skipped` / `pending`) + notes. Skip-with-reason discipline is enforced. |
-| `<YYYY-MM-DD>-improvement-suggestions.md` | Snapshot of a single run. Numbered §s, each with source URL + concrete diff/example + expected payoff + "Verify before applying" line + Status field. |
+| `<YYYY-MM-DD>-improvement-suggestions.md` | Snapshot of a single run. Opens with a triage-summary table, then numbered §s — each with source URL + concrete diff/example + expected payoff + "Verify before applying" line + Recommended verdict + Status field. |
 | `README.md` | This file. |
 
 The dated files are immutable history — never delete them, never rewrite suggestions in place. Only the **Status** field per § is updated as triage decisions are made.
 
 ## How to triage a suggestions PR
+
+Each run's PR opens with a **triage summary table** (also mirrored in the PR description) listing every § with the agent's **Recommended verdict** and a one-line reason. The PR title carries verdict counts (e.g. *"… 3 apply, 2 defer, 1 reject"*) so you can size the workload before opening it.
+
+The recommended verdict is the agent's call — it forces the routine to defend each suggestion at generation time, not just list them. **You are free to override; the human verdict (the `Status:` line) is what binds.**
 
 In the PR thread, comment under each suggestion § with one of these conventions (these are guidance for the maintainer, not bot commands — they exist to leave a clear decision trail):
 
