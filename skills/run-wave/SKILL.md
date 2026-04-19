@@ -30,6 +30,12 @@ If neither exists, stop:
 
 > No `plan.md` found. `/run-wave` requires `docs/plan.md` (or `plan.md` at repo root). Generate one with `/spec-planner` or see `docs/prompts.md` for the convention.
 
+**Plan-panel symlink offer.** If `docs/plan.md` exists but no root `plan.md` (and no root `plan.md` symlink), the Claude Code Plan panel won't surface it. Offer once (not blocking):
+
+> Heads-up: `docs/plan.md` exists but Claude Code's Plan panel only reads root-level `plan.md`. Want me to add a symlink (`ln -s docs/plan.md plan.md`) so the panel picks it up? This is cosmetic — dispatch works either way.
+
+Use `AskUserQuestion` with options **Yes**, **No**, **Don't ask again** (record "don't ask" by dropping a `.claude/.run-wave-no-symlink` marker file — check for it before asking). On **Yes**, run `ln -s docs/plan.md plan.md` and continue.
+
 ## Step 3: Extract the Wave block
 
 Read plan.md. Locate the heading matching `### Wave N` (case-insensitive, any dash or em-dash after the number). Capture everything from that heading up to the next `### ` heading (or end of file). This is your working block.
@@ -62,8 +68,11 @@ If a bullet has no spec link, stop:
 For each spec file captured in Step 4:
 
 1. **Read the spec.**
-2. **Locate each cherry-picked task** by its ID (e.g. "Task 1", "B1", "Phase 1 T2"). Look for headings like `### Task 1`, `### B1 — ...`, or `### Phase 1` + inline `T2:`.
-3. **Extract the task body** — goal, file list, implementation guidance, any `Depends on:` line.
+2. **Locate each cherry-picked task** by its ID. Accept any of these marker styles (whichever the spec author used):
+   - **Heading-style:** `### Task 1`, `### B1 — ...`, `### Phase 1 T2: ...`, `## Task 1 — ...`
+   - **Inline-bold style:** `**Task 1:**`, `**Task 1 —**`, `**B1:**`, `**Phase 1 T2:**` — scan the whole spec, not just lines that start with `#`
+   - **Mixed:** `### Phase 1` heading + inline-bold `**T2:**` markers nested underneath
+3. **Extract the task body.** Body runs from the task marker up to the next task marker *of any accepted style*, or the next `---` horizontal rule, or the next heading at the same-or-shallower level, whichever comes first. Capture goal, file list, implementation guidance, any `Depends on:` line.
 4. **Extract the task's `**Verify:**` block** if present. This is the task's gate, verbatim.
 5. **Flag human-only actions.** Scan the task body for phrases indicating manual work the orchestrator can't do. Two categories:
    - **Manual ops actions** — "dashboard", "rotate the …key", "manual migration", "apply to LXC", "ssh production", "OAuth redirect", "paste from the admin UI", "production deploy", "live cutover".
@@ -71,9 +80,9 @@ For each spec file captured in Step 4:
 
 Both categories become TODOs in the final summary, not tasks to attempt. Pre-implementation decisions are louder — they'll block the orchestrator from starting that task if unresolved.
 
-If a cherry-picked task ID doesn't appear in the spec, stop:
+If a cherry-picked task ID doesn't appear in the spec under any accepted marker style (heading or inline-bold), stop:
 
-> Wave N references `<task-id>` in `<spec>` but the spec has no matching heading. Likely plan.md/spec drift — reconcile before dispatching.
+> Wave N references `<task-id>` in `<spec>` but the spec has no matching marker (searched for `### <task-id>`, `**<task-id>:**`, `**<task-id> —**`). Likely plan.md/spec drift — reconcile before dispatching.
 
 ## Step 6: Capture the wave exit gate
 
@@ -292,3 +301,5 @@ If the orchestrator made no commits (worktree auto-cleaned), surface the reason:
 9. **Mandate summary file output.** The orchestrator MUST write a summary to `docs/<YYYY-MM-DD>-<project>-wave<N>-summary.md` in the worktree — not just return verbally. Downstream close/merge tooling (e.g. gobot's `/close-wave`) expects this file with specific sections. Verbal-only breaks the handoff.
 
 10. **Cross-repo symlink awareness.** If the repo has source files that are symlinks into sibling-project repos (`src/lib/*-constants.ts` → `/services/<sibling>/...` is a common pattern), the orchestrator must verify symlink targets are clean in their owning repo before marking dependent tasks "shipped". Standard in-repo checks don't catch this. Flag in the summary's §Deviations section if found.
+
+11. **Accept both marker styles in specs.** Task markers may be heading-style (`### Task N`) or inline-bold (`**Task N:**`) — spec authors use both. The task-locator in Step 5 searches for either. Body extraction terminates at the next task marker of any style, a `---` horizontal rule, or a same-or-shallower heading — whichever comes first. Don't refuse a spec just because it uses inline-bold.
