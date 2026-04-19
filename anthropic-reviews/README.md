@@ -57,6 +57,24 @@ Pick the path that matches the suggestion's size:
 
 **Rule of thumb:** if a suggestion's "Concrete changes" block has more than ~5 file edits or introduces a convention used in multiple places, it's substantive — spec it before building.
 
+### Decompose first, then route
+
+A single § often bundles changes of different sizes. Before picking a rung, decompose the §'s Concrete-changes block into a flat bullet list (one bullet per shippable change, named §Na / §Nb / §Nc). Then classify each bullet independently.
+
+**The test per bullet:** *can you write a one-paragraph `/micro` instruction for this bullet right now, from the § alone?*
+
+- **Yes** → trivial; goes to `/micro`.
+- **No** → substantive; goes to `/spec-planner`.
+
+**Four promotion signals that bump a bullet to substantive even if the § text looks concrete:**
+
+1. Shape is underspecified (direction named, design choices remaining)
+2. Touches in-flight or existing mechanisms
+3. Introduces a reusable convention (new schema field, new file convention)
+4. Concrete-changes block spans >5 files
+
+This is the protocol the `/apply-anthropic-reviews` skill runs. Invoke it with `/apply-anthropic-reviews` (or `/apply-anthropic-reviews 2026-04-19` / `/apply-anthropic-reviews 1` for a specific date or PR) to execute the decompose → classify → batch/spec → update-Status flow end-to-end.
+
 ## Anti-patterns to avoid
 
 - **Don't auto-apply.** Even trivial suggestions go through human review. The routine is advisory, not prescriptive.
