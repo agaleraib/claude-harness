@@ -40,30 +40,15 @@ Use the spec-planner to compare these specs and tell me which to build first:
 - docs/specs/<spec-b>.md
 ```
 
-### Batch-execute a wave of spec tasks via orchestrator
+### Batch-execute a wave of spec tasks
 
-Use when a spec defines grouped tasks (e.g. "Wave 1") and you want the orchestrator to build the whole group in one run, with commits per task.
+Use `/run-wave` — it reads the Wave block from `docs/plan.md`, dispatches each task to the orchestrator in an isolated worktree, and exits for `/close-wave` to merge.
 
 ```
-Run the orchestrator on the Wave <N> tasks in docs/specs/<spec-file>.md.
-For each task:
-1. Implement the task
-2. Verify: `tsc --noEmit` + tests must pass
-3. If the diff contains 2+ near-identical blocks, spawn a focused
-   general-purpose agent to factor the repetition before committing
-4. Commit with the task name
-
-After all tasks, write a one-page summary to docs/wave<N>-summary.md
-covering: what shipped, what's deferred, any surprises.
+/run-wave 1
 ```
 
-Notes:
-- Confirm the spec actually labels "Wave <N>" — the orchestrator reads tasks, not waves
-- Adapt the verification gate to the project (e.g. `bunx tsc --noEmit` only if there's no test script)
-- There is no `code-simplifier` agent in claude-harness — spawn a general-purpose agent with a simplify brief, or run `/simplify` yourself between orchestrator tasks
-- Orchestrator dispatches to sub-agents; it can't invoke user-level skills like `/simplify`
-- Human-only steps (dashboard actions, key rotations) belong outside the orchestrator — leave a TODO and do them yourself
-- Do NOT wrap this in `/micro` — a micro-session is one 30–60 min block with one goal, not a multi-task batch
+Pair with `/close-wave` when the wave finishes: merges the worktree with `--no-ff`, ticks plan.md, processes any human TODOs, and writes a post-merge note.
 
 ### Write a spec that builds on an existing one
 

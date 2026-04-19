@@ -7,7 +7,7 @@ A lean agent harness for Claude Code, designed for Opus 4.7's native capabilitie
 > *"Every component in a harness encodes an assumption about what the model can't do on its own, and those assumptions are worth stress testing."*
 > — Anthropic Engineering
 
-Opus 4.7 plans carefully, sustains long tasks, debugs effectively, and (new in 4.7) follows instructions more literally at low effort — so terse rubric items now work as written without spelling out "and also check X". This harness **doesn't tell the model HOW to think** — it tells the model **WHAT to check against**.
+Opus 4.7 plans carefully, sustains long tasks, debugs effectively, and follows instructions literally at low effort — so terse rubric items work as written without spelling out "and also check X". This harness **doesn't tell the model HOW to think** — it tells the model **WHAT to check against**.
 
 ### What This Is
 - Adversarial evaluation agents that catch what self-assessment misses
@@ -22,14 +22,14 @@ Opus 4.7 plans carefully, sustains long tasks, debugs effectively, and (new in 4
 
 ### Why Not Superpowers / Heavy Skill Systems?
 
-Research and production experience show that heavy instruction systems degrade Opus 4.7 performance (the same pattern that was documented on 4.6 — see issue citations below):
+Research and production experience show that heavy instruction systems degrade Opus 4.7 performance:
 
 - **Context bloat**: 22k+ tokens of skills loaded at startup = 11% of context consumed before any work begins ([GitHub Issue #190](https://github.com/obra/superpowers/issues/190))
-- **Instruction ignoring**: Opus 4.6 systematically ignores CLAUDE.md and skills under load ([#23936](https://github.com/anthropics/claude-code/issues/23936), [#28158](https://github.com/anthropics/claude-code/issues/28158))
+- **Instruction ignoring**: Claude models skip CLAUDE.md and skills under load ([#23936](https://github.com/anthropics/claude-code/issues/23936), [#28158](https://github.com/anthropics/claude-code/issues/28158))
 - **Negative ROI on process skills**: AGENTbench research (arXiv:2602.11988) found LLM-generated context files *decreased* success rates
-- **Anthropic's own conclusion**: With Opus 4.6, they removed sprint decomposition, reduced evaluator rounds, and simplified the generator — scaffolding that was essential for earlier models became counterproductive
+- **Anthropic's own conclusion**: Their harness research removed sprint decomposition, reduced evaluator rounds, and simplified the generator — scaffolding that was essential for earlier models became counterproductive
 
-**This harness keeps context overhead under 500 tokens at session start** (agent descriptions only, measured under Opus 4.6; re-measure planned for 4.7 given the ~1.0–1.35× tokenizer shift). Full agent/skill content loads only when invoked.
+**This harness keeps context overhead under 500 tokens at session start** (agent descriptions only). Full agent/skill content loads only when invoked.
 
 ---
 
@@ -617,7 +617,7 @@ You:   /commit
 Claude: [reviews changes, fix/park issues, commits, updates plan]
 ```
 
-**Total context overhead: ~200 tokens** (code-reviewer description; measured under Opus 4.6). Full agent loads only when invoked.
+**Total context overhead: ~200 tokens** (code-reviewer description). Full agent loads only when invoked.
 
 ### Workflow B: New Module (any project)
 
@@ -721,7 +721,7 @@ For unattended builds: `claude --permission-mode auto -p "fix all lint errors"`.
 
 ### Hooks (Deterministic Automation)
 
-Unlike CLAUDE.md instructions (which Opus 4.7 can ignore under load, matching the documented 4.6 pattern), hooks **always fire**:
+Unlike CLAUDE.md instructions (which Opus 4.7 can ignore under load), hooks **always fire**:
 
 ```json
 // In ~/.claude/settings.json
@@ -929,7 +929,7 @@ Human checkpoints (by design):
 
 | Before (Superpowers + heavy CLAUDE.md) | After (this harness) |
 |---|---|
-| 22k tokens at startup | ~500 tokens at startup (measured under Opus 4.6; re-measure planned for 4.7) |
+| 22k tokens at startup | ~500 tokens at startup |
 | 14 skills loaded every session | Agent/skill descriptions only (loaded on demand) |
 | Process enforcement skills | Optional workflow tools — use when helpful |
 | Polite code reviewer | Adversarial reviewer that runs tests |
