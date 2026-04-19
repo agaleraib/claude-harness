@@ -2,10 +2,12 @@
 
 A scheduled routine reviews new Anthropic posts (news, engineering, resources) and proposes harness improvements. Each run produces:
 
-- **One PR** containing a dated suggestions file + a tracker update
-- **A notification** to every entry in `.harness-profile` `team.members`
+- **One PR** containing a dated suggestions file + a tracker update — the PR thread is where triage happens
+- **A notification** to the maintainer
 
 If no new in-scope posts surface in a run, the tracker is updated with a `no new posts since <last-date>` line and no PR/notification fires.
+
+**Maintainer:** this repo is solo-maintained (`team.size: solo` in `.harness-profile`). The triage conventions below are written for one person, not a team. If the maintainership ever expands, revise the README + the routine prompt to fan notifications and split decision-making.
 
 ## Files in this directory
 
@@ -19,23 +21,23 @@ The dated files are immutable history — never delete them, never rewrite sugge
 
 ## How to triage a suggestions PR
 
-In the PR thread, comment under each suggestion § with one of these conventions (these are guidance for humans, not bot commands):
+In the PR thread, comment under each suggestion § with one of these conventions (these are guidance for the maintainer, not bot commands — they exist to leave a clear decision trail):
 
-- `/apply [@assignee]` — going to do it; assignee owns the implementation
-- `/defer until <reason or date>` — interesting later, not now
-- `/reject — <one-line reason>` — won't do; reason captured for future readers
-- `/spec` — needs a design pass first; will go through `/spec-planner` before any coding
+- `apply` — going to do it
+- `defer until <reason or date>` — interesting later, not now
+- `reject — <one-line reason>` — won't do; reason captured for future readers
+- `spec` — needs a design pass first; will go through `/spec-planner` before any coding
 
-Both collaborators triage before the integrator merges. Disagreements get hashed out in the PR thread or in a sync.
+Solo workflow: drop the comments as you read through the PR, then either merge with the verdicts in the thread (and update Status lines as a follow-up commit on master), or commit the Status updates inside the same branch before merging. Either is fine; pick the one that feels less tedious.
 
 ## Closing the loop after triage
 
 Before merging the PR (or in a follow-up commit on master right after), update each suggestion's `**Status:**` line in the dated file from `PENDING` to one of:
 
-- `APPLIED in commit <hash> · <date> · <@handle>`
-- `DEFERRED until <when> — <reason> · <date> · <@handles agreed>`
-- `REJECTED — <reason> · <date> · <@handle>`
-- `SPEC'd in docs/specs/<date>-<topic>.md · <date> · <@handle>`
+- `APPLIED in commit <hash> · <date>`
+- `DEFERRED until <when> — <reason> · <date>`
+- `REJECTED — <reason> · <date>`
+- `SPEC'd in docs/specs/<date>-<topic>.md · <date>`
 
 This makes the dated file a durable record of what was considered and what was decided. Future readers (you next year, a future collaborator) can reconstruct the decision trail without digging through PR comments.
 
@@ -60,6 +62,5 @@ Pick the path that matches the suggestion's size:
 
 ## Related
 
-- `docs/co-vibe-protocol.md` — multi-collaborator working agreement; references this surface
-- `.harness-profile` `team.members` — where notifications fan out
-- `docs/plan.md` — where substantive applied suggestions get tracked as wave items
+- `docs/co-vibe-protocol.md` — multi-collaborator working agreement (governs *consumer projects* like wordwideAI, not this repo's own workflow)
+- `docs/plan.md` — where substantive applied suggestions get tracked as wave items (when one is created)
