@@ -93,6 +93,43 @@ Once discovery is complete:
 
 9. **Reference `criteria/` rubrics rather than duplicating evaluation criteria.** If the project has `criteria/` files, reference them — do not restate their contents in the spec.
 
+## Recommended Implementation (post-spec, MANDATORY)
+
+After drafting the spec body, compute a recommended execution flow and emit it as the `## Implementation` block (placed right after `## Overview` in the output). This makes every spec self-describing: a reader knows which skill to invoke without asking.
+
+### Decision tree
+
+1. **Count tasks** in the Implementation Plan.
+2. **Build dependency layers** — group tasks with no deps on each other into the same rank.
+3. **Read `.harness-profile`** (if present) for `stakes.level` (`high` / `medium` / `low`). If profile missing, assume `medium`.
+4. Pick the flow:
+   - **Any rank has ≥2 parallel tasks** → waves (parallelism earns the ceremony)
+   - **Total ≥6 tasks AND `stakes: high`** → waves (rollback insurance)
+   - **Otherwise** → plain `/micro` per task with `/commit` between
+
+### Skill discovery (source of truth — no hallucinating)
+
+Before naming any skills in the recommended flow, enumerate installed ones:
+
+```bash
+ls -d ~/.claude/skills/*/SKILL.md 2>/dev/null | xargs -I {} dirname {} | xargs -n1 basename
+```
+
+Only reference skills present in this list. Canonical skills expected: `/micro`, `/commit`, `/run-wave`, `/close-wave`, `/verify`. If a canonical skill is missing, say so and name the closest available fallback (e.g. "no `/run-wave` installed — use orchestrator agent directly").
+
+### Output shape
+
+```markdown
+## Implementation
+
+**Recommended flow:** <concrete chain — e.g. `/run-wave 1 → /close-wave 1 → /run-wave 2 → /close-wave 2`, or `/micro` per task + `/commit` between>
+**Reason:** <one sentence — task count, parallelism, stakes>
+**Alternatives:** <one line — the other reasonable option if applicable>
+**Implementation block written:** YYYY-MM-DD
+```
+
+For specs that warrant waves, also suggest (do NOT auto-write) a `### Wave N` block for `docs/plan.md` in the post-generation summary — user decides whether to append.
+
 ## Output Format
 
 ```markdown
@@ -100,6 +137,14 @@ Once discovery is complete:
 
 ## Overview
 [What is this, who is it for, what problem does it solve]
+
+## Implementation
+[Emitted per "Recommended Implementation" rules above. Generated LAST but placed here for reader discoverability.]
+
+**Recommended flow:** [skill chain]
+**Reason:** [one sentence]
+**Alternatives:** [one line or "None — waves are load-bearing here"]
+**Implementation block written:** [YYYY-MM-DD]
 
 ## Data Model
 [Skip this section if the project has no persistent state.]
@@ -192,3 +237,4 @@ After generating the spec, write it to `docs/specs/YYYY-MM-DD-<topic>.md` (creat
 5. **Include "Open Questions".** Park unknowns here; don't let them block the spec.
 6. **The spec is a contract.** Once written and approved, the builder should implement without guessing.
 7. **Respect scope.** If the user wants an MVP, do not suggest inflating it. Surface opportunities in "Open Questions" instead.
+8. **Implementation block is mandatory.** Every spec ends with a filled-in `## Implementation` section per the decision tree above. Skills named in it must exist in `~/.claude/skills/` — verify via `ls -d ~/.claude/skills/*/SKILL.md` before writing.
