@@ -62,11 +62,13 @@ Deviations: (1) Task 5 inlined JSONL schema vs linking — spec allowed either; 
 
 **Why this wave:** Docs-only. Independently shippable after Wave 2. Kept separate so a doc typo can be fixed without touching agent prompts or profile schema — rollback isolation matches the change shape.
 
-- [ ] **V1 Harness Model Pin — README sync** [spec](./specs/2026-04-19-harness-model-pin-and-effort-routing.md)
-  - Task 8 — Update README §"orchestrator (Universal)" with the effort-dimension sentence
-  - Task 9 — Add relative-path cross-reference from README to `.claude/agents/orchestrator.md`
+- [x] **V1 Harness Model Pin — README sync** [spec](./specs/2026-04-19-harness-model-pin-and-effort-routing.md) — commits `e6d6617` (Task 8: effort sentence), `d250bfa` (Task 9: relative link). Merge `146908c`.
+  - [x] Task 8 — Update README §"orchestrator (Universal)" with the effort-dimension sentence (`e6d6617`)
+  - [x] Task 9 — Add relative-path cross-reference from README to `.claude/agents/orchestrator.md` (`d250bfa`)
 
-**Wave 3 exit gate:**
-- `grep -nA 2 "orchestrator (Universal)" README.md` shows the effort-dimension sentence with all four effort values and the `stakes.level` derivation mentioned.
-- `grep -q "\.claude/agents/orchestrator\.md" README.md` returns 0 (link exists).
-- `git diff master -- README.md` touches only the orchestrator section (no drift elsewhere).
+**Wave 3 exit gate (PASS 2026-04-25, merge `146908c`):**
+- ✓ `grep -nA 2 "orchestrator (Universal)" README.md` — note: the `-A 2` window is too narrow (sentence sits ~41 lines below heading); intent met via `grep -n "effort"` and the diff hunk content.
+- ✓ `grep -q "\.claude/agents/orchestrator\.md" README.md` returns 0 (link exists).
+- ✓ `git diff master -- README.md` touches only the §"orchestrator (Universal)" section (single hunk `@@ -446,6 +446,8 @@`, +2 lines).
+
+This completes the model-pin spec — all 9 tasks across 3 waves shipped.

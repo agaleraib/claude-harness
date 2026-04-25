@@ -280,12 +280,12 @@ Each task is a contract: build it, verify it, move on. Do not skip ahead. Tasks 
 
 **Why this wave:** Docs-only. Independently shippable after Wave 2. Kept separate so a doc typo can be fixed without touching agent prompts or profile schema — rollback isolation matches the change shape.
 
-- [ ] **Task 8 — Update README §"orchestrator (Universal)" with the effort-dimension sentence.**
+- [x] **Task 8 — Update README §"orchestrator (Universal)" with the effort-dimension sentence.** Shipped 2026-04-25 in commit `e6d6617` (Wave 3 merge `146908c`).
   - **Files:** `/Users/klorian/workspace/claude-harness/README.md` (§"orchestrator (Universal)", after the routing logic bullet list — grep for the section heading to locate; line numbers drift).
   - **Depends on:** Wave 2
   - **Verify:** `grep -n "effort" README.md` returns a match inside the orchestrator section. Wording matches Phase 3 AC #1: names all four effort values, the `low`/`xhigh` examples, and the `stakes.level` derivation.
 
-- [ ] **Task 9 — Add relative-path cross-reference from README to `.claude/agents/orchestrator.md`.**
+- [x] **Task 9 — Add relative-path cross-reference from README to `.claude/agents/orchestrator.md`.** Shipped 2026-04-25 in commit `d250bfa` (Wave 3 merge `146908c`). All 9 tasks in this spec are now [x].
   - **Files:** `/Users/klorian/workspace/claude-harness/README.md` (§"orchestrator (Universal)").
   - **Depends on:** Task 8
   - **Verify:** `grep -q "\.claude/agents/orchestrator\.md" README.md` matches inside the orchestrator section; link is relative (starts with `.claude/` or `./.claude/`, not an absolute path or URL).
