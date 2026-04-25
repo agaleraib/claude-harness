@@ -30,10 +30,26 @@ Read the spec file provided by the user. Extract the requested phase's tasks in 
 - **Files** — which files are involved
 - **Depends on** — prerequisite tasks
 - **Verify** — how to confirm the task is done
+- **Effort** — *optional* per-task effort hint (see below)
 
 If any task is missing `Files:` or `Verify:`, stop and tell the user:
 
 > Task [N] is missing [Files/Verify]. The orchestrator needs these fields to route and verify. Update the spec first.
+
+### Per-task effort hint (opt-in)
+
+A spec task body may include an explicit effort tier in the same `**Field:** value` style as `**Verify:**`. Example:
+
+```
+**Effort:** xhigh
+```
+
+Rules for the orchestrator:
+
+- **Opt-in.** Absence is fine — the routing decision falls through to the default effort selection rules in Step 4.
+- **Valid values:** `low`, `medium`, `high`, `xhigh`. Any other value is treated as if the hint were absent, and the orchestrator emits a one-line warning to the console: `⚠️ Task [N] has invalid **Effort:** value "<value>"; falling back to default selection rules.`
+- **When honored,** the resulting routing decision logs `override_source: task_hint` in Surface B (see §Logging Contract in Step 4 / Step 8).
+- **Scope.** The hint controls **effort only**, not model. Model selection still goes through the routing guidelines in Step 4.
 
 ## Step 3: Build execution plan
 
@@ -116,7 +132,9 @@ The bullet buckets above pick a **model**. Every routing decision also names an 
 
 ### Default effort selection rules
 
-Evaluated in order. Stop at the first rule that matches.
+**Before evaluating these rules,** check whether the parsed task carries a per-task `**Effort:**` hint (see Step 2). If present and valid, use that value and log `override_source: task_hint`. Skip the rules below.
+
+If no hint, evaluate the rules in order. Stop at the first rule that matches.
 
 1. **`low`** — read-only / scanning / typo-fix tasks.
 2. **`medium`** — standard implementation following existing patterns.
