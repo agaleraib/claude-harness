@@ -20,7 +20,7 @@ grep 'model_routing' .harness-profile 2>/dev/null
 ```
 
 - If `model_routing: on` → full routing with subagent dispatch
-- If `model_routing: off`, missing, or no `.harness-profile` → **dry-run mode**: run all tasks on the current session's model (no subagent spawning), but print what routing *would have been* for visibility: `"[dry-run] Task 3 would route to Sonnet: straightforward CRUD endpoints"`
+- If `model_routing: off`, missing, or no `.harness-profile` → **dry-run mode**: run all tasks on the current session's model (no subagent spawning), but print what routing *would have been* using the canonical Surface A shape (see §Logging Contract / Step 8) prefixed with `[dry-run]`. Example: `[dry-run] would route to Sonnet @ medium: straightforward CRUD endpoints`. In dry-run, Surface B writes a JSONL line with `status: skipped`.
 
 ## Step 2: Parse the spec
 
@@ -30,10 +30,47 @@ Read the spec file provided by the user. Extract the requested phase's tasks in 
 - **Files** — which files are involved
 - **Depends on** — prerequisite tasks
 - **Verify** — how to confirm the task is done
+- **Effort** — *optional* per-task effort hint (see below)
 
 If any task is missing `Files:` or `Verify:`, stop and tell the user:
 
 > Task [N] is missing [Files/Verify]. The orchestrator needs these fields to route and verify. Update the spec first.
+
+### Stable `task_id` convention
+
+Every routing decision logs a stable identifier so log lines can be joined across runs and across the two surfaces. The orchestrator constructs:
+
+```
+task_id = {spec_basename}:{task_marker}
+```
+
+- **`spec_basename`** — the basename (filename component) of the spec file the task came from. Example: for `docs/specs/2026-04-19-harness-model-pin-and-effort-routing.md`, the `spec_basename` is `2026-04-19-harness-model-pin-and-effort-routing.md`.
+- **`task_marker`** — the literal task identifier as it appears in the spec body. Examples: `Task 3`, `B1`, `Phase 1 T2`, `Task 7a`. Use the marker verbatim — do not normalize, renumber, or strip prefixes.
+
+**Synthetic-spec case (worktree dispatches via `/run-wave`).** When a task is dispatched from a synthetic spec at `/tmp/wave-N-*.md`, the orchestrator uses the **synthetic basename** as the `spec_basename` (e.g. `wave-2-20260425-142132.md`). The underlying source specs are documented in the synthetic file's `Source specs referenced:` header for downstream attribution; the orchestrator does NOT walk through to the source spec for `task_id` purposes — that would break log-join stability across runs of the same synthetic.
+
+**Composed examples:**
+
+- `2026-04-19-harness-model-pin-and-effort-routing.md:Task 3`
+- `wave-2-20260425-142132.md:Task 5`
+- `2026-04-12-editorial-memory.md:Phase 1 T2`
+
+This `task_id` shape is used identically in Surface A (the `→ <task_id> → ...` line) and Surface B (the `task_id` JSON field). Replaces the prior per-run ordinal `Task 3` shape.
+
+### Per-task effort hint (opt-in)
+
+A spec task body may include an explicit effort tier in the same `**Field:** value` style as `**Verify:**`. Example:
+
+```
+**Effort:** xhigh
+```
+
+Rules for the orchestrator:
+
+- **Opt-in.** Absence is fine — the routing decision falls through to the default effort selection rules in Step 4.
+- **Valid values:** `low`, `medium`, `high`, `xhigh`. Any other value is treated as if the hint were absent, and the orchestrator emits a one-line warning to the console: `⚠️ Task [N] has invalid **Effort:** value "<value>"; falling back to default selection rules.`
+- **When honored,** the resulting routing decision logs `override_source: task_hint` in Surface B (see §Logging Contract in Step 4 / Step 8).
+- **Scope.** The hint controls **effort only**, not model. Model selection still goes through the routing guidelines in Step 4.
 
 ## Step 3: Build execution plan
 
@@ -98,13 +135,57 @@ These are guidelines, not rules. Override them when your judgment says otherwise
 
 **Stakes override:** Read `stakes.level` from `.harness-profile`. If `high`, never route code-writing tasks to Haiku — promote to Sonnet minimum.
 
+### Routing table (model + effort)
+
+The bullet buckets above pick a **model**. Every routing decision also names an **effort tier** (`low | medium | high | xhigh`). The table below illustrates the combined shape — it does not replace the guidelines, it gives examples.
+
+| Task shape | Model | Effort |
+|------------|-------|--------|
+| Fix a typo in docs | haiku-4.5 | low |
+| Read-only scan / report | haiku-4.5 | low |
+| Refactor one module | sonnet-4.6 | medium |
+| Standard CRUD following an existing pattern | sonnet-4.6 | medium |
+| Write tests for existing code | sonnet-4.6 | medium |
+| New architecture / pattern others will follow | opus-4.7 | high |
+| Complex algorithm / non-obvious logic | opus-4.7 | high |
+| Multi-file migration | opus-4.7 | xhigh |
+| Code-reviewer loop / cross-cutting refactor | opus-4.7 | xhigh |
+
+### Default effort selection rules
+
+**Before evaluating these rules,** check whether the parsed task carries a per-task `**Effort:**` hint (see Step 2). If present and valid, use that value and log `override_source: task_hint`. Skip the rules below.
+
+If no hint, evaluate the rules in order. Stop at the first rule that matches.
+
+1. **`low`** — read-only / scanning / typo-fix tasks.
+2. **`medium`** — standard implementation following existing patterns.
+3. **`high`** — architecture / complex algorithms / novel design.
+4. **`xhigh`** — code-reviewer loops, multi-file migrations.
+5. **Fallback** — `model.effort_default` from `.harness-profile`. This value is itself stakes-derived by `/project-init`: low stakes maps to medium effort, medium stakes maps to high effort, high stakes maps to xhigh effort. The orchestrator just reads `effort_default`; it does not re-derive from `stakes.level`.
+
+There is no separate stakes-based xhigh trigger. High-stakes repos already carry `effort_default: xhigh` via the project-init derivation, so rule 5 picks that up without a duplicate rule.
+
 ### Log the decision
 
-For each task, print:
+Every routing decision writes to **two** surfaces. Both are required; neither is optional. The full §Logging Contract is reproduced in Step 8; this section gives the per-decision summary.
+
+**Surface A (human, console + `.harness-state/orchestrator.log`):** one line per decision in this canonical shape:
 
 ```
-→ Task 3 → Sonnet: standard CRUD endpoints following existing pattern in src/api/
+→ <task_id> → <Model> @ <effort>: <reason>
 ```
+
+Example:
+
+```
+→ 2026-04-19-harness-model-pin-and-effort-routing.md:Task 3 → Sonnet @ medium: standard CRUD following existing pattern
+```
+
+There is **one** canonical Surface A shape. Do not introduce alternate formats (e.g. multi-line `Model: ... → Effort: ... → reason: ...`).
+
+**Surface B (machine, `.harness-state/orchestrator.jsonl`):** one JSON object appended per decision, schema in Step 8.
+
+`task_id` is constructed as `{spec_basename}:{task_marker}` — see Step 2 / Step 8 for the full convention.
 
 ## Step 5: Dispatch
 
@@ -124,24 +205,71 @@ For each task (respecting execution plan order):
 
 ### When model_routing is OFF (dry-run mode)
 
-Execute each task yourself on the current model. Print what routing would have been, then do the work directly. This makes the orchestrator useful even without model routing — it's a guided spec executor.
+Execute each task yourself on the current model. Print what routing would have been using the canonical Surface A shape prefixed with `[dry-run]`, then do the work directly. Append a Surface B JSONL line with `status: skipped` to `.harness-state/orchestrator.jsonl` for visibility (do NOT dispatch). This makes the orchestrator useful even without model routing — it's a guided spec executor.
 
 ## Step 6: Verify
 
 After each task (or parallel batch) completes:
 
-1. Run the task's `Verify:` step literally — execute the command, check the condition
-2. If **pass** → proceed to Step 7
-3. If **fail** and model_routing is ON:
-   - If the task was routed to haiku or sonnet → **promote to opus** and retry once
-   - Print: `⚠️ Task 3 failed verification (Sonnet). Retrying with Opus.`
-   - If opus also fails → **stop** and ask the user:
-     > Task 3 failed verification twice (Sonnet → Opus). The verify step is: "[verify]"
-     > What do you want to do?
-     > - Show me the error — I'll fix it manually
-     > - Skip this task and continue
-     > - Stop the orchestrator
-4. If **fail** and model_routing is OFF → stop and ask the user (no promotion available)
+1. Run the task's `Verify:` step literally — execute the command, check the condition.
+2. If **pass** → log Surface B `status: success` and proceed to Step 7.
+3. If **fail** and `model_routing: on` → **escalate one rung** (see below).
+4. If **fail** and `model_routing: off` → stop and ask the user. Dry-run does not have a rung — there is no subagent to re-dispatch with different settings.
+
+### Retry-escalation rung (generalized)
+
+The rung applies regardless of the starting effort. There is no special-casing of the starting tier — the same shape works whether the task was first dispatched at `low`, `medium`, `high`, or `xhigh`.
+
+**Step-up sequence per task:** `low → medium → high → xhigh → promote-model → stop`.
+
+#### Case A: current `effort < xhigh`
+
+Retry the task on the **same model** at the next effort tier up:
+
+- `low → medium`
+- `medium → high`
+- `high → xhigh`
+
+Surface A:
+
+```
+⚠️ <task_id> failed at <model>/<effort> — retrying at <model>/<next_effort> before promoting.
+```
+
+Surface B: append a JSONL line with `status: retried`, `retried_from: {model: <prev_model>, effort: <prev_effort>}`, `model: <same_model>`, `effort: <next_effort>`.
+
+#### Case B: current `effort == xhigh`
+
+Already at the top effort tier on this model. Promote to the **next model tier**:
+
+- `haiku-4.5 → sonnet-4.6`
+- `sonnet-4.6 → opus-4.7`
+
+Re-dispatch the task on the new model at `model.effort_default` from `.harness-profile`. Note: the new effort is `effort_default`, **not** the pre-retry effort — the model promotion resets the effort tier to whatever the profile considers default for this repo's stakes.
+
+Surface A:
+
+```
+⚠️ <task_id> failed at <model>/xhigh — promoting to <next_model>/<effort_default>.
+```
+
+Surface B: append a JSONL line with `status: retried`, `retried_from: {model: <prev_model>, effort: xhigh}`, `model: <next_model>`, `effort: <effort_default>`, `override_source: effort_default`.
+
+#### Case C: already at `opus-4.7 + xhigh` and verify fails again
+
+No higher rung. **Stop** and ask the user:
+
+> `<task_id>` failed verification at opus-4.7/xhigh after escalation from <starting_model>/<starting_effort>. The verify step is: "[verify]"
+> What do you want to do?
+> - Show me the error — I'll fix it manually
+> - Skip this task and continue
+> - Stop the orchestrator
+
+Surface B: append a JSONL line with `status: failed`.
+
+#### One-rung-per-failure
+
+Each verify failure escalates by exactly one rung. If the retried dispatch also fails verify, the orchestrator goes through Step 6 again from its new starting position — there is no "retry twice in a row" shortcut. This keeps the rung shape uniform: `low → medium`, then if that fails `medium → high`, etc. No prose like "from medium, jump to xhigh" — every step is one rung.
 
 ## Step 7: Commit
 
@@ -154,30 +282,76 @@ After each task passes verification:
 
 For parallel tasks: each task commits independently after verification. Order doesn't matter since they touched different files.
 
-## Step 8: Log
+## Step 8: Log — §Logging Contract
 
-After each task completes (pass or fail), append to `.harness-state/orchestrator.log`:
+Every routing decision writes to **two** surfaces. Both are required; neither is optional.
 
-```
-[YYYY-MM-DD HH:MM] Task 3 — "API endpoints for editorial memory"
-  Model: Sonnet → reason: standard CRUD following existing pattern
-  Files: src/api/memory.ts, src/api/memory.test.ts
-  Verify: PASS
-  Commit: abc1234
-  Duration: ~8 min
-```
+### Surface A — Human-readable console + log file
 
-For promotions:
+Printed to the console during dispatch AND appended to `.harness-state/orchestrator.log`. One line per decision, free-form but following this shape:
 
 ```
-[YYYY-MM-DD HH:MM] Task 5 — "Cross-tenant embedding matrix"
-  Model: Sonnet → FAIL (verification: embedding dimensions mismatch)
-  Promoted: Opus → PASS
-  Commit: def5678
-  Duration: ~12 min (Sonnet 5min + Opus 7min)
+→ <task_id> → <Model> @ <effort>: <reason>
 ```
 
-The log persists across phases — append, don't overwrite. This lets you review routing quality over time.
+Example:
+
+```
+→ 2026-04-19-harness-model-pin-and-effort-routing.md:Task 3 → Sonnet @ medium: standard CRUD following existing pattern
+```
+
+Retry escalations (see Step 6) print an extra line **before** the replacement decision:
+
+```
+⚠️ <task_id> failed at <model>/<effort> — retrying at <model>/<next_effort> before promoting.
+```
+
+Retry lines MUST use the same `task_id` shape so log joins work.
+
+This is the **single canonical Surface A format.** No alternate multi-line shapes such as colon-separated `Model:`/`Effort:`/`reason:` triplets.
+
+### Surface B — Structured JSONL
+
+Appended to `.harness-state/orchestrator.jsonl`. One JSON object per line, required fields populated on every write, optional fields omitted or `null`. The file is **append-only** — never truncate. If the file does not exist on first write, create it (append mode handles this).
+
+**Schema:**
+
+| Field | Required | Type | Description |
+|-------|----------|------|-------------|
+| `ts` | yes | string (ISO8601 UTC) | Wall-clock timestamp of the decision |
+| `session_id` | yes | string | Contents of `.harness-state/session_start_commit` if present, else a new UUIDv4 generated at orchestrator startup and cached for the session |
+| `task_id` | yes | string | `{spec_basename}:{task_marker}` — full convention defined in Step 2 (covers synthetic-spec case). Example: `2026-04-19-harness-model-pin-and-effort-routing.md:Task 3` |
+| `task_shape` | yes | string | One of: `typo-fix \| refactor-module \| multi-file-migration \| code-review \| spec-planning \| other` |
+| `model` | yes | string | Model slug, e.g. `sonnet-4.6`, `opus-4.7`, `haiku-4.5` |
+| `effort` | yes | string | One of: `low \| medium \| high \| xhigh` |
+| `status` | yes | string | One of: `dispatched \| success \| failed \| retried \| skipped` |
+| `retried_from` | no | object | `{model, effort}` when this line is a retry; omitted on first dispatch |
+| `override_source` | yes | string | One of: `default_rule \| effort_default \| task_hint \| stakes_level` — which input picked this effort. NOTE: `stakes_level` is reserved for future use; current selection rules don't emit it (see Phase 2 AC: no separate "xhigh for stakes.level: high" rule). |
+| `usage` | no | object | Open schema: `{input_tokens?, output_tokens?, cache_read?, cache_creation?}`. Orchestrator writes `null` today; `/tokens` will populate when telemetry arrives. |
+
+**Example dispatched line:**
+
+```json
+{"ts":"2026-04-25T14:21:32Z","session_id":"d3a1b2c4-e5f6-7890-abcd-ef1234567890","task_id":"2026-04-19-harness-model-pin-and-effort-routing.md:Task 3","task_shape":"refactor-module","model":"sonnet-4.6","effort":"medium","status":"dispatched","override_source":"default_rule","usage":null}
+```
+
+**Example retry line (second dispatch of same task, effort-tier escalation):**
+
+```json
+{"ts":"2026-04-25T14:28:47Z","session_id":"d3a1b2c4-e5f6-7890-abcd-ef1234567890","task_id":"2026-04-19-harness-model-pin-and-effort-routing.md:Task 3","task_shape":"refactor-module","model":"sonnet-4.6","effort":"high","status":"retried","retried_from":{"model":"sonnet-4.6","effort":"medium"},"override_source":"default_rule","usage":null}
+```
+
+### Surface coverage by orchestrator state
+
+| Orchestrator state | Surface A | Surface B `status` |
+|--------------------|-----------|---------------------|
+| Dispatching a task (`model_routing: on`) | print + append log line | `dispatched` |
+| Task verify passes | append "PASS" annotation | `success` |
+| Task verify fails, will retry | print `⚠️` retry line | `retried` (new line, with `retried_from`) |
+| Task verify fails, no rung left | print failure + ask user | `failed` |
+| `model_routing: off` (dry-run) | print `would route to <Model> @ effort=<effort>` | `skipped` (no dispatch) |
+
+Both surfaces persist across phases — append, don't overwrite. This lets you review routing quality over time and join the human log to the JSONL for analysis.
 
 ## Step 9: Phase complete
 
@@ -186,11 +360,11 @@ After all tasks in the phase are done:
 ```
 ✅ Phase [N] complete — [M] tasks, [N] commits
 
-| Task | Model | Result | Commit | Duration |
-|------|-------|--------|--------|----------|
-| 1 | Sonnet | ✅ Pass | abc1234 | ~5 min |
-| 2 | Sonnet | ✅ Pass | def5678 | ~8 min |
-| 3 | Opus (promoted) | ✅ Pass (retry) | ghi9012 | ~12 min |
+| `task_id` | Model | Effort | Result | Commit | Duration |
+|-----------|-------|--------|--------|--------|----------|
+| `<spec>.md:Task 1` | Sonnet | medium | ✅ Pass | abc1234 | ~5 min |
+| `<spec>.md:Task 2` | Sonnet | medium | ✅ Pass | def5678 | ~8 min |
+| `<spec>.md:Task 3` | Opus (promoted) | xhigh | ✅ Pass (retry) | ghi9012 | ~12 min |
 
 📋 Full log: .harness-state/orchestrator.log
 
@@ -201,7 +375,7 @@ Next: "Use the orchestrator to build Phase [N+1]" or review the results first.
 
 1. **Route at runtime, not in advance.** Read the task, understand the context, then decide. Don't follow a lookup table.
 2. **Brief subagents thoroughly.** A subagent starts cold — it hasn't seen the conversation. Include file contents, patterns to follow, and the verification step. Bad briefs waste more than they save.
-3. **One retry, then ask.** Promote to opus once on failure. Two failures means the spec or verification needs human judgment.
+3. **One rung per failure.** Each verify failure escalates by exactly one rung (`low → medium → high → xhigh → promote-model`). The orchestrator stops only at `opus-4.7/xhigh` — until then, every failure climbs one step. See Step 6 for full details.
 4. **Commit per task.** Every completed task goes through `/commit`. No batching.
 5. **Parallel only when safe.** Same files or shared state → sequential. When in doubt, sequential.
 6. **Respect the toggle.** `model_routing: off` means no subagents. Still useful as a guided executor.
