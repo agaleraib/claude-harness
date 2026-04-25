@@ -36,6 +36,27 @@ If any task is missing `Files:` or `Verify:`, stop and tell the user:
 
 > Task [N] is missing [Files/Verify]. The orchestrator needs these fields to route and verify. Update the spec first.
 
+### Stable `task_id` convention
+
+Every routing decision logs a stable identifier so log lines can be joined across runs and across the two surfaces. The orchestrator constructs:
+
+```
+task_id = {spec_basename}:{task_marker}
+```
+
+- **`spec_basename`** — the basename (filename component) of the spec file the task came from. Example: for `docs/specs/2026-04-19-harness-model-pin-and-effort-routing.md`, the `spec_basename` is `2026-04-19-harness-model-pin-and-effort-routing.md`.
+- **`task_marker`** — the literal task identifier as it appears in the spec body. Examples: `Task 3`, `B1`, `Phase 1 T2`, `Task 7a`. Use the marker verbatim — do not normalize, renumber, or strip prefixes.
+
+**Synthetic-spec case (worktree dispatches via `/run-wave`).** When a task is dispatched from a synthetic spec at `/tmp/wave-N-*.md`, the orchestrator uses the **synthetic basename** as the `spec_basename` (e.g. `wave-2-20260425-142132.md`). The underlying source specs are documented in the synthetic file's `Source specs referenced:` header for downstream attribution; the orchestrator does NOT walk through to the source spec for `task_id` purposes — that would break log-join stability across runs of the same synthetic.
+
+**Composed examples:**
+
+- `2026-04-19-harness-model-pin-and-effort-routing.md:Task 3`
+- `wave-2-20260425-142132.md:Task 5`
+- `2026-04-12-editorial-memory.md:Phase 1 T2`
+
+This `task_id` shape is used identically in Surface A (the `→ <task_id> → ...` line) and Surface B (the `task_id` JSON field). Replaces the prior per-run ordinal `Task 3` shape.
+
 ### Per-task effort hint (opt-in)
 
 A spec task body may include an explicit effort tier in the same `**Field:** value` style as `**Verify:**`. Example:
@@ -252,7 +273,7 @@ Appended to `.harness-state/orchestrator.jsonl`. One JSON object per line, requi
 |-------|----------|------|-------------|
 | `ts` | yes | string (ISO8601 UTC) | Wall-clock timestamp of the decision |
 | `session_id` | yes | string | Contents of `.harness-state/session_start_commit` if present, else a new UUIDv4 generated at orchestrator startup and cached for the session |
-| `task_id` | yes | string | `{spec_file_basename}:{task_marker}`, e.g. `2026-04-19-harness-model-pin-and-effort-routing.md:Task 3` |
+| `task_id` | yes | string | `{spec_basename}:{task_marker}` — full convention defined in Step 2 (covers synthetic-spec case). Example: `2026-04-19-harness-model-pin-and-effort-routing.md:Task 3` |
 | `task_shape` | yes | string | One of: `typo-fix \| refactor-module \| multi-file-migration \| code-review \| spec-planning \| other` |
 | `model` | yes | string | Model slug, e.g. `sonnet-4.6`, `opus-4.7`, `haiku-4.5` |
 | `effort` | yes | string | One of: `low \| medium \| high \| xhigh` |
@@ -292,11 +313,11 @@ After all tasks in the phase are done:
 ```
 ✅ Phase [N] complete — [M] tasks, [N] commits
 
-| Task | Model | Result | Commit | Duration |
-|------|-------|--------|--------|----------|
-| 1 | Sonnet | ✅ Pass | abc1234 | ~5 min |
-| 2 | Sonnet | ✅ Pass | def5678 | ~8 min |
-| 3 | Opus (promoted) | ✅ Pass (retry) | ghi9012 | ~12 min |
+| `task_id` | Model | Effort | Result | Commit | Duration |
+|-----------|-------|--------|--------|--------|----------|
+| `<spec>.md:Task 1` | Sonnet | medium | ✅ Pass | abc1234 | ~5 min |
+| `<spec>.md:Task 2` | Sonnet | medium | ✅ Pass | def5678 | ~8 min |
+| `<spec>.md:Task 3` | Opus (promoted) | xhigh | ✅ Pass (retry) | ghi9012 | ~12 min |
 
 📋 Full log: .harness-state/orchestrator.log
 
