@@ -446,6 +446,8 @@ The orchestrator evaluates each task at execution time and decides:
 - **Opus** → architecture, ambiguity, security, complex algorithms
 - High-stakes projects (`stakes.level: high`) → never route code-writing to haiku
 
+Each route also picks an `effort` (`low` / `medium` / `high` / `xhigh`) — read-only tasks use `low`, code-reviewer and multi-file work use `xhigh`, and the default tracks `stakes.level` via the `effort_default` pin. See [`.claude/agents/orchestrator.md`](.claude/agents/orchestrator.md) for the full routing table.
+
 #### Safety chain
 
 Every task, regardless of which model wrote it, goes through:
