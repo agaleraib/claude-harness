@@ -240,27 +240,27 @@ Each task is a contract: build it, verify it, move on. Do not skip ahead. Tasks 
 
 **Why this wave:** Bulk of the work. Ship the routing-table effort column, per-task hint parsing, generalized retry-escalation rung, human log format (Surface A), JSONL parallel log (Surface B), and stable `task_id` in both. Depends on Wave 1 because the orchestrator reads `effort_default` from the `model:` block; running this wave before Wave 1 would ship an orchestrator that warns-and-defaults on its own repo — functional, but noisy.
 
-- [ ] **Task 3 — Add effort-augmented routing table + selection rules to `orchestrator.md`.**
+- [x] **Task 3 — Add effort-augmented routing table + selection rules to `orchestrator.md`.** Shipped 2026-04-25 in commit `79b9ab9` (Wave 2 merge `4753502`).
   - **Files:** `/Users/klorian/workspace/claude-harness/.claude/agents/orchestrator.md` (inside "Step 4 → Route each task → Routing guidelines", immediately after the three bullet-list buckets).
   - **Depends on:** Wave 1
   - **Verify:** `grep -q "| Effort |" .claude/agents/orchestrator.md` matches; the five default selection rules appear in order (low/medium/high/xhigh/fallback); no rule mentions `stakes.level: high` as a separate xhigh trigger (collapsed into `effort_default`).
 
-- [ ] **Task 4 — Add per-task effort hint parsing.**
+- [x] **Task 4 — Add per-task effort hint parsing.** Shipped 2026-04-25 in commit `3e4ad14` (Wave 2 merge `4753502`).
   - **Files:** `/Users/klorian/workspace/claude-harness/.claude/agents/orchestrator.md` (Step 4 task-parsing subsection).
   - **Depends on:** Task 3
   - **Verify:** `grep -q "\\*\\*Effort:\\*\\*" .claude/agents/orchestrator.md` matches; the prompt explains that a spec task may include `**Effort:** <value>` and the orchestrator honors it with `override_source: task_hint`. Dry-run test: dispatch a task with an explicit `**Effort:** xhigh` hint and confirm the human log reflects it.
 
-- [ ] **Task 5 — Write the §Logging Contract into the orchestrator prompt (Surface A + Surface B).**
+- [x] **Task 5 — Write the §Logging Contract into the orchestrator prompt (Surface A + Surface B).** Shipped 2026-04-25 in commit `efb32a4` (Wave 2 merge `4753502`). Inlined the JSONL schema rather than linking — spec allowed either.
   - **Files:** `/Users/klorian/workspace/claude-harness/.claude/agents/orchestrator.md` (Step 4 "Log the decision" subsection + Step 8 log format).
   - **Depends on:** Task 4
   - **Verify:** The orchestrator prompt contains both the Surface A line shape (`→ <task_id> → <Model> @ <effort>: <reason>`) and the Surface B JSONL schema table verbatim (or a link to this spec's §Logging Contract). `grep -q "orchestrator.jsonl" .claude/agents/orchestrator.md` matches. `grep -q "task_id" .claude/agents/orchestrator.md` matches. An example JSONL line appears in the prompt.
 
-- [ ] **Task 6 — Implement stable `task_id` convention.**
+- [x] **Task 6 — Implement stable `task_id` convention.** Shipped 2026-04-25 in commit `69081b3` (Wave 2 merge `4753502`).
   - **Files:** `/Users/klorian/workspace/claude-harness/.claude/agents/orchestrator.md` (task-parsing + logging subsections).
   - **Depends on:** Task 5
   - **Verify:** `grep -q "spec_basename" .claude/agents/orchestrator.md` matches; prompt explicitly constructs `task_id` as `{spec_basename}:{task_marker}` for both log surfaces. Prompt covers the synthetic-spec case (`/tmp/wave-N-*.md`) — basename is the synthetic filename, with source specs documented in the synthetic's header.
 
-- [ ] **Task 7 — Generalize the retry-escalation rung.**
+- [x] **Task 7 — Generalize the retry-escalation rung.** Shipped 2026-04-25 in commit `92f87f3` (Wave 2 merge `4753502`).
   - **Files:** `/Users/klorian/workspace/claude-harness/.claude/agents/orchestrator.md` (Step 6 Verify section).
   - **Depends on:** Task 6
   - **Verify:** `grep -qE "low → medium|medium → high|high → xhigh" .claude/agents/orchestrator.md` matches; prompt explicitly covers starting efforts other than `medium`; no prose saying "retry from medium to xhigh" as a special case. The model-promotion step lands at `effort_default`, not at the pre-retry effort.
