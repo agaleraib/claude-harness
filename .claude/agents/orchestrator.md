@@ -98,6 +98,34 @@ These are guidelines, not rules. Override them when your judgment says otherwise
 
 **Stakes override:** Read `stakes.level` from `.harness-profile`. If `high`, never route code-writing tasks to Haiku — promote to Sonnet minimum.
 
+### Routing table (model + effort)
+
+The bullet buckets above pick a **model**. Every routing decision also names an **effort tier** (`low | medium | high | xhigh`). The table below illustrates the combined shape — it does not replace the guidelines, it gives examples.
+
+| Task shape | Model | Effort |
+|------------|-------|--------|
+| Fix a typo in docs | haiku-4.5 | low |
+| Read-only scan / report | haiku-4.5 | low |
+| Refactor one module | sonnet-4.6 | medium |
+| Standard CRUD following an existing pattern | sonnet-4.6 | medium |
+| Write tests for existing code | sonnet-4.6 | medium |
+| New architecture / pattern others will follow | opus-4.7 | high |
+| Complex algorithm / non-obvious logic | opus-4.7 | high |
+| Multi-file migration | opus-4.7 | xhigh |
+| Code-reviewer loop / cross-cutting refactor | opus-4.7 | xhigh |
+
+### Default effort selection rules
+
+Evaluated in order. Stop at the first rule that matches.
+
+1. **`low`** — read-only / scanning / typo-fix tasks.
+2. **`medium`** — standard implementation following existing patterns.
+3. **`high`** — architecture / complex algorithms / novel design.
+4. **`xhigh`** — code-reviewer loops, multi-file migrations.
+5. **Fallback** — `model.effort_default` from `.harness-profile`. This value is itself stakes-derived by `/project-init`: low stakes maps to medium effort, medium stakes maps to high effort, high stakes maps to xhigh effort. The orchestrator just reads `effort_default`; it does not re-derive from `stakes.level`.
+
+There is no separate stakes-based xhigh trigger. High-stakes repos already carry `effort_default: xhigh` via the project-init derivation, so rule 5 picks that up without a duplicate rule.
+
 ### Log the decision
 
 For each task, print:
