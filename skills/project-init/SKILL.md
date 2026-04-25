@@ -124,6 +124,29 @@ Before writing the file, set `methodology:` defaults based on answers:
 - `methodology.session_state_local: .harness-state/` — always
 - `methodology.session_state_remote: second-brain` — always
 
+### `model:` block (required) — stakes → effort_default mapping
+
+The `.harness-profile` carries a top-level `model:` block consumed by the orchestrator. Three required fields, one optional:
+
+| Field | Required | Default | Notes |
+|---|---|---|---|
+| `model.primary` | yes | `claude-opus-4-7` | Top-of-stack model the orchestrator dispatches to. |
+| `model.fallback` | yes | `claude-sonnet-4-6` | Used when the orchestrator demotes for cost/latency. |
+| `model.effort_default` | yes | **derived from `stakes.level`** (see table below) | One of `low`, `medium`, `high`, `xhigh`. Any other string is a schema violation. |
+| `model.effort_cost_multiplier` | no | `{}` | Optional. Object with keys ∈ `{low, medium, high, xhigh}` and numeric values. Orchestrator does not validate today — reserved for future `/tokens` modeled-cost rendering. **Do NOT prompt the user to fill this in.** |
+
+**Stakes → `effort_default` derivation** (applied on first write only):
+
+| `stakes.level` | `effort_default` |
+|---|---|
+| `low` | `medium` |
+| `medium` | `high` |
+| `high` | `xhigh` |
+
+The user MAY override `effort_default` by editing the field directly after init. Derivation only applies on first write — never re-derive on subsequent runs.
+
+Emit the `model:` block with an inline comment documenting the derivation + override semantics so future readers see it without consulting these docs.
+
 ## Step 5: Write `.harness-profile`
 
 Write the YAML to `./.harness-profile`. **Only emit the `workstreams:` section if `mode = multi`** — single-workstream projects skip it entirely.
@@ -149,6 +172,19 @@ audience:
 stakes:
   level: [low|medium|high|mission-critical]
   why: "[one-line reason]"
+
+# model: pin + effort routing for the orchestrator.
+# `effort_default` is derived from `stakes.level` on first write by /project-init:
+#   stakes.level: low    → effort_default: medium
+#   stakes.level: medium → effort_default: high
+#   stakes.level: high   → effort_default: xhigh
+# You may override `effort_default` by editing it directly — derivation only applies on first write.
+# `effort_cost_multiplier` is optional and reserved for future /tokens consumption (orchestrator ignores if absent).
+model:
+  primary: claude-opus-4-7
+  fallback: claude-sonnet-4-6
+  effort_default: [medium|high|xhigh]   # derived from stakes.level per table above
+  effort_cost_multiplier: {}            # optional; keys ∈ {low, medium, high, xhigh} → numeric (reserved for /tokens)
 
 quality_bar:
   level: [prototype|production|mission-critical]
