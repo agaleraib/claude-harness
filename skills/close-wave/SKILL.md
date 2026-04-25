@@ -248,16 +248,27 @@ Common TODO categories:
 
 ## Step 7: KB / external-memory update
 
+This step targets a **project-specific graph KB** (e.g. gobot's `knowledge_graph_*` MCP that tracks live infra entities — cron jobs, MCP servers, services, containers, tables). It is NOT for Claude Code's file-based auto-memory (`~/.claude/projects/<repo>/memory/`) — that's handled separately, via the normal memory-system flow on save-worthy facts and is not gated by this step.
+
+**Applicability:** only repos whose summary doc emits §KB upsert suggestions intended for a graph KB AND whose `.harness-profile` declares `kb.skill`. Examples:
+- ✅ **gobot** — runs live cron + MCP infrastructure; uses `/update-kb` against `knowledge_graph_*`. `.harness-profile.kb.skill: update-kb`.
+- ❌ **claude-harness** — methodology + skills repo, no live infra to track in a graph. `kb.skill` unset → skip this step entirely. Save-worthy facts (schema, conventions) belong in the file-based auto-memory, not a graph.
+- ❌ **wordwideAI** — depends on whether it has a graph KB configured. Default: skip if `kb.skill` unset.
+
+**Decision:**
+
 If the wave touched infrastructure, cron, MCP, integrations, data flows, architecture decisions, or schema (check the summary doc's §KB upsert suggestions):
 
 - If `.harness-profile.kb.skill` is set, invoke it: `Skill: <kb.skill>`.
-- If absent, preview the suggested upserts from the summary doc and record as a deferred TODO for a future session.
+- If `.harness-profile.kb.skill` is absent, **skip this step.** The orchestrator's §KB upsert suggestions in the summary are advisory — they assume a graph KB exists. Without one, no skip-with-deferred-TODO is needed; the suggestions either don't apply (no graph), or the equivalent fact already lives in file-based auto-memory.
+- Optional: leave a one-line note in the summary doc clarifying which destination was used (graph vs file-based memory vs neither) so future readers don't re-litigate.
 
 **Rules:**
-- When infra changes land, KB upsert is expected — don't silently skip.
-- If the project's CLAUDE.md makes KB upsert mandatory for infra changes, treat as hard rule.
+- When infra changes land in a repo with a configured graph KB, upsert is expected — don't silently skip.
+- If the project's CLAUDE.md makes graph-KB upsert mandatory for infra changes (e.g. gobot), treat as hard rule.
+- Do NOT invent a graph-KB destination just because the summary suggests one. The suggestion is a rubric the orchestrator emits mechanically; only honor it when the repo actually has a graph KB.
 
-**Success criteria:** facts upserted OR user explicitly deferred with upsert list captured for Step 10.
+**Success criteria:** facts upserted to the configured graph KB; OR `kb.skill` unset and step skipped; OR user explicitly deferred with upsert list captured for Step 10.
 
 ## Step 8: Reconcile plan.md ticks, exit-gate annotation, OQs, Gated Milestones
 
