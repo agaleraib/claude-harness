@@ -217,12 +217,12 @@ Each task is a contract: build it, verify it, move on. Do not skip ahead. Tasks 
 
 **Why this wave:** Ship the `model:` block, stakes-derived `effort_default`, optional `effort_cost_multiplier`, and project-init schema docs. Independently shippable — orchestrator still works without reading the block via the graceful-degradation ACs, so master stays green even if Wave 2 slips.
 
-- [ ] **Task 1 — Add `model:` block to `.harness-profile`.**
+- [x] **Task 1 — Add `model:` block to `.harness-profile`.** Shipped 2026-04-25 in commit `0dbd852` (Wave 1 merge `4109de6`).
   - **Files:** `/Users/klorian/workspace/claude-harness/.harness-profile`
   - **Depends on:** Nothing
   - **Verify:** `yq '.model.primary' .harness-profile` returns `claude-opus-4-7`; `yq '.model.fallback' .harness-profile` returns `claude-sonnet-4-6`; `yq '.model.effort_default' .harness-profile` returns `high` (this repo is `stakes.level: medium`); `python -c "import yaml; yaml.safe_load(open('.harness-profile'))"` exits 0; `grep -q tokenizer_note .harness-profile` returns non-zero (field must not exist).
 
-- [ ] **Task 2 — Update `project-init` skill schema docs.**
+- [x] **Task 2 — Update `project-init` skill schema docs.** Shipped 2026-04-25 in commit `6dc6e2a` (Wave 1 merge `4109de6`). Manual scratch-dir `/project-init` verify deferred — see human-only TODOs in wave-1 summary.
   - **Files:** `/Users/klorian/workspace/claude-harness/skills/project-init/SKILL.md` (schema section); whichever file holds the `.harness-profile` template emitted by `/project-init` (grep for `profile_version: 1` if unclear).
   - **Depends on:** Task 1
   - **Verify:** `grep -q "model:" skills/project-init/SKILL.md` matches; the stakes→effort_default mapping table appears in the schema docs verbatim (low→medium, medium→high, high→xhigh); `effort_cost_multiplier` documented as optional and unvalidated. Manual inspection: running `/project-init` on a scratch dir produces a `.harness-profile` with the `model:` block and effort_default matching the stakes answer the user gave.

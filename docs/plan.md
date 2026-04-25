@@ -15,18 +15,20 @@ Navigator-style index. Each Wave block lists bullets pointing at vertical specs 
 
 **Why this wave:** Ship the `model:` block, stakes-derived `effort_default`, optional `effort_cost_multiplier`, and project-init schema docs. Independently shippable — orchestrator still works without reading the block via the graceful-degradation ACs, so master stays green even if Wave 2 slips.
 
-- [ ] **V1 Harness Model Pin — profile schema** [spec](./specs/2026-04-19-harness-model-pin-and-effort-routing.md)
-  - Task 1 — Add `model:` block to `.harness-profile`
-  - Task 2 — Update `project-init` skill schema docs
+- [x] **V1 Harness Model Pin — profile schema** [spec](./specs/2026-04-19-harness-model-pin-and-effort-routing.md) — commits `0dbd852` (Task 1: `model:` block in `.harness-profile`), `6dc6e2a` (Task 2: project-init schema docs + template). Merge `4109de6`.
+  - [x] Task 1 — Add `model:` block to `.harness-profile` (`0dbd852`)
+  - [x] Task 2 — Update `project-init` skill schema docs (`6dc6e2a`)
 
-**Wave 1 exit gate:**
-- `yq '.model.primary' .harness-profile` returns `claude-opus-4-7`
-- `yq '.model.fallback' .harness-profile` returns `claude-sonnet-4-6`
-- `yq '.model.effort_default' .harness-profile` returns `high`
-- `python -c "import yaml; yaml.safe_load(open('.harness-profile'))"` exits 0
-- `grep -q tokenizer_note .harness-profile` returns non-zero (field removed/never added)
-- `grep -q "stakes.level" skills/project-init/SKILL.md` matches (schema doc references the stakes mapping)
-- `grep -q "effort_cost_multiplier" skills/project-init/SKILL.md` matches (optional hook documented)
+**Wave 1 exit gate (PASS 2026-04-25, merge `4109de6`):**
+- ✓ `yq '.model.primary' .harness-profile` returns `claude-opus-4-7`
+- ✓ `yq '.model.fallback' .harness-profile` returns `claude-sonnet-4-6`
+- ✓ `yq '.model.effort_default' .harness-profile` returns `high`
+- ✓ `python -c "import yaml; yaml.safe_load(open('.harness-profile'))"` exits 0
+- ✓ `grep -q tokenizer_note .harness-profile` returns non-zero (field removed/never added)
+- ✓ `grep -q "stakes.level" skills/project-init/SKILL.md` matches (schema doc references the stakes mapping)
+- ✓ `grep -q "effort_cost_multiplier" skills/project-init/SKILL.md` matches (optional hook documented)
+
+Deviations: `effort_cost_multiplier` shipped as `{}` empty placeholder per spec recommendation (exercises ignored-if-absent path while keeping schema visible). Open: human-only TODO — manual `/project-init` scratch-dir verify.
 
 ---
 
