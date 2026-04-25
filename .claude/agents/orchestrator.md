@@ -211,18 +211,65 @@ Execute each task yourself on the current model. Print what routing would have b
 
 After each task (or parallel batch) completes:
 
-1. Run the task's `Verify:` step literally — execute the command, check the condition
-2. If **pass** → proceed to Step 7
-3. If **fail** and model_routing is ON:
-   - If the task was routed to haiku or sonnet → **promote to opus** and retry once
-   - Print: `⚠️ Task 3 failed verification (Sonnet). Retrying with Opus.`
-   - If opus also fails → **stop** and ask the user:
-     > Task 3 failed verification twice (Sonnet → Opus). The verify step is: "[verify]"
-     > What do you want to do?
-     > - Show me the error — I'll fix it manually
-     > - Skip this task and continue
-     > - Stop the orchestrator
-4. If **fail** and model_routing is OFF → stop and ask the user (no promotion available)
+1. Run the task's `Verify:` step literally — execute the command, check the condition.
+2. If **pass** → log Surface B `status: success` and proceed to Step 7.
+3. If **fail** and `model_routing: on` → **escalate one rung** (see below).
+4. If **fail** and `model_routing: off` → stop and ask the user. Dry-run does not have a rung — there is no subagent to re-dispatch with different settings.
+
+### Retry-escalation rung (generalized)
+
+The rung applies regardless of the starting effort. There is no special-casing of the starting tier — the same shape works whether the task was first dispatched at `low`, `medium`, `high`, or `xhigh`.
+
+**Step-up sequence per task:** `low → medium → high → xhigh → promote-model → stop`.
+
+#### Case A: current `effort < xhigh`
+
+Retry the task on the **same model** at the next effort tier up:
+
+- `low → medium`
+- `medium → high`
+- `high → xhigh`
+
+Surface A:
+
+```
+⚠️ <task_id> failed at <model>/<effort> — retrying at <model>/<next_effort> before promoting.
+```
+
+Surface B: append a JSONL line with `status: retried`, `retried_from: {model: <prev_model>, effort: <prev_effort>}`, `model: <same_model>`, `effort: <next_effort>`.
+
+#### Case B: current `effort == xhigh`
+
+Already at the top effort tier on this model. Promote to the **next model tier**:
+
+- `haiku-4.5 → sonnet-4.6`
+- `sonnet-4.6 → opus-4.7`
+
+Re-dispatch the task on the new model at `model.effort_default` from `.harness-profile`. Note: the new effort is `effort_default`, **not** the pre-retry effort — the model promotion resets the effort tier to whatever the profile considers default for this repo's stakes.
+
+Surface A:
+
+```
+⚠️ <task_id> failed at <model>/xhigh — promoting to <next_model>/<effort_default>.
+```
+
+Surface B: append a JSONL line with `status: retried`, `retried_from: {model: <prev_model>, effort: xhigh}`, `model: <next_model>`, `effort: <effort_default>`, `override_source: effort_default`.
+
+#### Case C: already at `opus-4.7 + xhigh` and verify fails again
+
+No higher rung. **Stop** and ask the user:
+
+> `<task_id>` failed verification at opus-4.7/xhigh after escalation from <starting_model>/<starting_effort>. The verify step is: "[verify]"
+> What do you want to do?
+> - Show me the error — I'll fix it manually
+> - Skip this task and continue
+> - Stop the orchestrator
+
+Surface B: append a JSONL line with `status: failed`.
+
+#### One-rung-per-failure
+
+Each verify failure escalates by exactly one rung. If the retried dispatch also fails verify, the orchestrator goes through Step 6 again from its new starting position — there is no "retry twice in a row" shortcut. This keeps the rung shape uniform: `low → medium`, then if that fails `medium → high`, etc. No prose like "from medium, jump to xhigh" — every step is one rung.
 
 ## Step 7: Commit
 
@@ -328,7 +375,7 @@ Next: "Use the orchestrator to build Phase [N+1]" or review the results first.
 
 1. **Route at runtime, not in advance.** Read the task, understand the context, then decide. Don't follow a lookup table.
 2. **Brief subagents thoroughly.** A subagent starts cold — it hasn't seen the conversation. Include file contents, patterns to follow, and the verification step. Bad briefs waste more than they save.
-3. **One retry, then ask.** Promote to opus once on failure. Two failures means the spec or verification needs human judgment.
+3. **One rung per failure.** Each verify failure escalates by exactly one rung (`low → medium → high → xhigh → promote-model`). The orchestrator stops only at `opus-4.7/xhigh` — until then, every failure climbs one step. See Step 6 for full details.
 4. **Commit per task.** Every completed task goes through `/commit`. No batching.
 5. **Parallel only when safe.** Same files or shared state → sequential. When in doubt, sequential.
 6. **Respect the toggle.** `model_routing: off` means no subagents. Still useful as a guided executor.
