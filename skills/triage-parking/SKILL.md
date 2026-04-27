@@ -208,7 +208,45 @@ If the gate passes:
 
 **Always write one line to `.harness-state/triage-log.md`, even on no-op runs and gate failures.** This is how the user sees what the routine is doing on their behalf.
 
-If the file doesn't exist, create it with header:
+### 5.0 First-run: ensure `.gitignore` un-ignores the log
+
+Before writing the file for the first time, make sure `.gitignore` allows it. Older harness installs (or any repo whose `.gitignore` was seeded before 2026-04-27) had `.harness-state/` as a directory exclude — gitignore semantics make that **un-overridable** by a `!`-rule on a child file. The skill fixes this in place, idempotently:
+
+```bash
+GI=".gitignore"
+[ -f "$GI" ] || touch "$GI"
+
+# Case A: directory-level exclude — rewrite to file-level + exception
+if grep -qE '^\.harness-state/$' "$GI" && ! grep -qE '^!\.harness-state/triage-log\.md$' "$GI"; then
+  # macOS/BSD sed compat: write to a temp and move
+  awk '
+    /^\.harness-state\/$/ {
+      print ".harness-state/*"
+      print "!.harness-state/triage-log.md"
+      next
+    }
+    { print }
+  ' "$GI" > "$GI.tmp" && mv "$GI.tmp" "$GI"
+  echo "fixed .gitignore: .harness-state/ → .harness-state/* + !triage-log.md exception"
+# Case B: file-level exclude already present, exception missing
+elif grep -qE '^\.harness-state/\*$' "$GI" && ! grep -qE '^!\.harness-state/triage-log\.md$' "$GI"; then
+  printf '!.harness-state/triage-log.md\n' >> "$GI"
+  echo "added !triage-log.md exception to existing .harness-state/* pattern"
+# Case C: no .harness-state pattern at all
+elif ! grep -qE '^\.harness-state' "$GI"; then
+  printf '\n# /triage-parking audit trail — see skills/triage-parking/SKILL.md\n.harness-state/*\n!.harness-state/triage-log.md\n' >> "$GI"
+  echo "seeded .harness-state/* + !triage-log.md in .gitignore"
+# Case D: already correct — no-op
+fi
+```
+
+If `.gitignore` was modified, **stage it as part of Step 5's commit** (same `chore(triage-log): record YYYY-MM-DD sweep` commit, or fold into the Step 3 archive/queue commit if one is happening). Mention in the report that `.gitignore` was self-healed.
+
+If `.gitignore` was already correct, this is a no-op — second and subsequent runs do nothing here.
+
+### 5.1 Write the log
+
+If `.harness-state/triage-log.md` does not exist, create it with header:
 
 ```markdown
 # Triage Log
