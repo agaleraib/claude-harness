@@ -225,6 +225,12 @@ methodology:
   parking_lot_enabled: true
   session_state_local: .harness-state/
   session_state_remote: second-brain
+
+# /triage-parking opt-in. Commented out by default — flip enabled: true
+# in this profile to allow /triage-parking to open draft PRs for items
+# explicitly tagged [auto-ok] in parking_lot.md. Triage-only without it.
+# triage_parking:
+#   enabled: false
 ```
 
 ## Step 6: Bootstrap session state directory

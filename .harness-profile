@@ -69,3 +69,6 @@ methodology:
   pivot_check_auto_days: 30    # methodology pivots slowly
   session_state_local: .harness-state/
   session_state_remote: second-brain
+
+triage_parking:
+  enabled: true   # opt in to /triage-parking — opens draft PRs for [auto-ok]-marked items only

@@ -125,7 +125,8 @@ Skills are optional tools the user can invoke when they want structure:
 ```bash
 mkdir -p ~/.claude/skills
 for skill in project-init session-start micro park session-end \
-             deploy-check api-smoke-test migration-check a11y-check; do
+             deploy-check api-smoke-test migration-check a11y-check \
+             triage-parking; do
   if [ ! -f ~/.claude/skills/$skill/SKILL.md ]; then
     mkdir -p ~/.claude/skills/$skill
     cp ~/.claude/harness/skills/$skill/SKILL.md ~/.claude/skills/$skill/
@@ -240,7 +241,7 @@ If behind, inform the user:
 
 ### Installed (user-level, if missing):
 - ~/.claude/agents/ (code-reviewer, spec-planner, project-tracker)
-- ~/.claude/skills/ (session-start, session-end, micro, park, project-init, deploy-check, api-smoke-test, migration-check, a11y-check)
+- ~/.claude/skills/ (session-start, session-end, micro, park, project-init, deploy-check, api-smoke-test, migration-check, a11y-check, triage-parking)
 
 ### Next step:
 👉 **`project-init`** — writes `.harness-profile` with audience/stakes/quality bar/stack.
@@ -251,6 +252,7 @@ If behind, inform the user:
 - `park` — capture side-quests without derailing
 - `session-end` — exit notes for future-you
 - `deploy-check`, `api-smoke-test`, `migration-check`, `a11y-check` — safety checks
+- `triage-parking` — sweep parking_lot.md (opt-in via `triage_parking.enabled: true` in `.harness-profile`; project-init seeds the block commented out)
 - Code review: "use the code-reviewer to review this"
 - New feature spec: "use the spec-planner"
 [- UI testing: "use the ui-evaluator"  (webapp/fullstack only)]

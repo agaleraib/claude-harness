@@ -100,6 +100,7 @@ Anything unclear
 7. **Check for unauthorized edits** to `plan.md`, `parking_lot.md`, `.harness-profile`, CI configs, `package.json` deps. If any appear, ask why before merging.
 8. **Post-merge:** transcribe parking-lot items from the PR body into the real `parking_lot.md` on `master`.
 9. **Post-merge:** update `plan.md` on `master` to mark the task done.
+10. **Periodically:** if `triage_parking.enabled: true` in `.harness-profile`, run `/triage-parking` to classify stale items, archive expired ones, and ship a draft PR for any item marked `[auto-ok]`. Integrator-only — partners never run this on shared `parking_lot.md`.
 
 ### Merging
 

@@ -65,6 +65,8 @@ Parking lot now has <N> open items.
 
 > ⚠️ Parking lot has [N] open items. Consider triaging at session-end — some of these may need to be promoted to today's goal or resolved.
 
+> Tip: append `[auto-ok]` if this is a trivial mechanical fix you'd be happy for `/triage-parking` to ship as a draft PR. Append `[hold]` to lock it from triage entirely. Markers are opt-in, not prompted.
+
 **Do NOT** interrupt the flow further. The point of parking is fast capture, not a second ritual.
 
 ## Rules
