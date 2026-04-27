@@ -649,6 +649,169 @@ Equivalent awk/perl literal-substring counters are acceptable.
 
 **Result of 6e.** A boolean: auto-apply eligible (proceed to 6f) or not (menu path). On a "not eligible" outcome, append `## Auto-apply aborted — <ts>` with the first failing reason to `$LOG_PATH` (best-effort) before falling through.
 
+### 6f. Auto-apply executor
+
+Runs only if 6e returned eligible. Implements Phase 1a (in-memory validation + pre-hash) and Phase 1b (hash re-check → in-memory apply → temp-file write → atomic rename → audit append). All-or-nothing: **no partial-apply, no skipped findings, no in-place edits to live spec**. The commit point is a single atomic `mv`; on any abort before the rename, the live spec is byte-identical to its pre-Phase-1a state.
+
+#### Phase 1a — Validation pass (dry-run, in-memory)
+
+No file writes happen in this phase. Failure on any check appends `## Auto-apply aborted — <ts>` with the first failing reason to `$LOG_PATH`, then returns "abort" so Step 6 prints the menu unchanged. Phase 1b does NOT run.
+
+```bash
+# 1. Probe SHA-256 utility (sha256sum on Linux, shasum -a 256 on BSD/macOS).
+if command -v sha256sum >/dev/null 2>&1; then
+  HASHER='sha256sum'
+elif command -v shasum >/dev/null 2>&1; then
+  HASHER='shasum -a 256'
+else
+  abort "validation-failure" "neither sha256sum nor shasum is available; cannot enforce hash-stable precondition"
+fi
+
+# 2. Capture pre-validation hashes (F4 mitigation).
+SPEC_HASH_PRE=$($HASHER "$SPEC_PATH" | awk '{print $1}')
+LOG_HASH_PRE=""
+if [[ -f "$LOG_PATH" ]]; then
+  LOG_HASH_PRE=$($HASHER "$LOG_PATH" | awk '{print $1}')
+fi
+```
+
+**Per-finding validation loop (runs after 6e's parse populated `EXPECTED_FINDING_IDS` and `VERDICTS_BY_ID`):**
+
+For every finding `Fi` in declared order:
+
+1. **Wrong-premise findings:** confirm Open Questions append target resolves. Heading regex `^##[[:space:]]+[Oo]pen [Qq]uestions` (matches `## Open Questions` OR `## Open questions parked for v2` case-tolerantly); fall-through to "create new section at EOF" is the third option. If multiple `## Open Questions` headings (rare, malformed spec), target the FIRST match and queue a warning bullet for the audit entry.
+2. **Load-bearing findings:** parse the `load-bearing` arbiter recommendation body for exactly one fenced ```json block; pipe its body through `jq .` to validate parsing. Unparseable / missing / multiple JSON blocks → abort `validation-failure`, detail `F<i>: JSON block unparseable: <jq-error>` (or "no JSON block" / "multiple JSON blocks").
+3. Validate Shape A xor Shape B keypair presence (Edit operation contract rule 2). Both-shapes or neither-shape → abort `validation-failure`.
+4. Resolve the `section` H2: `awk -v s="$SECTION" 'BEGIN{c=0} $0 ~ "^## "s"$" {c++} END{print c}' "$SPEC_PATH"` must equal 1. Zero or >1 → abort `validation-failure`, detail `F<i>: section "<section>" not found in $SPEC_PATH` or `F<i>: section "<section>" matches N>1 times`.
+5. Compute the section body range: lines from the `^## <section>` line (exclusive) to the next `^## ` line (exclusive) or EOF.
+6. **Substring-count check (Shape A: `old_string`; Shape B: `insert_after`)** — note: `grep -Fc` counts matching lines, not occurrences. Use a literal substring counter:
+   ```bash
+   COUNT=$(printf '%s' "$NEEDLE" \
+     | python3 -c 'import sys; needle = sys.stdin.read(); print(open(sys.argv[1]).read().count(needle))' \
+       "$SPEC_PATH")
+   ```
+   `COUNT == 1` is required. Zero → abort `validation-failure`, detail `F<i>: <field> matches 0 times in $SPEC_PATH`. >1 → abort with detail naming the count.
+7. **Match-within-section check.** Find the byte/line offset of the unique match and verify it falls inside the section body range computed in step 5. Match outside → abort `validation-failure`, detail `F<i>: <field> match falls outside section "<section>" body range`.
+8. **H2-in-edit-text rejection.** For Shape A, neither `old_string` nor `new_string` may contain a line matching `^## `. For Shape B, neither `insert_after` nor `new_string` may. Hit → abort `validation-failure`, detail `F<i>: edit text contains H2 heading line`.
+9. **Writability checks.** `test -w "$SPEC_PATH"` AND `test -w "$(dirname "$SPEC_PATH")"` (parent dir must be writable for atomic-rename) AND `test -w "$LOG_PATH"`. Failure → abort `validation-failure`, detail `F<i>: <path> not writable` (or generic if pre-loop check).
+
+Accumulate per-finding pass/fail in memory. On the first failure, abort path runs and Phase 1b is skipped. On all-pass, proceed to Phase 1b.
+
+#### Phase 1b — Apply pass (atomic temp-file + rename, all-or-nothing)
+
+```bash
+# 1. Hash re-check (F4 mitigation — external writer detection).
+SPEC_HASH_NOW=$($HASHER "$SPEC_PATH" | awk '{print $1}')
+if [[ "$SPEC_HASH_NOW" != "$SPEC_HASH_PRE" ]]; then
+  rm -f "$SPEC_PATH.autoapply-tmp"  # cleanup if accidentally created
+  abort "hash-mismatch" \
+    "$SPEC_PATH SHA-256 changed between validation and apply (external mutation detected): pre=${SPEC_HASH_PRE:0:8} now=${SPEC_HASH_NOW:0:8}"
+fi
+if [[ -n "$LOG_HASH_PRE" ]]; then
+  LOG_HASH_NOW=$($HASHER "$LOG_PATH" | awk '{print $1}')
+  if [[ "$LOG_HASH_NOW" != "$LOG_HASH_PRE" ]]; then
+    rm -f "$SPEC_PATH.autoapply-tmp"
+    abort "hash-mismatch" "$LOG_PATH SHA-256 changed: pre=${LOG_HASH_PRE:0:8} now=${LOG_HASH_NOW:0:8}"
+  fi
+fi
+
+# 2. Read $SPEC_PATH once into a working buffer (in-memory or .autoapply-tmp).
+#    The live spec is NOT edited in place — edits target the buffer until the
+#    atomic rename commit point. Either approach is acceptable; the temp-file
+#    approach is shown for clarity.
+cp -- "$SPEC_PATH" "$SPEC_PATH.autoapply-tmp"
+```
+
+**Apply each edit in declared order (F1 → F2 → ...) against the buffer:**
+
+- **Wrong-premise → Open Questions append:** locate the resolved heading (or create `## Open Questions` at EOF if none); append a bullet of the form:
+  ```
+  - [<short title from finding>] (auto-applied 2026-04-27 from /planning-loop arbiter ruling: <verbatim arbiter rationale>)
+  ```
+  Idempotency note: spec already has a bullet with the same title → still append (no de-dupe in MVP); audit entry shows it.
+- **Load-bearing Shape A:** literal-string replace `old_string` → `new_string` within the named section's body range only. (Single occurrence within section was already validated; replace is exact-substring.)
+- **Load-bearing Shape B:** literal-string insert `new_string` immediately after the unique anchor match within the named section's body range only.
+
+**Re-validate after each edit** (one prior edit could introduce a duplicate of a later edit's `old_string` or shift the section's body range): re-run the substring-count + match-within-section checks against the in-progress buffer for every remaining finding. If uniqueness drops to 0 or grows to >1, OR if a match leaves its named section, OR if any required field went stale → mid-apply failure: delete `$SPEC_PATH.autoapply-tmp`, append `## Auto-apply aborted — <ts>` with reason `apply-failure` and detail naming the failing finding, fall through to menu. Live `$SPEC_PATH` was never touched and is byte-identical to pre-Phase-1a state.
+
+```bash
+# 3. After all in-memory edits succeed, sync the buffer and atomically
+#    commit. The mv is the single commit point.
+sync 2>/dev/null || true
+if ! mv "$SPEC_PATH.autoapply-tmp" "$SPEC_PATH"; then
+  rc=$?
+  rm -f "$SPEC_PATH.autoapply-tmp"
+  abort "apply-failure" "atomic rename failed: errno=$rc (likely cross-device-link or permission)"
+fi
+
+# 4. Compute post-apply hash and append the audit entry. Single >> write so
+#    POSIX O_APPEND atomicity covers short entries; very large entries may
+#    not be atomic but the harness's audit entries fit comfortably.
+SPEC_HASH_POST=$($HASHER "$SPEC_PATH" | awk '{print $1}')
+TS=$(date '+%Y-%m-%d %H:%M:%S')
+ENTRY=$(build_auto_apply_entry "$TS" "$SPEC_HASH_PRE" "$SPEC_HASH_POST" "$VERDICTS_BY_ID")
+
+if ! printf '%s' "$ENTRY" >> "$LOG_PATH"; then
+  # 5. Documented post-rename-pre-audit inconsistency-window exception.
+  #    The spec is now mutated; rolling back atomically is impossible without
+  #    a second non-atomic write (worse than the inconsistency). Print a
+  #    clear stderr warning and best-effort the abort entry. This is the one
+  #    documented exception to "spec never mutated without audit entry".
+  echo "⚠ /planning-loop auto-apply: spec WAS modified at $SPEC_PATH but audit append to $LOG_PATH failed." >&2
+  echo "  Inspect via: git diff $SPEC_PATH" >&2
+  echo "  See SKILL.md Step 6f Phase 1b for the documented post-rename-pre-audit window." >&2
+  printf '## Auto-apply aborted — %s\n\nReason: log-append-failure\n\n' "$TS" >> "$LOG_PATH" 2>/dev/null || true
+  # Fall through to menu (now contextually pointless but preserves contract).
+  return_status="audit-failure"
+fi
+```
+
+**Audit entry shape** (matches Data Model in the spec — `## Auto-apply — <ts>` with Preconditions line, both pre/post hashes, and `### Applied` block of per-finding bullets):
+
+```markdown
+## Auto-apply — <YYYY-MM-DD HH:MM:SS>
+
+Preconditions: unanimous=true, mechanical=true, no-defer-or-nice=true, all-edits-validated=true, spec-hash-stable=true, opt-out-not-set=true.
+Spec SHA-256 (pre-apply): <hex>
+Spec SHA-256 (post-apply): <hex>
+
+### Applied
+- **F1** [wrong-premise → Open Questions]
+  - Title: <one-line title>
+  - Arbiter rationale (verbatim): <one-sentence rationale>
+  - Ruled by: code-reviewer + Plan
+  - Spec section touched: `## Open Questions`
+- **F2** [load-bearing → spec edit (Shape A)]
+  - Title: <one-line title>
+  - Spec section touched: `<section heading>`
+  - Old text (verbatim): <snippet>
+  - New text (verbatim): <snippet>
+- **F3** [load-bearing → spec edit (Shape B insert-after)]
+  - Title: <one-line title>
+  - Spec section touched: `<section heading>`
+  - Anchor (verbatim): <snippet>
+  - Inserted text (verbatim): <snippet>
+```
+
+There is no `### Skipped` section. Auto-apply is all-or-nothing — either every finding lands or none do. On a "none" outcome the receipt is never printed (the menu prints instead and a separate `## Auto-apply aborted — <ts>` block is appended to `$LOG_PATH` with the abort reason).
+
+**Auto-apply aborted entry shape** (appended on any 1a or 1b failure path):
+
+```markdown
+## Auto-apply aborted — <YYYY-MM-DD HH:MM:SS>
+
+Reason: <opt-out-set | validation-failure | hash-mismatch | apply-failure | log-append-failure | orphan-tmp-detected | verdict-id-mismatch | verdict-missing | mixed-routing-incomplete | log-parse-failure>
+Failed finding: <F-id or "n/a">
+Detail: <e.g. "F2 old_string matches 0 times in $SPEC_PATH" / "F3 insert_after matches 3 times" / "F2 section 'Constraints' not found in $SPEC_PATH" / "F2 old_string match falls outside section 'Constraints' body range" / "JSON block in F1 unparseable: <error>" / "$SPEC_PATH SHA-256 changed between validation and apply (external mutation detected): pre=<hex8> now=<hex8>" / "atomic rename failed: <errno>" / "PLANNING_LOOP_NO_AUTO_APPLY=1 set" / "orphan $SPEC_PATH.autoapply-tmp detected from prior run">
+
+Falling through to 4-option menu.
+```
+
+**Cleanup invariants:**
+- Temp file `$SPEC_PATH.autoapply-tmp` is deleted before exit on any failure path.
+- On the success path, the atomic `mv` consumes it (no leftover).
+- All edits happen in working tree only; **no `git add`, no `git commit`**. Rule #6 (user owns `/commit`) is preserved.
+
 ## Step 6: Final output
 
 **Before any exit message in this step (success, escalation, or any error path elsewhere in the skill), invoke the restore helper:**
