@@ -6,6 +6,11 @@
 .harness-state/*
 !.harness-state/triage-log.md
 
+# /planning-loop side-path copy — ephemeral, written/deleted by the skill.
+# Pattern protects against accidental commit if a run is interrupted before
+# the restore helper runs. See skills/planning-loop/SKILL.md Step 5b.
+docs/specs/_REVIEW-*
+
 # macOS
 .DS_Store
 
