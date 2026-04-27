@@ -79,21 +79,23 @@ This completes the model-pin spec — all 9 tasks across 3 waves shipped.
 
 **Why this wave:** Single-skill change — `/planning-loop` Step 6 escalation gains an auto-apply branch that edits `$SPEC_PATH` in place when round-3 arbiter rulings are unanimous and mechanical, instead of printing the 4-option menu. All 5 tasks ship together: Tasks 1-3 (skill body) don't function without Task 4's rule updates, and Task 5 (15 fixtures) is the regression coverage that gates merge. Task 4 includes a one-bullet schema-doc add to `skills/project-init/SKILL.md` for the new `planning_loop.auto_apply` profile key — coordinated cross-skill edit, not a separate workstream.
 
-- [ ] **Planning-loop auto-apply arbiter** [spec](./specs/2026-04-27-planning-loop-auto-apply-arbiter.md) — auto-apply branch on Step 6 escalation when arbiter rulings are unanimous + mechanical; carve-out for Rule #4 at cap-reached; opt-out via env var + `.harness-profile.planning_loop.auto_apply`.
-  - [ ] Task 1 — Add Step 6e (auto-apply preconditions) + `*.autoapply-tmp` to `.gitignore`
-  - [ ] Task 2 — Add Step 6f (executor: validate → pre-hash → recheck → in-memory apply → temp-file → atomic rename → audit append)
-  - [ ] Task 3 — Branch Step 6 escalation, add output template, add Phase 1c orphan-temp-file detection at Step 1 pre-flight, update `lib/restore.sh` to clean stale `.autoapply-tmp` files
-  - [ ] Task 4 — Update Rules #4/#9, add Rule #11; add JSON-edit-block requirement to Step 6.5b arbiter prompt; document opt-out (env var + profile key); one-bullet schema-doc add to `skills/project-init/SKILL.md`
-  - [ ] Task 5 — Create `skills/planning-loop/test-fixtures/` + bash driver + 15 fixtures (A-O: happy path, 4 abort reasons, both edit shapes, opt-out paths, hash-mismatch, orphan recovery, simulated log-append-fail)
+- [x] **Planning-loop auto-apply arbiter** [spec](./specs/2026-04-27-planning-loop-auto-apply-arbiter.md) — commits `80c6bb3` (Task 1), `2776fde` (Task 2), `c447dea` (Task 3), `36d896b` (Task 4), `846cd1b` (Task 5). Merge `5b29e9a`.
+  - [x] Task 1 — Add Step 6e (auto-apply preconditions) + `*.autoapply-tmp` to `.gitignore` (`80c6bb3`)
+  - [x] Task 2 — Add Step 6f (executor: validate → pre-hash → recheck → in-memory apply → temp-file → atomic rename → audit append) (`2776fde`)
+  - [x] Task 3 — Branch Step 6 escalation, add output template, add Phase 1c orphan-temp-file detection at Step 1 pre-flight, update `lib/restore.sh` to clean stale `.autoapply-tmp` files (`c447dea`)
+  - [x] Task 4 — Update Rules #4/#9, add Rule #11; add JSON-edit-block requirement to Step 6.5b arbiter prompt; document opt-out (env var + profile key); one-bullet schema-doc add to `skills/project-init/SKILL.md` (`36d896b`)
+  - [x] Task 5 — Create `skills/planning-loop/lib/test-fixtures/` + bash driver + 15 fixtures (A-O: happy path, 4 abort reasons, both edit shapes, opt-out paths, hash-mismatch, orphan recovery, simulated log-append-fail) (`846cd1b`)
 
-**Wave 4 exit gate (PENDING):**
-- `grep -cF '### 6e. Auto-apply preconditions' skills/planning-loop/SKILL.md` returns 1
-- `grep -cF '### 6f. Auto-apply executor' skills/planning-loop/SKILL.md` returns 1
-- `grep -cF '*.autoapply-tmp' .gitignore` returns >= 1
-- `grep -cF 'autoapply-tmp' lib/restore.sh` returns >= 1
-- `grep -cF 'PLANNING_LOOP_NO_AUTO_APPLY' skills/planning-loop/SKILL.md` returns >= 1
-- `grep -cF 'planning_loop.auto_apply' skills/planning-loop/SKILL.md` returns >= 1
-- `grep -cF 'planning_loop' skills/project-init/SKILL.md` returns >= 1
-- `grep -cF 'Rule #11' skills/planning-loop/SKILL.md` returns >= 1
-- `test -d skills/planning-loop/test-fixtures` exits 0
-- `bash skills/planning-loop/test-fixtures/run-all.sh` exits 0
+**Wave 4 exit gate (PASS 2026-04-27, merge `5b29e9a`):**
+- ✓ `grep -cF '### 6e. Auto-apply preconditions' skills/planning-loop/SKILL.md` returns 1
+- ✓ `grep -cF '### 6f. Auto-apply executor' skills/planning-loop/SKILL.md` returns 1
+- ✓ `grep -cF '*.autoapply-tmp' .gitignore` returns >= 1
+- ✓ `grep -cF 'autoapply-tmp' skills/planning-loop/lib/restore.sh` returns >= 1
+- ✓ `grep -cF 'PLANNING_LOOP_NO_AUTO_APPLY' skills/planning-loop/SKILL.md` returns >= 1
+- ✓ `grep -cF 'planning_loop.auto_apply' skills/planning-loop/SKILL.md` returns >= 1
+- ✓ `grep -cF 'planning_loop' skills/project-init/SKILL.md` returns >= 1
+- ✓ `grep -cF 'Rule #11' skills/planning-loop/SKILL.md` returns >= 1
+- ✓ `test -d skills/planning-loop/lib/test-fixtures` exits 0
+- ✓ `bash skills/planning-loop/lib/test-fixtures/run-fixtures.sh` exits 0 (15/15 fixtures pass)
+
+Deviations: (1) plan.md ↔ spec path divergence resolved at close-time — orchestrator followed spec paths (`skills/planning-loop/lib/test-fixtures/`, `run-fixtures.sh`) per sub-bullets-win convention; this exit-gate now reflects the spec paths. (2) Worktree pre-existed at older base `cbc2046`; orchestrator ran `git merge --ff-only master` to `e6f653a` before Task 1. (3) Bash 3.2 driver shim — macOS bash lacks associative arrays; driver uses dynamic var names + `eval`. (4) Test-only env var `PLANNING_LOOP_TEST_PIN_SPEC_HASH_PRE` — Fixture L only; production path never reads it. Summary: `docs/2026-04-27-claude-harness-wave4-summary.md`.
