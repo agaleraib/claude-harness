@@ -199,6 +199,14 @@ Captures a side-quest or unplanned issue to `parking_lot.md` without switching c
 - [2026-04-12] glossary-patcher returns undefined on empty input (source: micro — wire translate endpoint)
 ```
 
+#### `triage-parking`
+
+Sweeps `parking_lot.md` on demand: classifies open items (skip / archive / substantive / modest / trivial-auto-ok), archives stale items, queues modest ones, and opens at most one bundled draft PR for items you've explicitly tagged `[auto-ok]`. Triage-only by default; never auto-merges. Per-repo opt-in via `triage_parking.enabled: true` in `.harness-profile` (project-init seeds the block commented out). Skips anything matching `/key|secret|credential|token|password/i` — secrets never reach a PR. Always writes one line to `.harness-state/triage-log.md` so you see what the sweep did.
+
+```
+/triage-parking
+```
+
 #### `commit`
 
 Reviews staged changes before committing, surfaces related parking lot items, lets you fix or park issues, and updates plan.md if the commit moves a plan item forward.
