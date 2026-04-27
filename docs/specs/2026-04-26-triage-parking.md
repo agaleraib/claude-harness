@@ -78,28 +78,42 @@ This guarantees: a failed run leaves zero side effects on main beyond the triage
 
 Classification is a pure read of the current `parking_lot.md` on main. No file mutations occur in this step. For each open item, assign exactly one bucket using the inlined rubric below.
 
-**Skip (no action, leave in Open):**
-- Description matches `/key|secret|credential|token|password/i` (security — human only)
-- Has `[hold]` marker
-- `source:` field matches the active micro-goal in `.harness-state/current_micro.md` (in-flight collision)
+**Classification precedence (must be evaluated in this order — first match wins):**
 
-**Archive (will move to `## Archived` inside the worktree branch only):**
-- Item date >90 days old AND no `[auto-ok]` marker AND no activity referencing it in last 30 commits
+1. **`skip-secret` (security gate — runs before all other buckets).** An item is classified `skip-secret` if the secret regex `/key|secret|credential|token|password|api[_ -]?key|bearer|authorization|priv(ate)?[_ -]?key|passphrase/i` matches against **any** of the following fields:
+   - `description`
+   - `source` (URL, file path, or any free-text source string)
+   - `name` / item header
+   - The raw, unparsed parking-lot block text for the item (catches malformed items, comments, trailing tokens, anything between this item's bullet and the next)
+   - Any field-derived snippet the skill computes from the item (e.g., a diff hunk, a generated label, a candidate commit message)
 
-**Substantive (flag for human, leave in Open):**
-- Description contains `investigate|consider|explore|design|document|review whether|may not be|should we|maybe|could`
-- Description references architectural change (>1 file impact stated, or words like "refactor", "redesign", "migration")
-- No `[auto-ok]` marker
+   The classifier MUST scan every echoable field, not just `description`. If the regex matches in any of the above, the item is `skip-secret` regardless of other markers (`[auto-ok]`, `[hold]`), date, or other classification signals. This is a one-way gate: once an item enters `skip-secret`, no later rule may demote it.
+2. **`skip-hold`** — has `[hold]` marker (not redacted).
+3. **`skip-collision`** — `source:` field matches the active micro-goal in `.harness-state/current_micro.md` (not redacted).
+4. **`archive`** — item date >90 days old AND no `[auto-ok]` marker AND no activity referencing it in last 30 commits. Will move to `## Archived` inside the worktree branch only.
+5. **`substantive`** (flag for human, leave in Open) — description contains `investigate|consider|explore|design|document|review whether|may not be|should we|maybe|could`, OR references architectural change (>1 file impact stated, or words like "refactor", "redesign", "migration"), AND no `[auto-ok]` marker.
+6. **`modest`** (queue for `/micro`, leave in Open with `[queued]` marker appended inside the worktree branch only) — single concrete action ("add retry logic", "fix grep fallback") but spans >1 file or >20 LOC estimated, AND no `[auto-ok]` marker. A `[queued YYYY-MM-DD]` token will be appended to the item line so future runs skip it — this edit happens in the worktree, not on main.
+7. **`trivial-auto-ok`** (eligible for draft PR) — has explicit `[auto-ok]` marker (user opted this specific item in), imperative phrasing ("rename X", "remove Y", "add Z fallback"), estimated single-file, <20 LOC change.
 
-**Modest (queue for `/micro`, leave in Open with `[queued]` marker appended inside the worktree branch only):**
-- Single concrete action ("add retry logic", "fix grep fallback") but spans >1 file or >20 LOC estimated
-- No `[auto-ok]` marker
-- A `[queued YYYY-MM-DD]` token will be appended to the item line so future runs skip it — this edit happens in the worktree, not on main
+**Why the precedence ordering is load-bearing:** the secret regex MUST run before archive/queue/touch classification, because any non-`skip-secret` bucket eventually emits the item's `source` (and sometimes the description snippet) onto an output surface — PR body, terminal report, commits, diffs. If a token-like value lives in `source` but the description is plain prose, an ordering that classifies by description first would route the item to (e.g.) `substantive` and then leak `source` into the user report. Putting `skip-secret` first, with a field-complete scan, closes that gap.
 
-**Trivial-auto-ok (eligible for draft PR):**
-- Has explicit `[auto-ok]` marker (user opted this specific item in)
-- Imperative phrasing ("rename X", "remove Y", "add Z fallback")
-- Estimated single-file, <20 LOC change
+### Redaction contract for `skip-secret` items (applies to ALL output surfaces and ALL fields)
+
+A parking-lot item classified as `skip-secret` MUST NOT have **any** of its fields — `description`, `source`, `name`/header, raw block text, or any field-derived snippet — echoed to any of the following surfaces:
+- The Step 6 user-facing report (terminal stdout AND stderr)
+- The Step 5 triage-log line in `.harness-state/triage-log.md`
+- The Step 4.8 PR title, PR body, or any commit message inside the PR
+- Any file diff inside the PR (since `skip-secret` items are never moved or modified, they cannot leak via diff — but this is restated as a hard invariant)
+- Any spec-internal example, fixture, or test asserting on these surfaces
+
+The redaction set is **field-complete**: it matches the field set scanned by the Step 2 classifier (precedence rule #1). If the classifier scans field X to decide an item is a secret, the redaction contract guarantees field X is never emitted for that item. There is no field that can carry a secret into classification but escape redaction afterwards.
+
+For each `skip-secret` item, the only fields that may appear on these surfaces are:
+- The original parking-lot **date** (and only on the Step 6 user report — never in the triage-log line, which is aggregate-only)
+- The fixed label `skipped(secret-redacted)`
+- An aggregate count (e.g., `1 skipped(secret-redacted)`)
+
+The original description, source, name, and raw block text are never logged, printed, or transmitted by this skill. The audit trail for a redacted item is "the user's own parking_lot.md on main, which is unchanged" — anyone investigating can read the source file directly. This preserves the safety-goal invariant that the skill never re-emits leaked secrets, even into the user's own audit log.
 
 ### Step 3: Cap and select
 
@@ -151,7 +165,8 @@ Each step below sets exactly one of these flags on success. Rollback consults th
 8. Open draft PR via `gh pr create --draft`:
    - auto-fix mode title: `chore(parking): triage <N> items ${RUN_ID}` (the date prefix of `${RUN_ID}` is what's shown to humans; the full ID stays in the branch name)
    - triage-only mode title: `chore(parking): triage sweep YYYY-MM-DD — archive <A>, queue <Q>` (date only — `${RUN_ID}` is not user-facing here)
-   - PR body: bulleted list of every item touched (resolved / archived / queued) with original parking_lot date + source; include `Run ID: ${RUN_ID}` in a trailer line for traceability
+   - PR body: bulleted list of every item **touched** (resolved / archived / queued) with original parking_lot date + source. **`skip-secret` items are by construction never touched** (they remain in `## Open` untouched), so they should not appear in the PR body at all. If for any reason the PR body needs to reference the skipped count (e.g., a future "summary" footer), it MUST use the same `N items skipped(secret-redacted)` aggregate form from Step 6 — never per-item descriptions or source strings.
+   - Include `Run ID: ${RUN_ID}` in a trailer line for traceability
    - **If `gh pr create` fails** → run rollback procedure (including deleting the pushed branch), log `pr-create-failed`, exit 0.
 9. Clean up worktree (`git worktree remove "${WORKTREE_PATH}"`). The branch stays on the remote as the PR branch.
 
@@ -169,17 +184,19 @@ This procedure guarantees: a pre-existing branch/worktree/PR-branch with a colli
 
 ### Step 5: Triage log
 
-Per the Logging contract above, append exactly one line to `.harness-state/triage-log.md` (create file with header if missing). Successful run shape:
+Per the Logging contract above, append exactly one line to `.harness-state/triage-log.md` (create file with header if missing). The line is a single aggregate row — it never includes per-item descriptions, names, or `source:` strings, so the redaction contract is satisfied trivially for `skip-secret` items (only the count appears). Successful run shape:
 
 ```
-2026-04-26: 11 reviewed | 2 auto→PR#42 | 1 modest queued | 5 substantive | 2 archived | 1 skipped(secret)
+2026-04-26: 11 reviewed | 2 auto→PR#42 | 1 modest queued | 5 substantive | 2 archived | 1 skipped(secret-redacted)
 ```
 
 Triage-only PR shape:
 
 ```
-2026-04-26: 11 reviewed | 0 auto | 1 modest queued | 5 substantive | 2 archived | 1 skipped(secret) | triage-only→PR#43
+2026-04-26: 11 reviewed | 0 auto | 1 modest queued | 5 substantive | 2 archived | 1 skipped(secret-redacted) | triage-only→PR#43
 ```
+
+The token `skipped(secret-redacted)` is a fixed string. The skill MUST NOT substitute the original description, item date, or any other identifier into this slot — only the integer count.
 
 Failure shapes:
 
@@ -195,9 +212,21 @@ The line is written for every invocation, no exceptions.
 
 Print the triage-log line plus:
 - PR URL if one was opened (auto-fix or triage-only)
-- Names/dates of the 5 most-recent items in each non-empty bucket (so user can sanity-check classifications)
+- Names/dates of the 5 most-recent items in each non-empty bucket (so user can sanity-check classifications) — **with the redaction carve-out below**
 - On rollback: a one-line note stating which failure path triggered it and confirming main is clean
 - One-line next-action suggestion if substantive count >5: "Substantive backlog at N — consider a triage-parking session-end ritual to promote or close them"
+
+**Redaction carve-out for `skip-secret` items (per the Step 2 Redaction contract):**
+
+The "names/dates of 5 most-recent items" rule applies as written to: `archive`, `substantive`, `modest`, `trivial-auto-ok`, `skip-hold`, and `skip-collision`. For these buckets, print one line per item in the form `YYYY-MM-DD <description-snippet>`.
+
+For the `skip-secret` sub-bucket the report MUST instead print a single aggregate line:
+
+```
+skipped(secret-redacted): N items (dates: YYYY-MM-DD, YYYY-MM-DD, ...)
+```
+
+Only the date field of each redacted item may appear. The `description` and `source` fields never appear in the report. If the user wants to inspect the items, they read `parking_lot.md` directly. This guarantees the safety goal: the skill itself never re-emits a leaked secret to terminal, log, or PR.
 
 ## Skill file location
 
@@ -229,12 +258,13 @@ This is the only change to `/park` — markers are opt-in, not prompted.
 1. Build skill in claude-harness on a feature branch
 2. Test against claude-harness's own parking_lot.md (set `triage_parking.enabled: true` in this repo's profile first)
 3. Verify dry-run classifies the existing 11 items correctly:
-   - 🔑 API key item → skipped (secret)
+   - 🔑 API key item → `skip-secret` (redaction contract applies — its description and source MUST NOT appear in terminal output, triage-log, or PR body; only its date may appear, and only inside the aggregate `skipped(secret-redacted)` line)
    - "Document branches vs worktrees" → substantive (contains "document")
    - "session-start parking_baseline init fails" → modest (concrete bug, single file likely)
    - Most others → substantive (contain "consider", "investigate", design judgment)
    - Expected trivial-auto-ok count: 0 (no items currently have the marker — that's correct, marker is new)
    - Expected mode: triage-only if any modest items need `[queued]` markers OR any items qualify for archive; else no-op. Either way, parking_lot.md on main must be unchanged after the dry-run.
+   - **Redaction acceptance check for the dry-run:** capture the full terminal stdout/stderr of the dry-run and assert no original secret-bearing content leaks. Use the **fixture-marker** approach (mirrors Task 7e): seed each secret-bearing fixture item with a unique marker token (e.g., `MARKER-DESC-XYZ-1`), then `grep -F <marker>` against the captured stdout/stderr AND `.harness-state/triage-log.md`. Each marker grep must return zero matches. The literal label `skipped(secret-redacted)` is permitted and expected. (A keyword-style `grep -i 'secret\|token\|...'` would false-fail on the required label string itself — use markers, not keywords.)
 4. Manually add `[auto-ok]` to one item, re-run, verify auto-fix draft PR opens cleanly AND parking_lot.md on main is unchanged until the PR is merged
 5. Force a quality-gate failure (e.g., temporarily break a test), re-run, verify rollback: no PR opens, no remote branch lingers, parking_lot.md on main unchanged, triage-log line shows `quality-gate-failed`
 6. Merge to master; symlink picks up automatically
@@ -254,6 +284,7 @@ This is the only change to `/park` — markers are opt-in, not prompted.
 | 7b | Collision test: pre-create a branch named `triage/parking-${RUN_ID}` (using a fixture script that mimics the same-day naming scheme), invoke `/triage-parking`, confirm it either picks a new suffix on retry OR exits with `gate=name-collision` and never touches the pre-existing branch | small | manual |
 | 7c | Stateful-rollback test: pre-create a branch with the legacy date-only name `triage/parking-YYYY-MM-DD` from a fake "prior run", trigger a forced failure mid-run, verify the pre-existing branch is **not** deleted and the rollback log notes `rollback-skipped-*` if applicable | small | manual |
 | 7d | Dirty-log refusal test: dirty `.harness-state/triage-log.md` (e.g., add a stray uncommitted line), invoke skill, confirm refusal goes to stderr only and no file is mutated | trivial | manual |
+| 7e | Field-complete redaction test: craft a fixture parking_lot with **four** secret-bearing items, each carrying a distinct unique marker in a *different* field — (i) `MARKER-DESC-XYZ-1` in `description` only, (ii) `MARKER-SOURCE-XYZ-2` in `source:` only (description is plain prose like "tighten retry logic"), (iii) `MARKER-NAME-XYZ-3` in the item name/header only, (iv) `MARKER-RAW-XYZ-4` in the raw block text only (e.g., as a stray trailing comment between fields). Run skill in dry-run AND in triage-only-PR mode. Assert `grep -F` for each of the four markers returns **zero** matches against: (a) terminal stdout, (b) terminal stderr, (c) `.harness-state/triage-log.md`, (d) the opened PR title fetched via `gh pr view --json title`, (e) the opened PR body fetched via `gh pr view --json body`, (f) every commit message in the PR fetched via `gh pr view --json commits`, (g) every file diff in the PR fetched via `gh pr diff`. Only the literal `skipped(secret-redacted)` may appear, and the aggregate count must be `4`. The source-only and name-only and raw-only cases are the load-bearing assertions: they prove the classifier scans every field, not just `description`. | small | manual |
 | 8 | README: add `/triage-parking` to skills section with one-line description | trivial | haiku |
 
 ## Verify
@@ -263,7 +294,9 @@ This is the only change to `/park` — markers are opt-in, not prompted.
 - Skill never opens a PR when working tree is dirty AND a `SKIPPED gate=clean-tree` log line is appended (or, when the log itself is dirty, a `[stderr-only]` refusal line is printed and no file is mutated)
 - Skill never opens a PR when on a non-main branch AND a `SKIPPED gate=branch` log line is appended
 - Dirty-tree refusal where the user's uncommitted changes touch `.harness-state/` results in zero file mutation — the refusal line goes to stderr, not the log file
-- Secret-bearing items never appear in any PR diff
+- **Field-complete secret classification (precedence #1, runs before all other buckets):** the classifier scans `description`, `source`, `name`/header, raw item block text, AND any field-derived snippet against the secret regex. An item with a secret marker in *any* of these fields is classified `skip-secret`, even if its `description` is plain prose and its other markers (`[auto-ok]`, `[hold]`) or date would otherwise route it elsewhere. No bucket other than `skip-secret` may emit `source`, `description`, or raw block text for a secret-bearing item, because no secret-bearing item ever leaves the `skip-secret` bucket.
+- **Redaction contract (uniform across all surfaces and ALL fields):** for any item classified `skip-secret`, none of `description`, `source`, `name`/header, raw block text, or any field-derived snippet may appear in (a) terminal stdout, (b) terminal stderr, (c) `.harness-state/triage-log.md`, (d) any commit message, (e) any file diff inside the PR, (f) the PR title, (g) the PR body fetched via `gh pr view --json body,title,commits`. The only allowed surface representations are: the integer count, the literal label `skipped(secret-redacted)`, and (in the Step 6 user report only) the original parking-lot date. The redaction set is field-complete with the classifier's scan set — every field that can carry a secret into classification is also redacted out of every output. The field-complete redaction test (Task 7e — four markers, one per field) is the canonical pass/fail check.
+- Secret-bearing items never appear in any PR diff (subsumed by the redaction contract above; called out separately because the parking_lot.md edits in the PR also count as a "diff" surface — `skip-secret` items are never moved by the skill, so they cannot leak via parking_lot diff either)
 - `.harness-state/triage-log.md` line is appended on every invocation **except** the explicit dirty-tree-on-log-path exception, which prints to stderr instead
 - Worktree is cleaned up via the rollback procedure on every failure path (quality-gate, push, gh)
 - After any rollback path, `git status` on the main checkout is clean and `git log` on main is unchanged from before the run
@@ -283,3 +316,4 @@ This is the only change to `/park` — markers are opt-in, not prompted.
 - Should `/session-end` call `/triage-parking` automatically when parking_lot has >5 items? (Tempting but violates "lean rituals over automation" — skip)
 - Triage-only mode opens a PR for archive/queue mutations even when no code changes; could feel noisy. Acceptable for v1 because it preserves the "all parking_lot mutations go through reviewed PRs" invariant. v2 may add a `--auto-merge-triage-only` flag for solo repos once the routine has earned trust — explicitly excluded from v1 per the "never auto-merges" non-goal.
 - Audit-gap on dirty-log refusal: the dirty-tree-on-log-path exception leaves no on-disk record of the refusal — the user must read terminal stderr to know the skill ran. Acceptable for v1 because the only path that triggers the gap is one where the user is *already* mid-edit on `.harness-state/`, so they're actively in the loop. v2 could add a sibling refusal-log path (e.g., `~/.claude/triage-refusal-log.md` outside the repo) if this proves to be a problem; deferred until evidence justifies the second log surface.
+- Unlabeled high-entropy secret detection: Codex (`/planning-loop` run 2 round 3, 2026-04-27) flagged the keyword-only secret gate as insufficient for unlabeled provider-shaped tokens or high-entropy values that lack words like `key`/`secret`/`token`. Both arbiters (`code-reviewer`, `Plan`) ruled wrong-premise: this skill targets human-authored prose where labeled secrets dominate the realistic threat, and entropy detection would create false positives (UUIDs, base64 image refs, hashes) plus alert fatigue that defeats the labeled-secret guard. If the skill ever ships to multi-author repos where untrusted authors write parking entries, the right response is a single opt-in pre-flight gate delegating to a dedicated tool (e.g., `gitleaks detect --source parking_lot.md --no-git`) — not bolting entropy detection into the triage classifier. Deferred until that scenario materializes.
