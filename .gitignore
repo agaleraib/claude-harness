@@ -11,6 +11,12 @@
 # the restore helper runs. See skills/planning-loop/SKILL.md Step 5b.
 docs/specs/_REVIEW-*
 
+# /planning-loop auto-apply temp file — written by Step 6f, consumed by the
+# atomic rename at the commit point. Pattern protects against accidental
+# commit if a run is interrupted between temp-write and rename. The orphan
+# detector at Step 1 pre-flight reports any leftover; restore.sh deletes it.
+*.autoapply-tmp
+
 # macOS
 .DS_Store
 

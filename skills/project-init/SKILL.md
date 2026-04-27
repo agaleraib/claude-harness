@@ -231,6 +231,16 @@ methodology:
 # explicitly tagged [auto-ok] in parking_lot.md. Triage-only without it.
 # triage_parking:
 #   enabled: false
+
+# /planning-loop auto-apply at cap (REVISE mode).
+# When the cap-reached path's arbiter rulings are unanimous and every
+# load-bearing fix passes the JSON edit-block contract, /planning-loop
+# applies them to $SPEC_PATH via temp-file + atomic rename and prints a
+# receipt instead of the 4-option menu. Default is true; set to false to
+# always fall through to the menu (paranoid mode). Env var
+# PLANNING_LOOP_NO_AUTO_APPLY=1 takes precedence over this key.
+# planning_loop:
+#   auto_apply: true
 ```
 
 ## Step 6: Bootstrap session state directory

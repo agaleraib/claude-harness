@@ -24,10 +24,21 @@ fi
 PARKED="$(jq -r '.parked // false' "$STATE_FILE")"
 SIDE_COPY="$(jq -r '.side_copy // empty' "$STATE_FILE")"
 STASH_MSG="$(jq -r '.stash_message // empty' "$STATE_FILE")"
+SPEC_PATH="$(jq -r '.spec_path // empty' "$STATE_FILE")"
 
 # 1. Drop the side-path copy if it exists — it's an ephemeral artifact.
 if [[ -n "$SIDE_COPY" && -f "$SIDE_COPY" ]]; then
   rm -f "$SIDE_COPY"
+fi
+
+# 1b. Drop the auto-apply temp file next to the active spec if it exists.
+# Created by Step 6f Phase 1b before the atomic rename; if a Phase 1b abort
+# happened between temp-write and rename, the file is stale. Note: this does
+# NOT auto-restore — the orphan handler at Step 1 pre-flight (Phase 1c) owns
+# user-visible recovery. This block only handles the common case where the
+# skill exits cleanly via menu after Phase 1b aborted.
+if [[ -n "$SPEC_PATH" && -f "${SPEC_PATH}.autoapply-tmp" ]]; then
+  rm -f "${SPEC_PATH}.autoapply-tmp"
 fi
 
 # 2. Pop the stash if one was created.
