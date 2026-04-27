@@ -147,6 +147,55 @@ if [[ -n "$ORPHAN_STASH" ]]; then
 fi
 ```
 
+**1c. Orphan auto-apply temp-file detection (Phase 1c — recovery for hard-kill mid-Step-6f).** The Step 6f executor writes the fully-edited spec to `<SPEC_PATH>.autoapply-tmp` and then atomically renames it to `<SPEC_PATH>`. On SIGKILL, terminal death, or host crash between the temp-write and the rename, the live spec is byte-identical to its pre-Phase-1a state but the orphan temp file is left behind. Detect it here, before any auto-park or new spec-resolution work runs. Conservative: only `*.autoapply-tmp` files in `docs/specs/` (REVISE-mode default) and the `--revise <path>` parent directory are considered. Stray `*.autoapply-tmp` files elsewhere in the tree are ignored.
+
+```bash
+# Build the candidate scan set: docs/specs always, plus the --revise parent
+# dir if it differs.
+ORPHAN_DIRS=( "docs/specs" )
+if [[ -n "${SPEC_PATH:-}" ]]; then
+  PARENT_DIR="$(dirname "$SPEC_PATH")"
+  case " ${ORPHAN_DIRS[*]} " in
+    *" $PARENT_DIR "*) : ;;
+    *) ORPHAN_DIRS+=( "$PARENT_DIR" ) ;;
+  esac
+fi
+
+ORPHAN_TMP=""
+for d in "${ORPHAN_DIRS[@]}"; do
+  [[ -d "$d" ]] || continue
+  while IFS= read -r f; do
+    ORPHAN_TMP="$f"
+    break 2
+  done < <(find "$d" -maxdepth 1 -name '*.autoapply-tmp' -print 2>/dev/null)
+done
+
+if [[ -n "$ORPHAN_TMP" ]]; then
+  ORPHAN_SPEC="${ORPHAN_TMP%.autoapply-tmp}"
+  ORPHAN_MTIME="$(stat -f '%Sm' "$ORPHAN_TMP" 2>/dev/null || stat -c '%y' "$ORPHAN_TMP" 2>/dev/null || echo 'unknown')"
+  echo "✗ /planning-loop detected an orphan auto-apply temp file from a previous run:" >&2
+  echo "    Path:   $ORPHAN_TMP" >&2
+  echo "    mtime:  $ORPHAN_MTIME" >&2
+  echo "" >&2
+  echo "  Inspect via:" >&2
+  echo "    diff $ORPHAN_SPEC $ORPHAN_TMP" >&2
+  echo "" >&2
+  echo "  Then either delete the orphan (discard the planned auto-apply):" >&2
+  echo "    rm $ORPHAN_TMP" >&2
+  echo "  Or replace the spec with it (accept the planned auto-apply):" >&2
+  echo "    mv $ORPHAN_TMP $ORPHAN_SPEC" >&2
+  echo "" >&2
+  echo "  /planning-loop will not auto-clean and will not auto-restore — you decide." >&2
+  # Best-effort: append abort entry to the most-recent log if identifiable.
+  RECENT_LOG="$(ls -t .harness-state/planning-loop/*.md 2>/dev/null | head -1 || true)"
+  if [[ -n "$RECENT_LOG" ]]; then
+    printf '\n## Auto-apply aborted — %s\n\nReason: orphan-tmp-detected\nDetail: orphan %s detected from prior run\n\nFalling through to abort.\n' \
+      "$(date '+%Y-%m-%d %H:%M:%S')" "$ORPHAN_TMP" >> "$RECENT_LOG" 2>/dev/null || true
+  fi
+  exit 1
+fi
+```
+
 **2. Working-tree pre-flight.** With no leftover state, classify the working tree:
 
 ```bash
@@ -841,7 +890,30 @@ Next: review the spec, then run the recommended implementation flow from its `##
 
 ### Escalation path (3 rounds, still `needs-attention`)
 
-Print to the user — this runs AFTER Step 6.5 has dispatched arbiters and appended their verdicts to the log:
+This path runs AFTER Step 6.5 has dispatched arbiters and appended their verdicts to the log. **Branch logic:** if 6e returns true AND 6f succeeds, print the auto-apply receipt below; on any abort (6e returns false, or 6f writes a `## Auto-apply aborted` entry), print the existing 4-option menu unchanged.
+
+#### Auto-apply receipt
+
+Printed only when 6e + 6f succeeded end-to-end (no abort path was taken). The receipt is mutually exclusive with the 4-option menu.
+
+```
+✓ Planning loop hit cap (3 rounds) — arbiters unanimous; auto-applied option 4.
+
+  Spec:         <SPEC_PATH>  (updated via atomic rename)
+  Log:          <LOG_PATH>   (auto-apply summary appended)
+  Findings handled:
+    - F1 [wrong-premise → Open Questions]: <one-line title>
+    - F2 [load-bearing → spec edit at <section>]: <one-line title>
+    - F3 [load-bearing → spec edit at <section>]: <one-line title>
+
+Review the diff and `/commit` when ready. Spec is uncommitted; restore-helper has run.
+```
+
+Skill exits 0 after printing. `lib/restore.sh` is invoked before exit (Rule #10 unchanged).
+
+#### 4-option menu (existing — preserved character-for-character)
+
+Printed on any 6e or 6f abort, OR when the auto-apply branch was never eligible to run.
 
 ```
 ⚠ Planning loop hit cap (3 rounds) without LGTM.
