@@ -82,6 +82,8 @@ I'm returning to this project after a break. Help me get oriented:
 
 Use when parking lot has 10+ items and needs a cleanup pass.
 
+If `/triage-parking` is enabled in this repo (`.harness-profile` has `triage_parking.enabled: true`), prefer running it directly — it does the same triage automatically, archives stale items, and opens a draft PR for any item you've marked `[auto-ok]`. The hand-prompt below is the fallback when the skill isn't available or you want a one-off freeform pass.
+
 ```
 Read parking_lot.md. For each open item, tell me:
 - Is it still relevant? (check if the code/file it references still exists)
