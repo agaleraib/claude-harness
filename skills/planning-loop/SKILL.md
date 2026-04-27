@@ -542,6 +542,113 @@ If only one class of findings was present, omit the empty section heading.
 
 Scan arbiter verdicts for any `wrong-premise` rulings. These become **option 4** in the cap-reached output (drop the finding with a note in the spec's `## Open Questions`). If no `wrong-premise` rulings, option 4 is omitted.
 
+### 6e. Auto-apply preconditions
+
+Runs only at the cap-reached path, after Step 6.5d and before Step 6 prints anything. This block decides whether to fall through to the existing 4-option menu (default) or take the auto-apply branch (Step 6f). Shipped 2026-04-27 as the carve-out for Rule #4 + clarification of Rule #9; full conjunctive precondition is codified in Rule #11.
+
+The branch is taken if and only if **every** clause below holds. ANY failure aborts to the menu — all-or-nothing, no partial-apply, no skipped findings, no in-place edits to live spec.
+
+**Clause 1 — Opt-out check (runs FIRST, before any other detection work):**
+
+- Env var `PLANNING_LOOP_NO_AUTO_APPLY=1` (any non-empty value is treated as set; precedence over profile).
+- Profile key `planning_loop.auto_apply: false` in `.harness-profile`. Default is `true` when key is absent.
+- If either opt-out signal is asserted, append `## Auto-apply aborted — <ts>` with reason `opt-out-set` to `$LOG_PATH`, fall through to the menu, exit via the menu path. Skip every clause below.
+
+```bash
+# Env var has precedence; profile key is a softer global default.
+AUTO_APPLY=true
+if [[ -n "${PLANNING_LOOP_NO_AUTO_APPLY:-}" ]]; then
+  AUTO_APPLY=false
+elif [[ -f .harness-profile ]] && grep -qE '^[[:space:]]*planning_loop:' .harness-profile; then
+  # Crude one-key parse — full YAML lib not assumed. The block looks like:
+  #   planning_loop:
+  #     auto_apply: false
+  if awk '
+    /^[[:space:]]*planning_loop:[[:space:]]*$/ {in=1; next}
+    in==1 && /^[^[:space:]]/ {in=0}
+    in==1 && /^[[:space:]]+auto_apply:[[:space:]]*false[[:space:]]*$/ {found=1; exit}
+    END {exit !found}
+  ' .harness-profile; then
+    AUTO_APPLY=false
+  fi
+fi
+```
+
+**Clause 2 — Unanimity over the COMPLETE round-3 finding set (mitigates "silent under-count = silent spec corruption"):**
+
+- Parse round-3 Codex findings ID set from the fenced ```text block under `## Round 3 — <ts>` in `$LOG_PATH`. Match every line of shape `^- \[(low|medium|high)\] ` and capture position-ordered IDs as `F1`, `F2`, … in document order. Result: `EXPECTED_FINDING_IDS = [F1, F2, F3, ...]` with cardinality `N`.
+- Parse arbiter verdict ID set from the `## Arbiter — <ts>` section. For each `### <arbiter-name> verdicts` subsection, match `^\*\*F[0-9]+: (load-bearing|wrong-premise|nice-to-have|defer)\*\*` per-finding bullets and accumulate `VERDICTS_BY_ID = {F1: {code-reviewer: load-bearing, Plan: load-bearing}, F2: {code-reviewer: wrong-premise}, ...}`.
+- Assert `set(EXPECTED_FINDING_IDS) == set(keys(VERDICTS_BY_ID))`. Symmetric difference → abort with reason `verdict-id-mismatch` (detail names the missing/extra IDs).
+- Assert each expected finding has at least one verdict; zero-verdict finding → abort with reason `verdict-missing` and the bare ID.
+- **Mixed-routing-aware completeness:** for each finding tagged `mixed` in the Step 6.5 routing line, BOTH arbiters MUST have ruled (both `code-reviewer` and `Plan` keys present). One-arbiter-on-mixed → abort with reason `mixed-routing-incomplete` and the bare ID. Detail-only or scope-only findings only require their routed arbiter.
+- For each finding, all arbiter verdicts must agree on the same value (no `code-reviewer=load-bearing, Plan=wrong-premise` splits). Disagreement on any finding → abort with reason `validation-failure` (detail: which finding, what split).
+- Parser is single-pass and fail-closed: any regex non-match, unparseable section heading, or IO read error on `$LOG_PATH` aborts with reason `log-parse-failure` and the failing line number.
+
+**Clause 3 — Verdict whitelist (no `defer` or `nice-to-have`):**
+
+- Every per-finding verdict must be one of `wrong-premise` or `load-bearing`. Any `defer` or `nice-to-have` on any finding → abort with reason `validation-failure`.
+
+**Clause 4 — Non-mechanical pre-filter for `load-bearing` recommendations (cheap reject before JSON parsing):**
+
+- Recommendation body must NOT contain any of (case-insensitive): `redesign`, `rethink`, `reconsider`, `restructure`, `scope-change`, `envelope`, `architecture`. Hit → that finding fails detection (treated like a missing JSON block). Pre-filter is advisory; the JSON-block contract below is authoritative.
+- Recommendation cites at most one spec section (count of `## `-prefixed headings referenced in the recommendation prose body is ≤ 1). Multi-section reference → fails detection.
+
+**Clause 5 — Edit operation contract (load-bearing findings, MUST validate before apply):**
+
+Auto-apply requires every `load-bearing` arbiter recommendation to include exactly one fenced ```json block with one of these two shapes. Both shapes require a `section` field naming the H2 heading whose body the edit belongs to (load-bearing F2 mitigation: prevents an anchor match from drifting into the wrong section, prevents accidental insertion of headings, prevents edits spanning section boundaries).
+
+**Shape A — replacement (default):**
+```json
+{
+  "section": "<exact H2 heading text from $SPEC_PATH, e.g. 'Constraints' or 'Phase 1: Detection + auto-apply core'>",
+  "old_string": "<verbatim text from $SPEC_PATH, exactly one occurrence>",
+  "new_string": "<replacement text>"
+}
+```
+
+**Shape B — insertion (additions only, no `old_string` available):**
+```json
+{
+  "section": "<exact H2 heading text from $SPEC_PATH>",
+  "insert_after": "<verbatim anchor text from $SPEC_PATH, exactly one occurrence>",
+  "new_string": "<text to insert immediately after the anchor>"
+}
+```
+
+Validation rules (all must hold for the edit to be eligible — Step 6f Phase 1a runs these in order):
+
+1. The fenced JSON block parses as valid JSON (`jq` is the load-bearing primitive; absent `jq` fails closed, treats as unparseable, aborts).
+2. Exactly one of `{section, old_string, new_string}` or `{section, insert_after, new_string}` keypairs is present (not both, not neither).
+3. `new_string` is non-empty.
+4. `section` is non-empty AND matches an H2 heading (`^## <section>` literal match, anchored) that exists exactly once in current `$SPEC_PATH`. Multi-match or zero-match on the H2 heading aborts.
+5. **Section-body-range computation:** lines from the matched `^## <section>` line (exclusive of the heading) to the next `^## ` line (exclusive) or EOF if no further H2 exists. Used by rules 6 + 7 below to bound where matches are allowed.
+6. **Shape A:** `old_string` is non-empty AND appears exactly once as a literal substring in current `$SPEC_PATH` AND that one occurrence falls inside the section body range from rule 5.
+7. **Shape B:** `insert_after` is non-empty AND appears exactly once as a literal substring in current `$SPEC_PATH` AND that one occurrence falls inside the section body range from rule 5.
+8. **H2-in-edit-text rejection:** Neither `old_string` nor `new_string` (Shape A) and neither `insert_after` nor `new_string` (Shape B) may contain a line matching `^## ` (case-sensitive, anchored). This prevents an edit from inserting or destroying a section heading and prevents matches that span heading boundaries. Edits that need to add a heading are out of scope for auto-apply (fall through to menu).
+
+**Substring-count semantics (rules 6 + 7):** `grep -Fc` counts matching LINES, not substring occurrences — under-counts multiple matches on one line and fails entirely on multi-line `old_string`. Use a literal substring counter:
+
+```bash
+# Reference implementation. printf '%s' avoids the trailing-newline that <<<
+# would add; the value of $OLD must include any trailing whitespace exactly
+# as in the JSON block.
+COUNT=$(printf '%s' "$OLD" \
+  | python3 -c 'import sys; needle = sys.stdin.read(); print(open(sys.argv[1]).read().count(needle))' \
+    "$SPEC_PATH")
+```
+
+Equivalent awk/perl literal-substring counters are acceptable.
+
+**Clause 6 — Hash-stable across validation→apply window (F4 mitigation, external-mutation detection):**
+
+- Step 6f Phase 1a captures `SPEC_HASH_PRE = sha256sum "$SPEC_PATH" | awk '{print $1}'` (or `shasum -a 256` on BSD/macOS — probe at startup).
+- Step 6f Phase 1b recomputes `SPEC_HASH_NOW` and compares to `SPEC_HASH_PRE`. Diff → abort with reason `hash-mismatch` and detail naming both 8-char hash prefixes. (External writer modified the spec between validation and apply.)
+- Same check for `$LOG_PATH` if `LOG_HASH_PRE` was recorded.
+
+**Wrong-premise findings:** automatically eligible (no JSON block required). The disposition is "append a one-line bullet to the spec's Open Questions section". Phase 1a verifies the append target is resolvable: heading regex matches `^## Open Questions` OR `^## Open questions parked for v2` OR fall-through to "create new section at EOF" is available.
+
+**Result of 6e.** A boolean: auto-apply eligible (proceed to 6f) or not (menu path). On a "not eligible" outcome, append `## Auto-apply aborted — <ts>` with the first failing reason to `$LOG_PATH` (best-effort) before falling through.
+
 ## Step 6: Final output
 
 **Before any exit message in this step (success, escalation, or any error path elsewhere in the skill), invoke the restore helper:**
