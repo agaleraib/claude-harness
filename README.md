@@ -228,6 +228,40 @@ Reviews staged changes before committing, surfaces related parking lot items, le
 
 Parked review items are tagged `[code-review]` with file:line references.
 
+#### `planning-loop`
+
+Drives a spec to a Codex-approved verdict in ≤3 rounds, fully autonomously. Two modes: **fresh** (`/planning-loop "<feature blob>"` — spec-planner drafts the spec from your pre-answered blob, then loops it through `/codex:adversarial-review`) and **revise** (`/planning-loop --revise <path-to-spec> [focus]` — iterates an existing spec). Spec-planner's discovery phase is suppressed; clarifying answers must be in the initial argument.
+
+Caps at 3 rounds and never auto-ships. On `approve` → success path. On cap-reached `needs-attention` → Step 6.5 dispatches arbiters (`code-reviewer` for detail findings, `Plan` for scope findings), then either auto-applies (when arbiter rulings are unanimous + mechanical) or prints a 4-option menu. Auto-apply executes via temp-file + atomic rename with SHA-256 hash recheck and a per-finding JSON edit-block contract; you still own `/commit`. Opt out via `PLANNING_LOOP_NO_AUTO_APPLY=1` env var (per-shell) or `planning_loop.auto_apply: false` in `.harness-profile` (per-repo). Every round writes findings to `.harness-state/planning-loop/`.
+
+```
+/planning-loop "RSS reader CLI for solo dev. MVP: subscribe to feeds..."
+/planning-loop --revise docs/specs/2026-04-15-rss-mvp.md
+/planning-loop --revise docs/specs/2026-04-15-rss-mvp.md "focus on rate limiting"
+```
+
+Requires the `openai-codex` plugin (`/codex:setup` must return `ready: true`).
+
+#### `run-wave`
+
+Dispatches the orchestrator to execute a wave from `docs/plan.md` in an isolated worktree. Reads the `### Wave N` block, parses cherry-picked sub-tasks (sub-bullets are authoritative scope), reads each referenced spec, builds a synthetic wave-spec at `/tmp/wave-N-<ts>.md`, and hands it to the orchestrator with `isolation: "worktree"`. Ends at dispatch — merging belongs to `/close-wave`.
+
+```
+/run-wave 4
+```
+
+Stops rather than guesses on missing specs, untracked task IDs, or scope ambiguity. Surfaces human-only TODOs (dashboard rotations, live deploys) in the orchestrator's final summary as items NOT to attempt.
+
+#### `close-wave`
+
+Closes a fully-shipped wave from an orchestrator's worktree onto master. Idempotent — re-invocation is safe and resumes at the correct step (state-probe at Step 0 detects the resumption point). Verifies the worktree branch (commits, quality-gate from `.harness-profile`, secret scan, cross-repo symlinks), checkpoints with you before merging, runs the `--no-ff` merge with the standard `docs/plan.md` conflict resolution, processes human-only TODOs, ticks off plan.md with commit hashes, runs the BLOCKING final gate (Step 11), and writes a closure receipt to `.harness-state/wave<N>-closed.md`.
+
+```
+/close-wave 4
+```
+
+Default is push to origin; "close-doesn't-push" is the most common cause of live targets silently reverting to pre-wave state. Reads optional `.harness-profile` keys for project-specific bits: `quality_gate.command`, `protected_paths`, `deploy.command`, `kb.skill`. Falls through to safe defaults when fields are absent (e.g. claude-harness has none configured — no quality-gate run, no KB upsert, no deploy hook).
+
 ### Safety Check Skills
 
 #### `deploy-check`
