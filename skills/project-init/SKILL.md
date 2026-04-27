@@ -255,7 +255,16 @@ Format: `- [YYYY-MM-DD] <one-line description> (source: micro-session goal X)`
 ## Resolved
 ```
 
-Add `.harness-state/` to `.gitignore` if not already present. **Do not** gitignore `parking_lot.md` — it's committed so drift history is visible in git log.
+Add this two-line block to `.gitignore` if `.harness-state/` is not already present:
+
+```
+.harness-state/*
+!.harness-state/triage-log.md
+```
+
+The exception keeps `triage-log.md` (the `/triage-parking` audit trail) committed across machines per the skill's always-log invariant. File-level patterns (`.harness-state/*` not `.harness-state/`) are required because gitignore cannot re-include a file whose parent directory is excluded.
+
+**Do not** gitignore `parking_lot.md` — it's committed so drift history is visible in git log.
 
 ## Step 7: Summary
 

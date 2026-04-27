@@ -1,5 +1,10 @@
-# Session state — local, per-machine, regenerated on each session-start
-.harness-state/
+# Session state — local, per-machine, regenerated on each session-start.
+# Ignore everything inside .harness-state/ EXCEPT triage-log.md (audit trail
+# for /triage-parking, meant to persist across machines per the skill's
+# always-log invariant). File-level patterns are required because gitignore
+# cannot re-include a file whose parent directory is excluded.
+.harness-state/*
+!.harness-state/triage-log.md
 
 # macOS
 .DS_Store
