@@ -132,13 +132,17 @@ Deviations: (1) **Branch-discipline deviation** — orchestrator worked on the p
 
 **Why this wave:** Closes 2 skill-creator divergences flagged 2026-04-28: SKILL.md is 741 lines (skill-creator's ideal cap is 500); no `evals/evals.json` or trigger-eval scaffolding (skill-creator §"Test Cases" + §"Description Optimization"). Carve-out targets only the rarely-loaded prose (rules with rationale, Codex/spec-planner prompts) — the audit-entry shape, JSON Shapes A/B, and Open-Questions bullet shape stay INLINE because they're load-bearing on the auto-apply hot path. Description-optimization run is OUT of scope (deferred to a follow-up spec); eval scaffolding ships so the future run is a one-command operation.
 
-- [ ] **Planning-loop trim — skill-creator alignment** [spec](./specs/2026-04-28-planning-loop-trim-remediation.md) — branch `claude/analyze-planning-loop-tokens-TO8ld`
-  - [ ] Task 10 — Carve `references/rules.md` (Rules 1-11 with rationale; keep titles inline)
-  - [ ] Task 11 — Carve `references/codex-prompts.md` (verbatim arbiter + spec-planner dispatch prompts)
-  - [ ] Task 12 — Add `evals/evals.json` (3 prompts) + `evals/trigger-eval.json` (20 queries, ≥8 should-trigger + ≥8 near-miss negatives)
+- [x] **Planning-loop trim — skill-creator alignment** [spec](./specs/2026-04-28-planning-loop-trim-remediation.md) — commits `ccde2b0` (Task 10), `8a215de` (Task 11), `29448db` (Task 12). Merge `b051ee8`.
+  - [x] Task 10 — Carve `references/rules.md` (Rules 1-11 with rationale; keep titles inline) (`ccde2b0`)
+  - [x] Task 11 — Carve `references/codex-prompts.md` (verbatim arbiter + spec-planner dispatch prompts) (`8a215de`)
+  - [x] Task 12 — Add `evals/evals.json` (3 prompts) + `evals/trigger-eval.json` (20 queries, ≥8 should-trigger + ≥8 near-miss negatives) (`29448db`)
 
-**Wave 6 exit gate:**
-- `wc -l skills/planning-loop/SKILL.md` ≤ ~540 (target after Tasks 10+11; audit-entry shape, JSON Shapes A/B, and Open-Questions bullet shape stay inline by design — see spec Task 10 scope decision).
-- `references/rules.md` and `references/codex-prompts.md` exist and parse as Markdown.
-- `evals/evals.json` and `evals/trigger-eval.json` exist and parse as JSON.
-- Cross-ref audit grep finds zero broken `(see ...)` references in `skills/planning-loop/SKILL.md`.
+**Wave 6 exit gate (PASS-with-deviation 2026-04-28, merge `b051ee8`):**
+- ✓-with-deviation `wc -l skills/planning-loop/SKILL.md` = **658 lines** (target ≤ ~540). Eligible savings ceiling under Task 10 scope decision was ~84 lines (rules rationale + 4 dispatch prompts only); hot-path content (audit-entry shape, JSON Shapes A/B, Open-Questions bullet shape) stays INLINE by design. User explicitly accepted 658 as PASS-with-deviation: "we accepts the 658 lines". See `feedback_spec_target_vs_scope_decision.md` for the spec-internal-contradiction lesson.
+- ✓ `references/rules.md` (4222 bytes, 11 numbered rule entries) and `references/codex-prompts.md` (5402 bytes, 4 prompt sections with H2 + fenced blocks) exist and parse as Markdown.
+- ✓ `evals/evals.json` parses as JSON (3 prompts, `skill_name=planning-loop`); `evals/trigger-eval.json` parses (20 queries: 9 should-trigger + 11 should-not-trigger near-misses, both buckets ≥ 8).
+- ✓ Cross-ref grep audit clean — every `Rule #N`, `Step N`, `Clause N`, `Phase 1a/1b/1c`, and `references/codex-prompts.md §N` reference resolves.
+
+Deviations: (1) **Branch discipline** — orchestrator branched off master in the worktree, NOT `claude/analyze-planning-loop-tokens-TO8ld` (already merged + cleaned during Wave 5; resurrecting was unnecessary). Authorized by dispatch. (2) **Line-count target** — 658 vs ≤540, accepted as PASS-with-deviation per the eligible-savings ceiling above. (3) Line-number drift (742 vs 741 spec baseline; no impact). (4) `evals/README.md` is 39 lines vs ≤30 soft hint (preserves both `Running` examples). (5) Routing dry-run (`model_routing` not set in `.harness-profile`; all tasks ran on the live Opus session). Summary: `docs/2026-04-28-claude-harness-wave6-summary.md`.
+
+This completes the planning-loop trim-remediation spec — all 12 tasks across 2 waves shipped (Wave 5 = spec Wave 1 = 9 regression tasks; Wave 6 = spec Wave 2 = 3 skill-creator alignment tasks).

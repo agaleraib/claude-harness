@@ -143,7 +143,7 @@ Workstream 1 (Wave 1) tasks are ordered: Blocker #1 first (it gates verification
 
 Note: the original draft included a `references/contract.md` carve-out. That carve-out was dropped 2026-04-28 (resolved Q4): the audit-entry shape, JSON Shapes A/B, and Open-Questions bullet shape are load-bearing on the auto-apply hot path and stay INLINE in SKILL.md. Only Rules 1-11 (with rationale) and the Codex/spec-planner prompts move to `references/`. Three Wave 2 tasks remain (rules, prompts, evals scaffolding).
 
-- [ ] **Task 10 (Gap A.1): Carve out `references/rules.md` (rules 1-11 with rationale).**
+- [x] **Task 10 (Gap A.1): Carve out `references/rules.md` (rules 1-11 with rationale).** — commit `ccde2b0`, merged via `b051ee8` 2026-04-28.
   - **Files:**
     - `skills/planning-loop/references/rules.md` (new) — Rules 1-11 verbatim with full rationale paragraphs.
     - `skills/planning-loop/SKILL.md` (replace the `## Rules (load-bearing)` rationale prose with a one-line pointer plus a numbered bullet list of rule titles only — keep the 11 titles inline so the model still sees them in context, but move the rationale paragraphs out).
@@ -156,7 +156,7 @@ Note: the original draft included a `references/contract.md` carve-out. That car
     - Every cross-ref in SKILL.md and `lib/*.sh` of the form "(see Rule #N)" still resolves.
     - **Cross-ref grep audit:** `grep -nE 'rule [0-9]+|step [0-9]+|clause [0-9]+|phase [a-z0-9]+' skills/planning-loop/SKILL.md` — every cited Rule / Step / Clause / Phase number must resolve to a still-present heading in SKILL.md or to a `references/*.md` pointer present in SKILL.md.
 
-- [ ] **Task 11 (Gap A.2): Carve out `references/codex-prompts.md`.**
+- [x] **Task 11 (Gap A.2): Carve out `references/codex-prompts.md`.** — commit `8a215de`, merged via `b051ee8` 2026-04-28. SKILL.md final: 658 lines (over the ≤540 target — accepted as PASS-with-deviation; eligible-savings ceiling under Task 10 scope decision was ~84 lines).
   - **Files:**
     - `skills/planning-loop/references/codex-prompts.md` (new) — verbatim detail-arbiter (`code-reviewer`) and scope-arbiter (`Plan`) prompts + the round-1 / round-2+ spec-planner dispatch prompts.
     - `skills/planning-loop/SKILL.md` (replace those four prompt blocks with one-line pointers + a 1-sentence summary of when each runs).
@@ -168,7 +168,7 @@ Note: the original draft included a `references/contract.md` carve-out. That car
     - One live end-to-end `/planning-loop` run (or one fixture run that exercises the dispatch path indirectly) — confirm the model still reaches the prompt text via the pointer.
     - **Cross-ref grep audit:** `grep -nE 'rule [0-9]+|step [0-9]+|clause [0-9]+|phase [a-z0-9]+' skills/planning-loop/SKILL.md` — every cited Rule / Step / Clause / Phase number must resolve to a still-present heading in SKILL.md or to a `references/*.md` pointer present in SKILL.md.
 
-- [ ] **Task 12 (Gap B.1): Add `evals/evals.json` + `evals/trigger-eval.json`.**
+- [x] **Task 12 (Gap B.1): Add `evals/evals.json` + `evals/trigger-eval.json`.** — commit `29448db`, merged via `b051ee8` 2026-04-28. 3 prompts + 20 queries (9 should-trigger + 11 should-not-trigger near-misses) + README.
   - **Files:**
     - `skills/planning-loop/evals/evals.json` (new) — 3 prompts: (a) FRESH mode realistic prose blob (e.g. "team standup digest CLI..."), (b) REVISE mode existing spec at a real path, (c) edge case e.g. corrupted `.harness-state/planning-loop/state.json` from a crashed prior run. Schema per skill-creator §"Test Cases".
     - `skills/planning-loop/evals/trigger-eval.json` (new) — 20 queries, 8-10 should-trigger + 8-10 should-not-trigger near-misses (per skill-creator §"Description Optimization" guidance).
