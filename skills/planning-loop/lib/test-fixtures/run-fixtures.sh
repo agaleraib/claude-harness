@@ -207,6 +207,23 @@ EOF
       success)
         if [[ "${AUTOAPPLY_OUTCOME:-}" != "success" ]]; then ok=0; reason="expected success, got ${AUTOAPPLY_OUTCOME:-<empty>}"; fi
         if [[ -f "$tmp/synthetic-spec.md.autoapply-tmp" ]]; then ok=0; reason="$reason; temp file remained"; fi
+        # Audit-entry shape (Wave 5 Task 5): all success-path runs must emit
+        # the rich per-finding bullets. Fixtures A + G cover Shape A, B, and
+        # wrong-premise. Verify the load-bearing field set is present.
+        if [[ "$ok" -eq 1 ]] && grep -qE '^## Auto-apply —' "$tmp/run.log"; then
+          for needed in 'Title:' 'Arbiter rationale \(verbatim\):' 'Ruled by:' 'Spec section touched:'; do
+            if ! awk '/^## Auto-apply —/,0' "$tmp/run.log" | grep -qE "$needed"; then
+              ok=0; reason="$reason; audit entry missing field: $needed"
+            fi
+          done
+          # Either Old/New (Shape A) or Anchor/Inserted (Shape B) MUST appear.
+          local audit
+          audit="$(awk '/^## Auto-apply —/,0' "$tmp/run.log")"
+          if ! { printf '%s' "$audit" | grep -qE 'Old text \(verbatim\):' && printf '%s' "$audit" | grep -qE 'New text \(verbatim\):'; } \
+              && ! { printf '%s' "$audit" | grep -qE 'Anchor \(verbatim\):' && printf '%s' "$audit" | grep -qE 'Inserted text \(verbatim\):'; }; then
+            ok=0; reason="$reason; audit entry missing Old/New (Shape A) or Anchor/Inserted (Shape B) fields"
+          fi
+        fi
         ;;
       menu)
         if [[ "${AUTOAPPLY_OUTCOME:-}" == "success" ]]; then ok=0; reason="expected menu (abort), got success"; fi

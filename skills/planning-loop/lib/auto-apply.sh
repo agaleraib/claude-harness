@@ -81,6 +81,36 @@ emit_outcome() {
 get_v_cr()   { eval "printf '%s' \"\${V_CR_${1}:-}\""; }
 get_v_plan() { eval "printf '%s' \"\${V_PLAN_${1}:-}\""; }
 get_body()   { eval "printf '%s' \"\${FB_${1}:-}\""; }
+get_title()  { eval "printf '%s' \"\${TITLE_${1}:-}\""; }
+
+# Verbatim arbiter rationale for a finding. Prefers the inline rationale
+# captured from the `**Fn: <verdict>** — <rationale>` line; falls back to the
+# first non-empty body line.
+first_rationale_line() {
+  local fid="$1"
+  local rat
+  rat="$(eval "printf '%s' \"\${RAT_${fid}:-}\"")"
+  if [[ -n "$rat" ]]; then
+    printf '%s' "$rat"
+  else
+    get_body "$fid" | awk 'NF{print; exit}'
+  fi
+}
+
+# Comma-joined list of arbiters that produced a verdict for a finding.
+ruled_by() {
+  local fid="$1"
+  local cr_v pl_v
+  cr_v="$(get_v_cr "$fid")"
+  pl_v="$(get_v_plan "$fid")"
+  if [[ -n "$cr_v" && -n "$pl_v" ]]; then
+    printf 'code-reviewer + Plan'
+  elif [[ -n "$cr_v" ]]; then
+    printf 'code-reviewer'
+  elif [[ -n "$pl_v" ]]; then
+    printf 'Plan'
+  fi
+}
 
 # ----- 6e Clause 1: opt-out check (env var precedence > profile key) ------
 AUTO_APPLY=true
@@ -128,8 +158,13 @@ while IFS= read -r line; do
   if [[ $in_round3 -eq 1 ]]; then
     if [[ "$line" =~ ^\`\`\`text$ ]]; then in_text=1; continue; fi
     if [[ $in_text -eq 1 && "$line" =~ ^\`\`\`$ ]]; then in_text=0; continue; fi
-    if [[ $in_text -eq 1 && "$line" =~ ^-[[:space:]]\[(low|medium|high)\][[:space:]](F[0-9]+): ]]; then
-      EXPECTED+=( "${BASH_REMATCH[2]}" )
+    if [[ $in_text -eq 1 && "$line" =~ ^-[[:space:]]\[(low|medium|high)\][[:space:]](F[0-9]+):[[:space:]](.*)$ ]]; then
+      _fid="${BASH_REMATCH[2]}"
+      _title="${BASH_REMATCH[3]}"
+      EXPECTED+=( "$_fid" )
+      # Store title via printf -v to avoid eval-escaping pitfalls (bash 3.2 has
+      # printf -v).
+      printf -v "TITLE_${_fid}" '%s' "$_title"
     fi
   fi
 done < "$LOG"
@@ -167,13 +202,25 @@ while IFS= read -r line; do
     if [[ "$line" =~ ^\#\#\#[[:space:]]Plan[[:space:]]agent[[:space:]]verdicts ]]; then
       cur_arb="plan"; continue
     fi
-    if [[ "$line" =~ ^\*\*(F[0-9]+):[[:space:]](load-bearing|wrong-premise|nice-to-have|defer)\*\* ]]; then
+    if [[ "$line" =~ ^\*\*(F[0-9]+):[[:space:]](load-bearing|wrong-premise|nice-to-have|defer)\*\*([[:space:]]+—[[:space:]]+(.+))?[[:space:]]*$ ]]; then
       if [[ -n "$cur_fid" ]]; then
         eval "FB_${cur_fid}+=\$body_buf"
         body_buf=""
       fi
       cur_fid="${BASH_REMATCH[1]}"
       cur_verdict="${BASH_REMATCH[2]}"
+      # Capture the inline rationale (text after `— `) when present so the
+      # audit-entry's `Arbiter rationale (verbatim)` line has a value even
+      # when the body has no leading prose paragraph.
+      cur_rationale="${BASH_REMATCH[4]:-}"
+      if [[ -n "$cur_rationale" ]]; then
+        # Prefer code-reviewer's rationale when both arbiters supplied one;
+        # fall through to Plan only when code-reviewer didn't rule.
+        existing_rat="$(eval "printf '%s' \"\${RAT_${cur_fid}:-}\"")"
+        if [[ -z "$existing_rat" || "$cur_arb" == "cr" ]]; then
+          printf -v "RAT_${cur_fid}" '%s' "$cur_rationale"
+        fi
+      fi
       if [[ "$cur_arb" == "cr" ]]; then
         eval "V_CR_${cur_fid}=\$cur_verdict"
       elif [[ "$cur_arb" == "plan" ]]; then
@@ -571,7 +618,39 @@ EOF
 )"
 for fid in "${EXPECTED[@]}"; do
   eval "v=\$FV_${fid}"
-  entry+=$'\n'"- **$fid** [$v]"
+  fid_title="$(get_title "$fid")"
+  fid_rationale="$(first_rationale_line "$fid")"
+  fid_ruler="$(ruled_by "$fid")"
+  if [[ "$v" == "wrong-premise" ]]; then
+    entry+=$'\n'"- **$fid** [wrong-premise → Open Questions]"
+    entry+=$'\n'"  - Title: $fid_title"
+    entry+=$'\n'"  - Arbiter rationale (verbatim): $fid_rationale"
+    entry+=$'\n'"  - Ruled by: $fid_ruler"
+    entry+=$'\n'"  - Spec section touched: \`## Open Questions\`"
+  else
+    eval "kind=\$EK_${fid}"
+    eval "section=\$ES_${fid}"
+    eval "old=\$EO_${fid}"
+    eval "new=\$EN_${fid}"
+    eval "insert=\$EI_${fid}"
+    if [[ "$kind" == "A" ]]; then
+      entry+=$'\n'"- **$fid** [load-bearing → spec edit (Shape A)]"
+      entry+=$'\n'"  - Title: $fid_title"
+      entry+=$'\n'"  - Arbiter rationale (verbatim): $fid_rationale"
+      entry+=$'\n'"  - Ruled by: $fid_ruler"
+      entry+=$'\n'"  - Spec section touched: \`$section\`"
+      entry+=$'\n'"  - Old text (verbatim): $old"
+      entry+=$'\n'"  - New text (verbatim): $new"
+    else
+      entry+=$'\n'"- **$fid** [load-bearing → spec edit (Shape B insert-after)]"
+      entry+=$'\n'"  - Title: $fid_title"
+      entry+=$'\n'"  - Arbiter rationale (verbatim): $fid_rationale"
+      entry+=$'\n'"  - Ruled by: $fid_ruler"
+      entry+=$'\n'"  - Spec section touched: \`$section\`"
+      entry+=$'\n'"  - Anchor (verbatim): $insert"
+      entry+=$'\n'"  - Inserted text (verbatim): $new"
+    fi
+  fi
 done
 entry+=$'\n'
 
