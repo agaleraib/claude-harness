@@ -27,6 +27,7 @@ Research and production experience show that heavy instruction systems degrade O
 - **Context bloat**: 22k+ tokens of skills loaded at startup = 11% of context consumed before any work begins ([GitHub Issue #190](https://github.com/obra/superpowers/issues/190))
 - **Instruction ignoring**: Claude models skip CLAUDE.md and skills under load ([#23936](https://github.com/anthropics/claude-code/issues/23936), [#28158](https://github.com/anthropics/claude-code/issues/28158))
 - **Negative ROI on process skills**: AGENTbench research (arXiv:2602.11988) found LLM-generated context files *decreased* success rates
+- **System-prompt regressions are subtle and slow to detect**: Anthropic's own [April 23 postmortem](https://www.anthropic.com/engineering/a-postmortem-of-three-recent-issues) traced a month-long Claude Code quality drop to three harness-layer changes — including a 25-word verbosity cap that knocked 3% off internal coding evals. Confirms first-party that adding instructions to the harness can degrade behavior.
 - **Anthropic's own conclusion**: Their harness research removed sprint decomposition, reduced evaluator rounds, and simplified the generator — scaffolding that was essential for earlier models became counterproductive
 
 **This harness keeps context overhead under 500 tokens at session start** (agent descriptions only). Full agent/skill content loads only when invoked.
