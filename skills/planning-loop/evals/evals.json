@@ -1,0 +1,47 @@
+{
+  "skill_name": "planning-loop",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "/planning-loop \"team standup digest CLI for a remote 8-person engineering squad. MVP: each engineer pastes 3 lines (yesterday/today/blockers) into a Slack-bot DM by 09:30 local; bot threads them into a single channel post by 09:45 with a per-person collapsible summary. Stack: TypeScript + Bolt SDK + Postgres for state. Perf: round-trip under 2s for the post. Reads incoming message text, writes a daily digest row keyed by (team, ISO-week, day). On Slack-API failure: exponential-backoff retry up to 60s then drop with a logged TODO row in the digest. Out of scope: DM-only mode, archive search, AI summarization.\"",
+      "expected_output": "FRESH-mode run that drafts a spec at docs/specs/<date>-<slug>.md (slug derived from the prose, e.g. team-standup-digest-cli), iterates it through Codex /codex:adversarial-review at most 3 rounds, and exits with either an LGTM block or the cap-reached menu (or auto-apply receipt if cap-reached + arbiters unanimous + every load-bearing fix passes the JSON edit-block contract).",
+      "expectations": [
+        "Skill detects FRESH mode (no leading --revise token).",
+        "Skill writes a spec file at docs/specs/<YYYY-MM-DD>-<slug>.md before round 1.",
+        "Skill dispatches spec-planner with the round-1 prompt template (Discovery Phase suppressed; AskUserQuestion forbidden).",
+        "Skill calls node $CODEX_COMPANION adversarial-review at least once and parses the Verdict: line.",
+        "Skill writes a round-by-round log to .harness-state/planning-loop/<basename>.md.",
+        "Skill caps at 3 rounds and never auto-ships at cap (Rule #4).",
+        "Final stdout block matches one of: success-path receipt, auto-apply receipt, or 4-option cap-reached menu."
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "/planning-loop --revise docs/specs/2026-04-15-rss-mvp.md \"focus on rate-limiting and OPML parser fault-tolerance\"",
+      "expected_output": "REVISE-mode run that treats the existing spec as round-1 input, places a side-path copy at docs/specs/_REVIEW-2026-04-15-rss-mvp.md for Codex's diff-scope, parses verdict, and only dispatches spec-planner on rounds 2-3 if needs-attention. Auto-park lifecycle runs at start (state.json journal) and restore.sh at every exit.",
+      "expectations": [
+        "Skill detects REVISE mode (leading --revise token + path).",
+        "Skill validates path: file exists, .md, non-empty, has at least one ## heading.",
+        "Skill runs lib/preflight.sh which detects leftover state and (if working tree dirty minus $SPEC_PATH) auto-parks via single named git stash.",
+        "Skill creates docs/specs/_REVIEW-2026-04-15-rss-mvp.md side-path copy before round 1's adversarial-review and deletes it after the round regardless of verdict.",
+        "Skill SKIPS spec-planner dispatch on round 1 (the existing spec IS the round-1 draft).",
+        "EXTRA_FOCUS text 'focus on rate-limiting and OPML parser fault-tolerance' is appended to the Codex focus prompt.",
+        "lib/restore.sh is invoked at every exit path (success, escalation, error) — Rule #10."
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "/planning-loop --revise docs/specs/2026-04-15-rss-mvp.md",
+      "expected_output": "Edge case: a stale .git/planning-loop-park/state.json file from a prior crashed run already exists. The skill MUST detect leftover state in the pre-flight pipeline and abort with recovery instructions pointing at lib/restore.sh — NOT silently proceed past it (Rule #10).",
+      "files": [
+        ".git/planning-loop-park/state.json"
+      ],
+      "expectations": [
+        "Skill calls lib/preflight.sh as documented in Step 1.",
+        "Pre-flight check #1 (leftover state detection) trips on existing state.json and exits 1 with stderr message naming lib/restore.sh.",
+        "Skill exits 1 with the recovery instructions surfaced — does NOT touch the working tree, does NOT call Codex, does NOT mutate $SPEC_PATH.",
+        "If the optional setup also leaves an orphan $SPEC_PATH.autoapply-tmp file, pre-flight check #3 (orphan auto-apply tmp detection) ALSO trips and prints diff and mv/rm instructions — both checks fail-closed."
+      ]
+    }
+  ]
+}
