@@ -1,6 +1,6 @@
 ---
 name: planning-loop
-description: Two modes. (1) FRESH — generate a spec via the spec-planner agent from a pre-answered prose blob, then loop it through Codex's adversarial-review until LGTM. (2) REVISE — start from an existing spec file (`--revise <path>`), run adversarial-review on it directly, and let spec-planner iterate it on `needs-attention`. Both modes cap at 3 rounds and escalate on cap; both run fully autonomously between iterations. Each round writes findings into a review log under `.harness-state/planning-loop/`. Use when the user types `/planning-loop`, says "plan and adversarially review X", "draft a spec and have Codex tear it apart", "iterate this spec to LGTM", or "have Codex stress-test this plan".
+description: Drive a spec through Codex's adversarial-review loop to an `approve` verdict in ≤3 rounds. Two modes — FRESH (spec-planner drafts from a prose blob) and REVISE (`--revise <path>` iterates an existing spec). Use when the user types `/planning-loop`, says "plan and adversarially review X", "iterate this spec to LGTM", or "have Codex stress-test this plan".
 argument-hint: "<feature blob>  |  --revise <path-to-existing-spec> [extra focus text]"
 ---
 
