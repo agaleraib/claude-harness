@@ -44,7 +44,7 @@ Both modes:
   - Logs every round to .harness-state/planning-loop/.
   - REVISE: requires clean working tree (skill auto-parks unrelated changes).
 
-Auto-apply at cap (REVISE mode, since v3 — 2026-04-27):
+Auto-apply at cap (REVISE mode):
   When the cap-reached path's arbiter rulings are unanimous and every
   load-bearing fix passes the JSON edit-block contract (see Step 6e/6f),
   the skill applies the rulings to $SPEC_PATH via temp-file + atomic
@@ -452,7 +452,7 @@ Scan arbiter verdicts for any `wrong-premise` rulings. These become **option 4**
 
 ### 6e. Auto-apply preconditions
 
-Runs only at the cap-reached path, after Step 6.5d and before Step 6 prints anything. This block decides whether to fall through to the existing 4-option menu (default) or take the auto-apply branch (Step 6f). Shipped 2026-04-27 as the carve-out for Rule #4 + clarification of Rule #9; full conjunctive precondition is codified in Rule #11.
+Runs only at the cap-reached path, after Step 6.5d and before Step 6 prints anything. This block decides whether to fall through to the existing 4-option menu (default) or take the auto-apply branch (Step 6f). Full conjunctive precondition is codified in Rule #11; carve-out for Rule #4 + clarification of Rule #9.
 
 The branch is taken if and only if **every** clause below holds. ANY failure aborts to the menu — all-or-nothing, no partial-apply, no skipped findings, no in-place edits to live spec.
 
@@ -462,7 +462,7 @@ The branch is taken if and only if **every** clause below holds. ANY failure abo
 - Profile key `planning_loop.auto_apply: false` in `.harness-profile`. Default is `true` when key is absent.
 - If either opt-out signal is asserted, append `## Auto-apply aborted — <ts>` with reason `opt-out-set` to `$LOG_PATH`, fall through to the menu, exit via the menu path. Skip every clause below.
 
-**Clause 2 — Unanimity over the COMPLETE round-3 finding set (mitigates "silent under-count = silent spec corruption"):**
+**Clause 2 — Unanimity over the COMPLETE round-3 finding set:**
 
 - Parse round-3 Codex findings ID set from the fenced ```text block under `## Round 3 — <ts>` in `$LOG_PATH`. Match every line of shape `^- \[(low|medium|high)\] ` and capture position-ordered IDs as `F1`, `F2`, … in document order. Result: `EXPECTED_FINDING_IDS = [F1, F2, F3, ...]` with cardinality `N`.
 - Parse arbiter verdict ID set from the `## Arbiter — <ts>` section. For each `### <arbiter-name> verdicts` subsection, match `^\*\*F[0-9]+: (load-bearing|wrong-premise|nice-to-have|defer)\*\*` per-finding bullets and accumulate `VERDICTS_BY_ID = {F1: {code-reviewer: load-bearing, Plan: load-bearing}, F2: {code-reviewer: wrong-premise}, ...}`.
@@ -483,7 +483,7 @@ The branch is taken if and only if **every** clause below holds. ANY failure abo
 
 **Clause 5 — Edit operation contract (load-bearing findings, MUST validate before apply):**
 
-Auto-apply requires every `load-bearing` arbiter recommendation to include exactly one fenced ```json block with one of these two shapes. Both shapes require a `section` field naming the H2 heading whose body the edit belongs to (load-bearing F2 mitigation: prevents an anchor match from drifting into the wrong section, prevents accidental insertion of headings, prevents edits spanning section boundaries).
+Auto-apply requires every `load-bearing` arbiter recommendation to include exactly one fenced ```json block with one of these two shapes. Both shapes require a `section` field naming the H2 heading whose body the edit belongs to (rules 4, 7, 8 below enforce section containment).
 
 **Shape A — replacement (default):**
 ```json
@@ -717,7 +717,7 @@ The skill does NOT auto-ship the spec when the cap is reached. Decide:
 
 3. **Fail-closed on missing verdict line.** If Codex stdout doesn't contain a parseable `Verdict:` line, treat it as `needs-attention`. Never default to `approve` because parsing failed.
 
-4. **No auto-ship at cap.** The cap path prints findings and stops. The user decides. Auto-applying unanimously-decided arbiter rulings to the spec text is permitted and is NOT 'shipping'; the user still owns `/commit`. (Carve-out added 2026-04-27.)
+4. **No auto-ship at cap.** The cap path prints findings and stops. The user decides. Auto-applying unanimously-decided arbiter rulings to the spec text is permitted and is NOT 'shipping'; the user still owns `/commit`.
 
 5. **Log every round.** Even if the user aborts mid-loop, the log under `.harness-state/planning-loop/` is the audit trail.
 
@@ -727,7 +727,7 @@ The skill does NOT auto-ship the spec when the cap is reached. Decide:
 
 8. **Revise mode does NOT widen scope.** Spec-planner's revise prompt explicitly says: address findings within the spec's existing envelope. If Codex flags a scope-level concern, that's a candidate for the spec's `## Open Questions` block, not a silent rewrite that turns an MVP into v2.
 
-9. **Arbiters are advisory, never authoritative.** Step 6.5 surfaces a third opinion to inform the user's decision; it cannot ship the spec, edit the spec, or replace the user-decides options. Even a unanimous "drop all findings" arbiter ruling produces option 4, not auto-ship. **Clarification (added 2026-04-27):** when arbiter advice is unanimous AND every load-bearing fix passes the JSON edit-block contract (see `### 6e.`), the skill may execute that advice on the spec file via the auto-apply path; the user remains the sole authority over committing. Auto-apply is editing, not shipping (Rule #4 carve-out).
+9. **Arbiters are advisory, never authoritative.** Step 6.5 surfaces a third opinion to inform the user's decision; it cannot ship the spec, edit the spec, or replace the user-decides options. Even a unanimous "drop all findings" arbiter ruling produces option 4, not auto-ship. **Clarification:** when arbiter advice is unanimous AND every load-bearing fix passes the JSON edit-block contract (see `### 6e.`), the skill may execute that advice on the spec file via the auto-apply path; the user remains the sole authority over committing. Auto-apply is editing, not shipping.
 
 10. **Auto-park is a lifecycle, not a step.** REVISE mode parks unrelated working-tree changes via a single named stash + state journal at `.git/planning-loop-park/state.json`. Every exit point (success, escalation, error) MUST invoke `bash "$HOME/.claude/skills/planning-loop/lib/restore.sh"` before returning. Leftover state from a crashed/interrupted run is detected on the next invocation by the pre-flight in Step 1 and aborts cleanly with recovery instructions; never silently proceed past leftover state. Orphan-stash detection (a stash named `planning-loop park *` without state.json) is defense-in-depth for cases where state.json was lost.
 
