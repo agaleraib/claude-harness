@@ -39,7 +39,7 @@ A reader hitting the README in 2026-Q3 sees that the harness's lean-context thes
 **Verify before applying:** `grep -n "april-23-postmortem" README.md` should return nothing today; if it does, the citation has already been added and this § should be skipped.
 
 **Recommended verdict:** apply — pure citation edit, ~3 lines, strengthens an existing thesis with a fresh primary source.
-**Status:** PENDING — awaiting triage in PR review
+**Status:** REJECTED — duplicate evidence; the same April-23 postmortem citation was already added by 2026-04-26 §1 (commit fe8246f). Different rhetorical framing, same source — one citation per evidence item · 2026-04-28
 
 ---
 
@@ -88,7 +88,7 @@ Both existing files record *user intent* (what was being attempted). `claude_ver
 2. `ls .harness-state/claude_version 2>/dev/null` (in any project that has run `/session-start`) — if the file exists, the breadcrumb is already wired up somewhere.
 
 **Recommended verdict:** apply — ~3 lines of bash, fails-closed (the `|| true` keeps session-start silent on machines without `claude` on PATH), pays off the next time a regression hits.
-**Status:** PENDING — awaiting triage in PR review
+**Status:** APPLIED in commit 4564a60 · 2026-04-28
 
 ---
 
@@ -111,7 +111,7 @@ Decision-trail integrity. Without this entry, a reader of the 2026-04-19 file in
 **Verify before applying:** `grep -n "DEFERRED" anthropic-reviews/2026-04-19-improvement-suggestions.md` should still show §5 deferred. If §5 has already been promoted to `APPLIED` or `SPEC'd`, this § is moot — drop it.
 
 **Recommended verdict:** defer until consumer-project rubric suite exists — no concrete change requested; this entry exists so the durable record reflects the new corroborating evidence.
-**Status:** PENDING — awaiting triage in PR review
+**Status:** DEFER — bookkeeping note only; no concrete change; original 2026-04-19 §5 remains DEFERRED · 2026-04-28
 
 ---
 
