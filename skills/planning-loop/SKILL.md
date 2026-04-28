@@ -483,7 +483,7 @@ The branch is taken if and only if **every** clause below holds. ANY failure abo
 
 **Clause 5 — Edit operation contract (load-bearing findings, MUST validate before apply):**
 
-Auto-apply requires every `load-bearing` arbiter recommendation to include exactly one fenced ```json block with one of these two shapes. Both shapes require a `section` field naming the H2 heading whose body the edit belongs to (rules 4, 7, 8 below enforce section containment).
+Auto-apply requires every `load-bearing` arbiter recommendation to include exactly one fenced ```json block with one of these two shapes. Both shapes require a `section` field naming the H2 heading whose body the edit belongs to (rules 4, 6, 7, 8 below enforce section containment).
 
 **Shape A — replacement (default):**
 ```json
