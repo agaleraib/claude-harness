@@ -146,7 +146,13 @@ elif [[ -f "$LOG" ]]; then
 fi
 
 # ----- 6e Clause 2: parse round-3 finding IDs -----------------------------
+# IDs are auto-derived in document order (F1, F2, …) per SKILL.md Step 6e
+# Clause 2 ("capture position-ordered IDs as F1, F2, … in document order").
+# Backward-compat: fixtures A-T pre-stamp explicit `F<n>:` prefixes on their
+# bullets; if present we strip them from the captured title so existing
+# fixtures keep passing. The derived counter wins for ID ordering regardless.
 EXPECTED=()
+_fid_counter=0
 in_round3=0; in_text=0
 while IFS= read -r line; do
   if [[ "$line" =~ ^\#\#[[:space:]]+Round[[:space:]]3[[:space:]] ]]; then
@@ -158,9 +164,15 @@ while IFS= read -r line; do
   if [[ $in_round3 -eq 1 ]]; then
     if [[ "$line" =~ ^\`\`\`text$ ]]; then in_text=1; continue; fi
     if [[ $in_text -eq 1 && "$line" =~ ^\`\`\`$ ]]; then in_text=0; continue; fi
-    if [[ $in_text -eq 1 && "$line" =~ ^-[[:space:]]\[(low|medium|high)\][[:space:]](F[0-9]+):[[:space:]](.*)$ ]]; then
-      _fid="${BASH_REMATCH[2]}"
-      _title="${BASH_REMATCH[3]}"
+    if [[ $in_text -eq 1 && "$line" =~ ^-[[:space:]]\[(low|medium|high)\][[:space:]](.*)$ ]]; then
+      _title="${BASH_REMATCH[2]}"
+      # Strip any pre-stamped `F<n>:[ ]*` prefix (back-compat with fixtures
+      # A-O which encode the prefix manually).
+      if [[ "$_title" =~ ^F[0-9]+:[[:space:]]*(.*)$ ]]; then
+        _title="${BASH_REMATCH[1]}"
+      fi
+      _fid_counter=$((_fid_counter + 1))
+      _fid="F${_fid_counter}"
       EXPECTED+=( "$_fid" )
       # Store title via printf -v to avoid eval-escaping pitfalls (bash 3.2 has
       # printf -v).

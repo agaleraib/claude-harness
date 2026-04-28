@@ -322,6 +322,11 @@ run_one R mv-failure                  menu
 run_one S needle-duplicated-by-prior-edit menu
 run_one T needle-removed-by-prior-edit    menu
 
+# Post-Wave-5 fix — verify auto-derive parser handles real-Codex bullet shape
+# (no F-prefix). Fixtures A-T all pre-stamp `F1:`/`F2:`; this one doesn't.
+# Surfaced by Wave 5 Task 8 live smoke (parking_lot.md 2026-04-28 entry).
+run_one U codex-shape-no-prefix       success
+
 read -r PASS FAIL < "$COUNTER_FILE"
 rm -f "$COUNTER_FILE"
 
