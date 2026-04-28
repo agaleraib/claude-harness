@@ -1,6 +1,6 @@
 ---
 name: planning-loop
-description: Two modes. (1) FRESH — generate a spec via the spec-planner agent from a pre-answered prose blob, then loop it through Codex's adversarial-review until LGTM. (2) REVISE — start from an existing spec file (`--revise <path>`), run adversarial-review on it directly, and let spec-planner iterate it on `needs-attention`. Both modes cap at 3 rounds and escalate on cap; both run fully autonomously between iterations. Each round writes findings into a review log under `.harness-state/planning-loop/`. Use when the user types `/planning-loop`, says "plan and adversarially review X", "draft a spec and have Codex tear it apart", "iterate this spec to LGTM", or "have Codex stress-test this plan".
+description: Drive a spec through Codex's adversarial-review loop to an `approve` verdict in ≤3 rounds. Two modes — FRESH (spec-planner drafts from a prose blob) and REVISE (`--revise <path>` iterates an existing spec). Use when the user types `/planning-loop`, says "plan and adversarially review X", "iterate this spec to LGTM", or "have Codex stress-test this plan".
 argument-hint: "<feature blob>  |  --revise <path-to-existing-spec> [extra focus text]"
 ---
 
@@ -44,7 +44,7 @@ Both modes:
   - Logs every round to .harness-state/planning-loop/.
   - REVISE: requires clean working tree (skill auto-parks unrelated changes).
 
-Auto-apply at cap (REVISE mode, since v3 — 2026-04-27):
+Auto-apply at cap (REVISE mode):
   When the cap-reached path's arbiter rulings are unanimous and every
   load-bearing fix passes the JSON edit-block contract (see Step 6e/6f),
   the skill applies the rulings to $SPEC_PATH via temp-file + atomic
@@ -125,180 +125,23 @@ Validate the path:
 
 REVISE mode requires a clean working tree (except for `$SPEC_PATH` itself, which spec-planner edits during the loop). The skill **auto-parks** unrelated changes via a single git stash for the duration of the run, then restores them at any exit. State is journaled to `.git/planning-loop-park/state.json` so leftover state from a crashed/interrupted run can be detected on the next invocation.
 
-**1. Leftover detection.** Before doing anything else, check for parked state from a previous run:
+The full pre-flight pipeline is implemented in `lib/preflight.sh` and runs five checks in this order:
+
+1. **Leftover state detection** — if `.git/planning-loop-park/state.json` exists, abort with recovery instructions (point at `lib/restore.sh`).
+2. **Orphan stash detection** — defense-in-depth for missing state.json: any stash whose message matches `planning-loop park *` aborts with manual-pop instructions.
+3. **Phase 1c orphan auto-apply temp-file detection** — recovery for hard-kill mid-Step-6f. The Step 6f executor writes `<SPEC_PATH>.autoapply-tmp` then atomic-renames it onto the spec. If a SIGKILL/host-crash happens between temp-write and rename, the live spec is byte-identical to its pre-Phase-1a state but the orphan tmp is left behind. Conservative: only scans `docs/specs/` and the `--revise <path>` parent directory; ignores stray `.autoapply-tmp` files elsewhere. On hit, prints `diff` and `mv`/`rm` instructions to stderr, best-effort appends an `## Auto-apply aborted — <ts>` entry with reason `orphan-tmp-detected` to the most-recent log file under `.harness-state/planning-loop/`, and exits 1. The skill never auto-cleans or auto-restores in this case — the user decides.
+4. **Working-tree classification** — `git status --porcelain` minus `$SPEC_PATH`; if non-empty, run auto-park.
+5. **Auto-park** — single named git stash with pathspec exclusions for `$SPEC_PATH`, `docs/specs/_REVIEW-*`, and (defense-in-depth) the skill's repo-relative path when the skill source resolves into the current repo. Writes `state.json` with `parked=true|false` and a `README.md` to `.git/planning-loop-park/` either way, so downstream restore logic uniformly checks one file.
+
+**Invocation:**
 
 ```bash
-LEFTOVER_STATE=".git/planning-loop-park/state.json"
-if [[ -f "$LEFTOVER_STATE" ]]; then
-  STASH_MSG="$(jq -r .stash_message "$LEFTOVER_STATE")"
-  PARK_TIME="$(jq -r .park_time "$LEFTOVER_STATE")"
-  SIDE_COPY="$(jq -r .side_copy "$LEFTOVER_STATE")"
-  echo "✗ /planning-loop detected leftover parked state from a previous run."
-  echo
-  echo "  Parked at:  $PARK_TIME"
-  echo "  Stash msg:  $STASH_MSG"
-  echo "  Side copy:  $SIDE_COPY (may exist; will be removed on restore)"
-  echo
-  echo "  Recover with:"
-  echo '    bash "$HOME/.claude/skills/planning-loop/lib/restore.sh"'
-  echo
-  echo "  Or, if you've already manually recovered, delete the state dir:"
-  echo "    rm -rf .git/planning-loop-park"
-  exit 1
-fi
+bash "$HOME/.claude/skills/planning-loop/lib/preflight.sh" "$SPEC_PATH" || exit 1
 ```
 
-Also check for orphan stashes whose message starts with `planning-loop park ` (defense-in-depth — state.json could be lost while the stash remains):
+The helper exits 0 on success (continue), 1 on any abort with recovery instructions printed.
 
-```bash
-ORPHAN_STASH="$(git stash list --format='%gd %s' | grep -E ' planning-loop park ' | head -1)"
-if [[ -n "$ORPHAN_STASH" ]]; then
-  echo "✗ /planning-loop detected an orphan stash from a previous run:"
-  echo "    $ORPHAN_STASH"
-  echo
-  echo "  Pop it (\`git stash pop <ref>\`) or drop it (\`git stash drop <ref>\`), then re-run."
-  exit 1
-fi
-```
-
-**1c. Orphan auto-apply temp-file detection (Phase 1c — recovery for hard-kill mid-Step-6f).** The Step 6f executor writes the fully-edited spec to `<SPEC_PATH>.autoapply-tmp` and then atomically renames it to `<SPEC_PATH>`. On SIGKILL, terminal death, or host crash between the temp-write and the rename, the live spec is byte-identical to its pre-Phase-1a state but the orphan temp file is left behind. Detect it here, before any auto-park or new spec-resolution work runs. Conservative: only `*.autoapply-tmp` files in `docs/specs/` (REVISE-mode default) and the `--revise <path>` parent directory are considered. Stray `*.autoapply-tmp` files elsewhere in the tree are ignored.
-
-```bash
-# Build the candidate scan set: docs/specs always, plus the --revise parent
-# dir if it differs.
-ORPHAN_DIRS=( "docs/specs" )
-if [[ -n "${SPEC_PATH:-}" ]]; then
-  PARENT_DIR="$(dirname "$SPEC_PATH")"
-  case " ${ORPHAN_DIRS[*]} " in
-    *" $PARENT_DIR "*) : ;;
-    *) ORPHAN_DIRS+=( "$PARENT_DIR" ) ;;
-  esac
-fi
-
-ORPHAN_TMP=""
-for d in "${ORPHAN_DIRS[@]}"; do
-  [[ -d "$d" ]] || continue
-  while IFS= read -r f; do
-    ORPHAN_TMP="$f"
-    break 2
-  done < <(find "$d" -maxdepth 1 -name '*.autoapply-tmp' -print 2>/dev/null)
-done
-
-if [[ -n "$ORPHAN_TMP" ]]; then
-  ORPHAN_SPEC="${ORPHAN_TMP%.autoapply-tmp}"
-  ORPHAN_MTIME="$(stat -f '%Sm' "$ORPHAN_TMP" 2>/dev/null || stat -c '%y' "$ORPHAN_TMP" 2>/dev/null || echo 'unknown')"
-  echo "✗ /planning-loop detected an orphan auto-apply temp file from a previous run:" >&2
-  echo "    Path:   $ORPHAN_TMP" >&2
-  echo "    mtime:  $ORPHAN_MTIME" >&2
-  echo "" >&2
-  echo "  Inspect via:" >&2
-  echo "    diff $ORPHAN_SPEC $ORPHAN_TMP" >&2
-  echo "" >&2
-  echo "  Then either delete the orphan (discard the planned auto-apply):" >&2
-  echo "    rm $ORPHAN_TMP" >&2
-  echo "  Or replace the spec with it (accept the planned auto-apply):" >&2
-  echo "    mv $ORPHAN_TMP $ORPHAN_SPEC" >&2
-  echo "" >&2
-  echo "  /planning-loop will not auto-clean and will not auto-restore — you decide." >&2
-  # Best-effort: append abort entry to the most-recent log if identifiable.
-  RECENT_LOG="$(ls -t .harness-state/planning-loop/*.md 2>/dev/null | head -1 || true)"
-  if [[ -n "$RECENT_LOG" ]]; then
-    printf '\n## Auto-apply aborted — %s\n\nReason: orphan-tmp-detected\nDetail: orphan %s detected from prior run\n\nFalling through to abort.\n' \
-      "$(date '+%Y-%m-%d %H:%M:%S')" "$ORPHAN_TMP" >> "$RECENT_LOG" 2>/dev/null || true
-  fi
-  exit 1
-fi
-```
-
-**2. Working-tree pre-flight.** With no leftover state, classify the working tree:
-
-```bash
-# Lines other than $SPEC_PATH itself.
-PORCELAIN_OTHER="$(git status --porcelain | grep -v -F " ${SPEC_PATH}$" || true)"
-```
-
-If `$PORCELAIN_OTHER` is non-empty, the tree contains unrelated changes. Auto-park them.
-
-**3. Auto-park.** Stash unrelated changes (including untracked) under a uniquely-named message, using git's native pathspec exclusion to leave `$SPEC_PATH` and the side-copy pattern alone. Journal the message + metadata to state.json so restore can find the stash even if its `stash@{N}` ref shifts.
-
-```bash
-mkdir -p .git/planning-loop-park
-TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
-STASH_MSG="planning-loop park $TIMESTAMP"
-PARK_TIME="$(date '+%Y-%m-%d %H:%M:%S')"
-
-# Stash everything in the working tree EXCEPT $SPEC_PATH (which the loop edits)
-# and the _REVIEW-* side-copy pattern (which round 1 may create after parking).
-# Pathspec exclusion (':(exclude)<path>') is git-native — handles whitespace,
-# untracked files, and staged content uniformly.
-#
-# Defense-in-depth: if the skill's installed path resolves into the current
-# repo (i.e. running /planning-loop on claude-harness itself, where the skill
-# source lives), exclude the skill's repo-relative path too. Without this, an
-# uncommitted skill source would get stashed and the restore helper would be
-# unreachable mid-loop. In normal use (skill installed via symlink into a
-# DIFFERENT consuming repo) this exclusion is a no-op.
-EXCLUSIONS=( ':(exclude)'"$SPEC_PATH" ':(exclude)docs/specs/_REVIEW-*' )
-SKILL_REAL="$(realpath "$HOME/.claude/skills/planning-loop" 2>/dev/null || true)"
-REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
-if [[ -n "$SKILL_REAL" && -n "$REPO_ROOT" && "$SKILL_REAL" == "$REPO_ROOT"/* ]]; then
-  SKILL_REL="${SKILL_REAL#$REPO_ROOT/}"
-  EXCLUSIONS+=( ':(exclude)'"$SKILL_REL" )
-fi
-
-git stash push -u -m "$STASH_MSG" -- "${EXCLUSIONS[@]}"
-
-# Write state journal AFTER the stash succeeds. If git stash returned non-zero
-# (e.g. nothing matched, which shouldn't happen here since pre-flight detected
-# unrelated changes — but defensively), abort before writing state.json so the
-# leftover detector doesn't fire on the next run for a stash that doesn't
-# exist.
-if ! git stash list --format='%gd %s' | grep -qF " $STASH_MSG"; then
-  echo "✗ git stash push reported success but no matching stash found." >&2
-  echo "  Aborting before writing state journal. Working tree may be partially modified." >&2
-  exit 1
-fi
-
-cat > "$LEFTOVER_STATE" <<EOF
-{
-  "parked": true,
-  "stash_message": "$STASH_MSG",
-  "park_time": "$PARK_TIME",
-  "spec_path": "$SPEC_PATH",
-  "side_copy": "docs/specs/_REVIEW-$(basename "$SPEC_PATH")"
-}
-EOF
-
-cat > .git/planning-loop-park/README.md <<'EOF'
-# planning-loop park
-
-This directory journals state for /planning-loop's auto-park. If you're seeing
-this without an active /planning-loop run, the previous run was interrupted.
-
-To restore: `bash "$HOME/.claude/skills/planning-loop/lib/restore.sh"`
-To abandon: `rm -rf .git/planning-loop-park` (and inspect `git stash list` for
-            stashes named `planning-loop park *`)
-EOF
-
-echo "✓ Auto-parked unrelated working-tree changes (stash: $STASH_MSG)."
-echo "  Will be restored on any exit (success, error, or interrupt)."
-```
-
-If `$PORCELAIN_OTHER` was empty (working tree already clean except for `$SPEC_PATH`), skip the stash entirely — but still create state.json with `"parked": false` so downstream cleanup logic uniformly checks one file:
-
-```bash
-mkdir -p .git/planning-loop-park
-cat > "$LEFTOVER_STATE" <<EOF
-{
-  "parked": false,
-  "park_time": "$(date '+%Y-%m-%d %H:%M:%S')",
-  "spec_path": "$SPEC_PATH",
-  "side_copy": "docs/specs/_REVIEW-$(basename "$SPEC_PATH")"
-}
-EOF
-```
-
-**4. Restore is mandatory at every exit.** See Step 6 — every exit path (success, escalation, any error) MUST invoke `bash "$HOME/.claude/skills/planning-loop/lib/restore.sh"` before returning. Rule #10 codifies this.
+**Restore is mandatory at every exit.** See Step 6 — every exit path (success, escalation, any error) MUST invoke `bash "$HOME/.claude/skills/planning-loop/lib/restore.sh"` before returning. Rule #10 codifies this.
 
 ## Step 2: Compute slug + paths
 
@@ -609,7 +452,7 @@ Scan arbiter verdicts for any `wrong-premise` rulings. These become **option 4**
 
 ### 6e. Auto-apply preconditions
 
-Runs only at the cap-reached path, after Step 6.5d and before Step 6 prints anything. This block decides whether to fall through to the existing 4-option menu (default) or take the auto-apply branch (Step 6f). Shipped 2026-04-27 as the carve-out for Rule #4 + clarification of Rule #9; full conjunctive precondition is codified in Rule #11.
+Runs only at the cap-reached path, after Step 6.5d and before Step 6 prints anything. This block decides whether to fall through to the existing 4-option menu (default) or take the auto-apply branch (Step 6f). Full conjunctive precondition is codified in Rule #11; carve-out for Rule #4 + clarification of Rule #9.
 
 The branch is taken if and only if **every** clause below holds. ANY failure aborts to the menu — all-or-nothing, no partial-apply, no skipped findings, no in-place edits to live spec.
 
@@ -619,27 +462,7 @@ The branch is taken if and only if **every** clause below holds. ANY failure abo
 - Profile key `planning_loop.auto_apply: false` in `.harness-profile`. Default is `true` when key is absent.
 - If either opt-out signal is asserted, append `## Auto-apply aborted — <ts>` with reason `opt-out-set` to `$LOG_PATH`, fall through to the menu, exit via the menu path. Skip every clause below.
 
-```bash
-# Env var has precedence; profile key is a softer global default.
-AUTO_APPLY=true
-if [[ -n "${PLANNING_LOOP_NO_AUTO_APPLY:-}" ]]; then
-  AUTO_APPLY=false
-elif [[ -f .harness-profile ]] && grep -qE '^[[:space:]]*planning_loop:' .harness-profile; then
-  # Crude one-key parse — full YAML lib not assumed. The block looks like:
-  #   planning_loop:
-  #     auto_apply: false
-  if awk '
-    /^[[:space:]]*planning_loop:[[:space:]]*$/ {in=1; next}
-    in==1 && /^[^[:space:]]/ {in=0}
-    in==1 && /^[[:space:]]+auto_apply:[[:space:]]*false[[:space:]]*$/ {found=1; exit}
-    END {exit !found}
-  ' .harness-profile; then
-    AUTO_APPLY=false
-  fi
-fi
-```
-
-**Clause 2 — Unanimity over the COMPLETE round-3 finding set (mitigates "silent under-count = silent spec corruption"):**
+**Clause 2 — Unanimity over the COMPLETE round-3 finding set:**
 
 - Parse round-3 Codex findings ID set from the fenced ```text block under `## Round 3 — <ts>` in `$LOG_PATH`. Match every line of shape `^- \[(low|medium|high)\] ` and capture position-ordered IDs as `F1`, `F2`, … in document order. Result: `EXPECTED_FINDING_IDS = [F1, F2, F3, ...]` with cardinality `N`.
 - Parse arbiter verdict ID set from the `## Arbiter — <ts>` section. For each `### <arbiter-name> verdicts` subsection, match `^\*\*F[0-9]+: (load-bearing|wrong-premise|nice-to-have|defer)\*\*` per-finding bullets and accumulate `VERDICTS_BY_ID = {F1: {code-reviewer: load-bearing, Plan: load-bearing}, F2: {code-reviewer: wrong-premise}, ...}`.
@@ -660,7 +483,7 @@ fi
 
 **Clause 5 — Edit operation contract (load-bearing findings, MUST validate before apply):**
 
-Auto-apply requires every `load-bearing` arbiter recommendation to include exactly one fenced ```json block with one of these two shapes. Both shapes require a `section` field naming the H2 heading whose body the edit belongs to (load-bearing F2 mitigation: prevents an anchor match from drifting into the wrong section, prevents accidental insertion of headings, prevents edits spanning section boundaries).
+Auto-apply requires every `load-bearing` arbiter recommendation to include exactly one fenced ```json block with one of these two shapes. Both shapes require a `section` field naming the H2 heading whose body the edit belongs to (rules 4, 6, 7, 8 below enforce section containment).
 
 **Shape A — replacement (default):**
 ```json
@@ -691,24 +514,13 @@ Validation rules (all must hold for the edit to be eligible — Step 6f Phase 1a
 7. **Shape B:** `insert_after` is non-empty AND appears exactly once as a literal substring in current `$SPEC_PATH` AND that one occurrence falls inside the section body range from rule 5.
 8. **H2-in-edit-text rejection:** Neither `old_string` nor `new_string` (Shape A) and neither `insert_after` nor `new_string` (Shape B) may contain a line matching `^## ` (case-sensitive, anchored). This prevents an edit from inserting or destroying a section heading and prevents matches that span heading boundaries. Edits that need to add a heading are out of scope for auto-apply (fall through to menu).
 
-**Substring-count semantics (rules 6 + 7):** `grep -Fc` counts matching LINES, not substring occurrences — under-counts multiple matches on one line and fails entirely on multi-line `old_string`. Use a literal substring counter:
-
-```bash
-# Reference implementation. printf '%s' avoids the trailing-newline that <<<
-# would add; the value of $OLD must include any trailing whitespace exactly
-# as in the JSON block.
-COUNT=$(printf '%s' "$OLD" \
-  | python3 -c 'import sys; needle = sys.stdin.read(); print(open(sys.argv[1]).read().count(needle))' \
-    "$SPEC_PATH")
-```
-
-Equivalent awk/perl literal-substring counters are acceptable.
+**Substring-count semantics (rules 6 + 7):** `grep -Fc` counts matching LINES, not substring occurrences — under-counts multiple matches on one line and fails entirely on multi-line `old_string`. The helper uses a literal substring counter (Python `str.count`); equivalent awk/perl counters are acceptable.
 
 **Clause 6 — Hash-stable across validation→apply window (F4 mitigation, external-mutation detection):**
 
-- Step 6f Phase 1a captures `SPEC_HASH_PRE = sha256sum "$SPEC_PATH" | awk '{print $1}'` (or `shasum -a 256` on BSD/macOS — probe at startup).
+- Step 6f Phase 1a captures `SPEC_HASH_PRE = sha256sum "$SPEC_PATH" | awk '{print $1}'` (or `shasum -a 256` on BSD/macOS — probe at startup) AND `LOG_HASH_PRE` for `$LOG_PATH` if it exists.
 - Step 6f Phase 1b recomputes `SPEC_HASH_NOW` and compares to `SPEC_HASH_PRE`. Diff → abort with reason `hash-mismatch` and detail naming both 8-char hash prefixes. (External writer modified the spec between validation and apply.)
-- Same check for `$LOG_PATH` if `LOG_HASH_PRE` was recorded.
+- Same check for `$LOG_PATH`: when `LOG_HASH_PRE` was recorded, recompute `LOG_HASH_NOW` and compare. Diff → abort with reason `log-hash-mismatch` and detail naming both 8-char hash prefixes. The log-hash check guards against an external writer racing the round-3 finding parse with concurrent appends to the log; mismatching means the EXPECTED set the helper validated against may no longer match what's on disk.
 
 **Wrong-premise findings:** automatically eligible (no JSON block required). The disposition is "append a one-line bullet to the spec's Open Questions section". Phase 1a verifies the append target is resolvable: heading regex matches `^## Open Questions` OR `^## Open questions parked for v2` OR fall-through to "create new section at EOF" is available.
 
@@ -716,120 +528,61 @@ Equivalent awk/perl literal-substring counters are acceptable.
 
 ### 6f. Auto-apply executor
 
-Runs only if 6e returned eligible. Implements Phase 1a (in-memory validation + pre-hash) and Phase 1b (hash re-check → in-memory apply → temp-file write → atomic rename → audit append). All-or-nothing: **no partial-apply, no skipped findings, no in-place edits to live spec**. The commit point is a single atomic `mv`; on any abort before the rename, the live spec is byte-identical to its pre-Phase-1a state.
+Runs only if 6e returned eligible. Implementation lives in `lib/auto-apply.sh` and enforces the full contract from 6e end-to-end. All-or-nothing: **no partial-apply, no skipped findings, no in-place edits to live spec**. The commit point is a single atomic `mv`; on any abort before the rename, the live spec is byte-identical to its pre-Phase-1a state.
 
-#### Phase 1a — Validation pass (dry-run, in-memory)
-
-No file writes happen in this phase. Failure on any check appends `## Auto-apply aborted — <ts>` with the first failing reason to `$LOG_PATH`, then returns "abort" so Step 6 prints the menu unchanged. Phase 1b does NOT run.
+**Invocation:**
 
 ```bash
-# 1. Probe SHA-256 utility (sha256sum on Linux, shasum -a 256 on BSD/macOS).
-if command -v sha256sum >/dev/null 2>&1; then
-  HASHER='sha256sum'
-elif command -v shasum >/dev/null 2>&1; then
-  HASHER='shasum -a 256'
-else
-  abort "validation-failure" "neither sha256sum nor shasum is available; cannot enforce hash-stable precondition"
-fi
-
-# 2. Capture pre-validation hashes (F4 mitigation).
-SPEC_HASH_PRE=$($HASHER "$SPEC_PATH" | awk '{print $1}')
-LOG_HASH_PRE=""
-if [[ -f "$LOG_PATH" ]]; then
-  LOG_HASH_PRE=$($HASHER "$LOG_PATH" | awk '{print $1}')
-fi
+AUTOAPPLY_OUTCOME="$(bash "$HOME/.claude/skills/planning-loop/lib/auto-apply.sh" "$SPEC_PATH" "$LOG_PATH")"
 ```
 
-**Per-finding validation loop (runs after 6e's parse populated `EXPECTED_FINDING_IDS` and `VERDICTS_BY_ID`):**
+The helper:
+- exit 0 + stdout `success` → auto-apply landed; audit appended; print receipt.
+- exit 1 + stdout `menu-*` → aborted to menu; aborted entry appended; print 4-option menu.
+- exit 2 → hard error (missing args, no SHA-256 utility, file unreadable); also fall through to menu.
 
-For every finding `Fi` in declared order:
+`$AUTOAPPLY_OUTCOME` values: `success` | `menu-validation-failure` | `menu-opt-out` | `menu-hash-mismatch` | `menu-apply-failure` | `menu-audit-failure`. Caller branches on `success` vs anything else; abort reasons are persisted in the appended `## Auto-apply aborted — <ts>` log entry.
 
-1. **Wrong-premise findings:** confirm Open Questions append target resolves. Heading regex `^##[[:space:]]+[Oo]pen [Qq]uestions` (matches `## Open Questions` OR `## Open questions parked for v2` case-tolerantly); fall-through to "create new section at EOF" is the third option. If multiple `## Open Questions` headings (rare, malformed spec), target the FIRST match and queue a warning bullet for the audit entry.
-2. **Load-bearing findings:** parse the `load-bearing` arbiter recommendation body for exactly one fenced ```json block; pipe its body through `jq .` to validate parsing. Unparseable / missing / multiple JSON blocks → abort `validation-failure`, detail `F<i>: JSON block unparseable: <jq-error>` (or "no JSON block" / "multiple JSON blocks").
-3. Validate Shape A xor Shape B keypair presence (Edit operation contract rule 2). Both-shapes or neither-shape → abort `validation-failure`.
-4. Resolve the `section` H2: `awk -v s="$SECTION" 'BEGIN{c=0} $0 ~ "^## "s"$" {c++} END{print c}' "$SPEC_PATH"` must equal 1. Zero or >1 → abort `validation-failure`, detail `F<i>: section "<section>" not found in $SPEC_PATH` or `F<i>: section "<section>" matches N>1 times`.
-5. Compute the section body range: lines from the `^## <section>` line (exclusive) to the next `^## ` line (exclusive) or EOF.
-6. **Substring-count check (Shape A: `old_string`; Shape B: `insert_after`)** — note: `grep -Fc` counts matching lines, not occurrences. Use a literal substring counter:
-   ```bash
-   COUNT=$(printf '%s' "$NEEDLE" \
-     | python3 -c 'import sys; needle = sys.stdin.read(); print(open(sys.argv[1]).read().count(needle))' \
-       "$SPEC_PATH")
-   ```
-   `COUNT == 1` is required. Zero → abort `validation-failure`, detail `F<i>: <field> matches 0 times in $SPEC_PATH`. >1 → abort with detail naming the count.
-7. **Match-within-section check.** Find the byte/line offset of the unique match and verify it falls inside the section body range computed in step 5. Match outside → abort `validation-failure`, detail `F<i>: <field> match falls outside section "<section>" body range`.
-8. **H2-in-edit-text rejection.** For Shape A, neither `old_string` nor `new_string` may contain a line matching `^## `. For Shape B, neither `insert_after` nor `new_string` may. Hit → abort `validation-failure`, detail `F<i>: edit text contains H2 heading line`.
-9. **Writability checks.** `test -w "$SPEC_PATH"` AND `test -w "$(dirname "$SPEC_PATH")"` (parent dir must be writable for atomic-rename) AND `test -w "$LOG_PATH"`. Failure → abort `validation-failure`, detail `F<i>: <path> not writable` (or generic if pre-loop check).
+#### Phase 1a — Validation pass (in-memory, no writes)
 
-Accumulate per-finding pass/fail in memory. On the first failure, abort path runs and Phase 1b is skipped. On all-pass, proceed to Phase 1b.
+The helper parses `EXPECTED_FINDING_IDS` from the round-3 fenced block in `$LOG_PATH` (Clause 2) and arbiter `VERDICTS_BY_ID` from the `## Arbiter — <ts>` section, then for each finding in declared order verifies the checks in this table. First failure aborts; Phase 1b does not run.
 
-#### Phase 1b — Apply pass (atomic temp-file + rename, all-or-nothing)
+| # | Check | Abort reason | Detail template |
+|---|-------|--------------|-----------------|
+| 1 | Verdict-set consistency: every expected finding has at least one arbiter verdict | `verdict-missing` | `expected <Fi> has no arbiter verdict` |
+| 2 | Mixed-routing-aware completeness: findings tagged `mixed` in the routing line need BOTH arbiters | `mixed-routing-incomplete` | `mixed-routed <Fi> lacks one arbiter ruling` |
+| 3 | Per-finding agreement: no `code-reviewer=load-bearing, Plan=wrong-premise` splits | `validation-failure` | `split verdict on <Fi>: code-reviewer=<x> Plan=<y>` |
+| 4 | Verdict whitelist (Clause 3): no `defer` or `nice-to-have` | `validation-failure` | `<Fi> verdict is <v> (no defer/nice-to-have allowed)` |
+| 5 | Load-bearing: non-mechanical pre-filter (Clause 4) | `validation-failure` | `<Fi> recommendation hits non-mechanical pre-filter wordlist` |
+| 6 | Load-bearing: exactly one fenced ```json block parses via `jq` (Clause 5 rule 1) | `validation-failure` | `<Fi> JSON block unparseable / no fenced JSON block / jq not available` |
+| 7 | Load-bearing: Shape A xor Shape B (Clause 5 rule 2) | `validation-failure` | `<Fi> has both old_string and insert_after` / `<Fi> has neither` |
+| 8 | `section` resolves to exactly one `^## <section>` H2 in current spec (Clause 5 rule 4) | `validation-failure` | `<Fi> section "<…>" matches N times in spec` |
+| 9 | Substring count == 1 in spec (Clause 5 rule 6/7) | `validation-failure` | `<Fi> needle matches N times in spec (need exactly 1)` |
+| 10 | Match falls inside section body range (Clause 5 rule 6/7) | `validation-failure` | `<Fi> needle match falls outside section "<…>" body range` |
+| 11 | H2-in-edit-text rejection (Clause 5 rule 8) | `validation-failure` | `<Fi> edit text contains line starting with '## '` |
+| 12 | `$SPEC_PATH` and parent dir writable (parent for atomic rename) | `validation-failure` | `spec or its parent dir not writable` |
+| 13 | Round-3 finding set parseable from log | `log-parse-failure` | `no round-3 findings parsed from $LOG_PATH` |
+| 14 | `$LOG_PATH` writable (so the post-rename audit append cannot fail mid-window) | `validation-failure` | `log not writable: $LOG_PATH` |
 
-```bash
-# 1. Hash re-check (F4 mitigation — external writer detection).
-SPEC_HASH_NOW=$($HASHER "$SPEC_PATH" | awk '{print $1}')
-if [[ "$SPEC_HASH_NOW" != "$SPEC_HASH_PRE" ]]; then
-  rm -f "$SPEC_PATH.autoapply-tmp"  # cleanup if accidentally created
-  abort "hash-mismatch" \
-    "$SPEC_PATH SHA-256 changed between validation and apply (external mutation detected): pre=${SPEC_HASH_PRE:0:8} now=${SPEC_HASH_NOW:0:8}"
-fi
-if [[ -n "$LOG_HASH_PRE" ]]; then
-  LOG_HASH_NOW=$($HASHER "$LOG_PATH" | awk '{print $1}')
-  if [[ "$LOG_HASH_NOW" != "$LOG_HASH_PRE" ]]; then
-    rm -f "$SPEC_PATH.autoapply-tmp"
-    abort "hash-mismatch" "$LOG_PATH SHA-256 changed: pre=${LOG_HASH_PRE:0:8} now=${LOG_HASH_NOW:0:8}"
-  fi
-fi
+**Wrong-premise findings** are eligible without a JSON block; their disposition is "append a one-line bullet to `## Open Questions`". Phase 1a confirms an append target is resolvable: `^##[[:space:]]+[Oo]pen [Qq]uestions` heading regex (case-tolerant for `## Open Questions` and `## Open questions parked for v2`), with "create new section at EOF" as fall-through.
 
-# 2. Read $SPEC_PATH once into a working buffer (in-memory or .autoapply-tmp).
-#    The live spec is NOT edited in place — edits target the buffer until the
-#    atomic rename commit point. Either approach is acceptable; the temp-file
-#    approach is shown for clarity.
-cp -- "$SPEC_PATH" "$SPEC_PATH.autoapply-tmp"
-```
+The helper captures `SPEC_HASH_PRE` (and `LOG_HASH_PRE` if applicable) at Phase-1a entry — Phase 1b re-checks these for the hash-stable window (Clause 6).
 
-**Apply each edit in declared order (F1 → F2 → ...) against the buffer:**
+#### Phase 1b — Apply pass (atomic temp-file + rename)
 
-- **Wrong-premise → Open Questions append:** locate the resolved heading (or create `## Open Questions` at EOF if none); append a bullet of the form:
-  ```
-  - [<short title from finding>] (auto-applied 2026-04-27 from /planning-loop arbiter ruling: <verbatim arbiter rationale>)
-  ```
-  Idempotency note: spec already has a bullet with the same title → still append (no de-dupe in MVP); audit entry shows it.
-- **Load-bearing Shape A:** literal-string replace `old_string` → `new_string` within the named section's body range only. (Single occurrence within section was already validated; replace is exact-substring.)
-- **Load-bearing Shape B:** literal-string insert `new_string` immediately after the unique anchor match within the named section's body range only.
+Runs only if Phase 1a passed.
 
-**Re-validate after each edit** (one prior edit could introduce a duplicate of a later edit's `old_string` or shift the section's body range): re-run the substring-count + match-within-section checks against the in-progress buffer for every remaining finding. If uniqueness drops to 0 or grows to >1, OR if a match leaves its named section, OR if any required field went stale → mid-apply failure: delete `$SPEC_PATH.autoapply-tmp`, append `## Auto-apply aborted — <ts>` with reason `apply-failure` and detail naming the failing finding, fall through to menu. Live `$SPEC_PATH` was never touched and is byte-identical to pre-Phase-1a state.
+1. **Hash re-check** (Clause 6) — recompute `SPEC_HASH_NOW`; if `!= SPEC_HASH_PRE`, delete any tmp, abort `hash-mismatch` with detail `pre=<hex8> now=<hex8>`. Then, if `LOG_HASH_PRE` was recorded, recompute `LOG_HASH_NOW`; if `!= LOG_HASH_PRE`, delete any tmp, abort `log-hash-mismatch` with detail `pre=<hex8> now=<hex8>`.
+2. **Temp buffer** — `cp $SPEC_PATH $SPEC_PATH.autoapply-tmp`. Live spec is NOT touched until step 4.
+3. **Apply each edit to the buffer in declared order:**
+   - **Wrong-premise → Open Questions append:** locate the resolved heading (or create `## Open Questions` at EOF); append a bullet `- [<title>] (auto-applied <ts> from /planning-loop arbiter ruling: <verbatim arbiter rationale>)`. No MVP de-dupe — duplicates are visible in the audit entry.
+   - **Load-bearing Shape A:** literal-string replace `old_string` → `new_string` within the section body range only.
+   - **Load-bearing Shape B:** literal-string insert `new_string` immediately after the unique anchor within the section body range only.
+   - **Re-validate after each edit:** prior edits can introduce a duplicate of a later `old_string` or shift the section body range. Re-run substring-count + match-within-section for every remaining finding. Any failure → delete tmp, abort `apply-failure` with the failing `<Fi>`, no live mutation.
+4. **Atomic rename** — `mv $SPEC_PATH.autoapply-tmp $SPEC_PATH`. Single commit point. On `mv` failure, delete tmp, abort `apply-failure` with `atomic rename failed: errno=<rc>`.
+5. **Audit append** — write `## Auto-apply — <ts>` to `$LOG_PATH` (single `>>` write; POSIX O_APPEND atomicity covers entry size).
 
-```bash
-# 3. After all in-memory edits succeed, sync the buffer and atomically
-#    commit. The mv is the single commit point.
-sync 2>/dev/null || true
-if ! mv "$SPEC_PATH.autoapply-tmp" "$SPEC_PATH"; then
-  rc=$?
-  rm -f "$SPEC_PATH.autoapply-tmp"
-  abort "apply-failure" "atomic rename failed: errno=$rc (likely cross-device-link or permission)"
-fi
-
-# 4. Compute post-apply hash and append the audit entry. Single >> write so
-#    POSIX O_APPEND atomicity covers short entries; very large entries may
-#    not be atomic but the harness's audit entries fit comfortably.
-SPEC_HASH_POST=$($HASHER "$SPEC_PATH" | awk '{print $1}')
-TS=$(date '+%Y-%m-%d %H:%M:%S')
-ENTRY=$(build_auto_apply_entry "$TS" "$SPEC_HASH_PRE" "$SPEC_HASH_POST" "$VERDICTS_BY_ID")
-
-if ! printf '%s' "$ENTRY" >> "$LOG_PATH"; then
-  # 5. Documented post-rename-pre-audit inconsistency-window exception.
-  #    The spec is now mutated; rolling back atomically is impossible without
-  #    a second non-atomic write (worse than the inconsistency). Print a
-  #    clear stderr warning and best-effort the abort entry. This is the one
-  #    documented exception to "spec never mutated without audit entry".
-  echo "⚠ /planning-loop auto-apply: spec WAS modified at $SPEC_PATH but audit append to $LOG_PATH failed." >&2
-  echo "  Inspect via: git diff $SPEC_PATH" >&2
-  echo "  See SKILL.md Step 6f Phase 1b for the documented post-rename-pre-audit window." >&2
-  printf '## Auto-apply aborted — %s\n\nReason: log-append-failure\n\n' "$TS" >> "$LOG_PATH" 2>/dev/null || true
-  # Fall through to menu (now contextually pointless but preserves contract).
-  return_status="audit-failure"
-fi
-```
+**Post-rename-pre-audit window.** Phase 1a row #14 pre-checks `$LOG_PATH` writability so the most common failure mode (chmod, missing parent dir) aborts before any spec mutation. The window can still surface on disk-full, filesystem-error, or remount-RO conditions between rename and append. If step 5's audit append fails, the spec is already mutated — rolling back atomically is impossible without a second non-atomic write (worse than the inconsistency). The helper prints a stderr warning naming the spec, best-effort writes a `## Auto-apply aborted — <ts>` entry with reason `log-append-failure`, and returns `menu-audit-failure`. This is the one documented exception to "spec never mutated without audit entry".
 
 **Audit entry shape** (matches Data Model in the spec — `## Auto-apply — <ts>` with Preconditions line, both pre/post hashes, and `### Applied` block of per-finding bullets):
 
@@ -865,7 +618,7 @@ There is no `### Skipped` section. Auto-apply is all-or-nothing — either every
 ```markdown
 ## Auto-apply aborted — <YYYY-MM-DD HH:MM:SS>
 
-Reason: <opt-out-set | validation-failure | hash-mismatch | apply-failure | log-append-failure | orphan-tmp-detected | verdict-id-mismatch | verdict-missing | mixed-routing-incomplete | log-parse-failure>
+Reason: <opt-out-set | validation-failure | hash-mismatch | log-hash-mismatch | apply-failure | log-append-failure | orphan-tmp-detected | verdict-id-mismatch | verdict-missing | mixed-routing-incomplete | log-parse-failure>
 Failed finding: <F-id or "n/a">
 Detail: <e.g. "F2 old_string matches 0 times in $SPEC_PATH" / "F3 insert_after matches 3 times" / "F2 section 'Constraints' not found in $SPEC_PATH" / "F2 old_string match falls outside section 'Constraints' body range" / "JSON block in F1 unparseable: <error>" / "$SPEC_PATH SHA-256 changed between validation and apply (external mutation detected): pre=<hex8> now=<hex8>" / "atomic rename failed: <errno>" / "PLANNING_LOOP_NO_AUTO_APPLY=1 set" / "orphan $SPEC_PATH.autoapply-tmp detected from prior run">
 
@@ -965,7 +718,7 @@ The skill does NOT auto-ship the spec when the cap is reached. Decide:
 
 3. **Fail-closed on missing verdict line.** If Codex stdout doesn't contain a parseable `Verdict:` line, treat it as `needs-attention`. Never default to `approve` because parsing failed.
 
-4. **No auto-ship at cap.** The cap path prints findings and stops. The user decides. Auto-applying unanimously-decided arbiter rulings to the spec text is permitted and is NOT 'shipping'; the user still owns `/commit`. (Carve-out added 2026-04-27.)
+4. **No auto-ship at cap.** The cap path prints findings and stops. The user decides. Auto-applying unanimously-decided arbiter rulings to the spec text is permitted and is NOT 'shipping'; the user still owns `/commit`.
 
 5. **Log every round.** Even if the user aborts mid-loop, the log under `.harness-state/planning-loop/` is the audit trail.
 
@@ -975,7 +728,7 @@ The skill does NOT auto-ship the spec when the cap is reached. Decide:
 
 8. **Revise mode does NOT widen scope.** Spec-planner's revise prompt explicitly says: address findings within the spec's existing envelope. If Codex flags a scope-level concern, that's a candidate for the spec's `## Open Questions` block, not a silent rewrite that turns an MVP into v2.
 
-9. **Arbiters are advisory, never authoritative.** Step 6.5 surfaces a third opinion to inform the user's decision; it cannot ship the spec, edit the spec, or replace the user-decides options. Even a unanimous "drop all findings" arbiter ruling produces option 4, not auto-ship. **Clarification (added 2026-04-27):** when arbiter advice is unanimous AND every load-bearing fix passes the JSON edit-block contract (see `### 6e.`), the skill may execute that advice on the spec file via the auto-apply path; the user remains the sole authority over committing. Auto-apply is editing, not shipping (Rule #4 carve-out).
+9. **Arbiters are advisory, never authoritative.** Step 6.5 surfaces a third opinion to inform the user's decision; it cannot ship the spec, edit the spec, or replace the user-decides options. Even a unanimous "drop all findings" arbiter ruling produces option 4, not auto-ship. **Clarification:** when arbiter advice is unanimous AND every load-bearing fix passes the JSON edit-block contract (see `### 6e.`), the skill may execute that advice on the spec file via the auto-apply path; the user remains the sole authority over committing. Auto-apply is editing, not shipping.
 
 10. **Auto-park is a lifecycle, not a step.** REVISE mode parks unrelated working-tree changes via a single named stash + state journal at `.git/planning-loop-park/state.json`. Every exit point (success, escalation, error) MUST invoke `bash "$HOME/.claude/skills/planning-loop/lib/restore.sh"` before returning. Leftover state from a crashed/interrupted run is detected on the next invocation by the pre-flight in Step 1 and aborts cleanly with recovery instructions; never silently proceed past leftover state. Orphan-stash detection (a stash named `planning-loop park *` without state.json) is defense-in-depth for cases where state.json was lost.
 
