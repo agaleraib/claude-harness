@@ -99,3 +99,44 @@ This completes the model-pin spec — all 9 tasks across 3 waves shipped.
 - ✓ `bash skills/planning-loop/lib/test-fixtures/run-fixtures.sh` exits 0 (15/15 fixtures pass)
 
 Deviations: (1) plan.md ↔ spec path divergence resolved at close-time — orchestrator followed spec paths (`skills/planning-loop/lib/test-fixtures/`, `run-fixtures.sh`) per sub-bullets-win convention; this exit-gate now reflects the spec paths. (2) Worktree pre-existed at older base `cbc2046`; orchestrator ran `git merge --ff-only master` to `e6f653a` before Task 1. (3) Bash 3.2 driver shim — macOS bash lacks associative arrays; driver uses dynamic var names + `eval`. (4) Test-only env var `PLANNING_LOOP_TEST_PIN_SPEC_HASH_PRE` — Fixture L only; production path never reads it. Summary: `docs/2026-04-27-claude-harness-wave4-summary.md`.
+
+---
+
+### Wave 5 — Planning-loop trim — fix regressions (branch `claude/analyze-planning-loop-tokens-TO8ld`)
+
+**Why this wave:** The 2026-04-28 token-trim refactor (5 commits on `claude/analyze-planning-loop-tokens-TO8ld`) silently dropped 5 contract guarantees + 4 detail-level guarantees the trim plan listed as non-goals. Code-reviewer DO-NOT-SHIP'd the branch. Wave 5 restores each regression with fixture coverage that actually drives `lib/auto-apply.sh` (current fixtures re-implement the logic in the runner — "15/15 pass" was meaningless). Sequential single-track because every later task's verify depends on real fixture coverage existing (Task 1).
+
+- [ ] **Planning-loop trim — regressions** [spec](./specs/2026-04-28-planning-loop-trim-remediation.md) — branch `claude/analyze-planning-loop-tokens-TO8ld` (no rebase, no force-push; Wave 5 ships as a 6th commit or 5 per-blocker commits per spec Constraints)
+  - [ ] Task 1 — Rewire `lib/test-fixtures/run-fixtures.sh` to drive real `lib/auto-apply.sh` + `lib/preflight.sh` (gates Tasks 2-9) — BLOCKER
+  - [ ] Task 2 — Restore `LOG_HASH_PRE` re-check at `auto-apply.sh:106-109` — BLOCKER
+  - [ ] Task 3 — Restore Phase 1b per-finding re-validation + section-body-range containment at `auto-apply.sh:420-440` (Rule #11(e)) — BLOCKER
+  - [ ] Task 4 — Move log-writability check back to Phase 1a pre-flight at `auto-apply.sh:373-380` — BLOCKER
+  - [ ] Task 5 — Restore rich audit-entry shape (Title / Arbiter rationale / Ruled by / Spec section / Old text / New text) at `auto-apply.sh:454-470` — BLOCKER
+  - [ ] Task 6 — Restore Open-Questions bullet format at `auto-apply.sh:404-405` (verbatim arbiter rationale) — MAJOR
+  - [ ] Task 7 — Fix Phase C cross-ref at `SKILL.md:486` — add rule 6 (Shape A containment) — MAJOR
+  - [ ] Task 8 — Live `/planning-loop --revise` end-to-end smoke against synthetic spec with at least one mechanical finding — MAJOR
+  - [ ] Task 9 — Restore `errno=<rc>` capture on `mv` failure at `auto-apply.sh:444-449` — MAJOR
+
+**Wave 5 exit gate:**
+- All Wave 1 (spec-internal) fixture additions/changes (Tasks 1-6) pass against real `lib/` scripts — no inline copy.
+- `bash skills/planning-loop/lib/test-fixtures/run-fixtures.sh` exits 0.
+- `grep -c 'auto-apply\.sh' skills/planning-loop/lib/test-fixtures/run-fixtures.sh` returns ≥ 1 (was 0 — fixture-bypass anti-pattern).
+- One live `/planning-loop --revise` run completed end-to-end (Task 8); receipt or menu printed; no spec mutated without audit entry.
+- `git diff master..HEAD -- skills/planning-loop/` shows only the regression-fix lines + the rewired fixture runner.
+
+---
+
+### Wave 6 — Planning-loop trim — skill-creator alignment (branch `claude/analyze-planning-loop-tokens-TO8ld`)
+
+**Why this wave:** Closes 2 skill-creator divergences flagged 2026-04-28: SKILL.md is 741 lines (skill-creator's ideal cap is 500); no `evals/evals.json` or trigger-eval scaffolding (skill-creator §"Test Cases" + §"Description Optimization"). Carve-out targets only the rarely-loaded prose (rules with rationale, Codex/spec-planner prompts) — the audit-entry shape, JSON Shapes A/B, and Open-Questions bullet shape stay INLINE because they're load-bearing on the auto-apply hot path. Description-optimization run is OUT of scope (deferred to a follow-up spec); eval scaffolding ships so the future run is a one-command operation.
+
+- [ ] **Planning-loop trim — skill-creator alignment** [spec](./specs/2026-04-28-planning-loop-trim-remediation.md) — branch `claude/analyze-planning-loop-tokens-TO8ld`
+  - [ ] Task 10 — Carve `references/rules.md` (Rules 1-11 with rationale; keep titles inline)
+  - [ ] Task 11 — Carve `references/codex-prompts.md` (verbatim arbiter + spec-planner dispatch prompts)
+  - [ ] Task 12 — Add `evals/evals.json` (3 prompts) + `evals/trigger-eval.json` (20 queries, ≥8 should-trigger + ≥8 near-miss negatives)
+
+**Wave 6 exit gate:**
+- `wc -l skills/planning-loop/SKILL.md` ≤ ~540 (target after Tasks 10+11; audit-entry shape, JSON Shapes A/B, and Open-Questions bullet shape stay inline by design — see spec Task 10 scope decision).
+- `references/rules.md` and `references/codex-prompts.md` exist and parse as Markdown.
+- `evals/evals.json` and `evals/trigger-eval.json` exist and parse as JSON.
+- Cross-ref audit grep finds zero broken `(see ...)` references in `skills/planning-loop/SKILL.md`.
