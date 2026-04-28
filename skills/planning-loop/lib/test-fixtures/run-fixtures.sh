@@ -205,7 +205,7 @@ EOF
         if [[ "${AUTOAPPLY_OUTCOME:-}" == "success" ]]; then ok=0; reason="expected menu (abort), got success"; fi
         if [[ -f "$tmp/synthetic-spec.md.autoapply-tmp" ]]; then ok=0; reason="$reason; temp file remained"; fi
         case "$letter" in
-          B|C|D|E|F|I|J|K|M|N|P|Q)
+          B|C|D|E|F|I|J|K|M|N|P|Q|S|T)
             if [[ "$pre_hash" != "$post_hash" ]]; then ok=0; reason="$reason; spec NOT byte-identical (pre=$pre_hash post=$post_hash)"; fi
             ;;
           L)
@@ -226,6 +226,13 @@ EOF
           Q)
             if [[ "${ABORT_REASON:-}" != "validation-failure" ]]; then ok=0; reason="$reason; expected validation-failure reason, got ${ABORT_REASON:-<empty>}"; fi
             if ! grep -qE 'log not writable|writability' "$tmp/run.log"; then ok=0; reason="$reason; expected log-writability detail in abort entry"; fi
+            ;;
+          S|T)
+            # Per-finding re-validation must abort and the abort-entry's
+            # `Failed finding:` must be F2 (the *remaining* finding whose
+            # needle was destabilised by F1's apply).
+            if [[ "${ABORT_REASON:-}" != "apply-failure" ]]; then ok=0; reason="$reason; expected apply-failure reason, got ${ABORT_REASON:-<empty>}"; fi
+            if ! grep -qE '^Failed finding: F2$' "$tmp/run.log"; then ok=0; reason="$reason; expected 'Failed finding: F2' in abort entry"; fi
             ;;
         esac
         ;;
@@ -270,10 +277,12 @@ run_one M opt-out-env-var             menu
 run_one N opt-out-profile             menu
 run_one O orphan-tmp-startup          preflight-abort
 
-# Wave 5 regression fixtures (Tasks 2, 4, 9).
+# Wave 5 regression fixtures (Tasks 2, 3, 4, 9).
 run_one P log-hash-mismatch           menu
 run_one Q log-not-writable            menu
 run_one R mv-failure                  menu
+run_one S needle-duplicated-by-prior-edit menu
+run_one T needle-removed-by-prior-edit    menu
 
 read -r PASS FAIL < "$COUNTER_FILE"
 rm -f "$COUNTER_FILE"

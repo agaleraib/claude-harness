@@ -409,6 +409,87 @@ fi
 
 # ----- Apply edits to a temp buffer (.autoapply-tmp) --------------------
 cp -- "$SPEC" "${SPEC}.autoapply-tmp"
+
+# Build a parallel index of (fid, kind, section, needle) for every load-bearing
+# finding so the post-apply re-validation pass can re-check remaining findings'
+# needles against the in-progress buffer (substring count + section-body
+# containment). Wrong-premise findings have no needle and skip re-validation.
+NEEDLE_FIDS=()
+for fid in "${EXPECTED[@]}"; do
+  eval "v=\$FV_${fid}"
+  if [[ "$v" == "load-bearing" ]]; then
+    NEEDLE_FIDS+=( "$fid" )
+  fi
+done
+
+# Per-finding re-validate: substring count + section-body containment for every
+# remaining needle in the in-progress buffer. Aborts with apply-failure naming
+# the first remaining FID whose needle is no longer uniquely inside its section
+# body.  Inputs (env-passed): BUF (path to in-progress buffer), START_IDX (index
+# in EXPECTED of the just-applied edit), and FV/EK/ES/EO/EI tables.
+revalidate_remaining() {
+  local applied_idx="$1"
+  local i j fid_i kind_i sec_i needle_i
+  i=$((applied_idx + 1))
+  while [[ $i -lt ${#EXPECTED[@]} ]]; do
+    fid_i="${EXPECTED[$i]}"
+    eval "v_i=\$FV_${fid_i}"
+    if [[ "$v_i" != "load-bearing" ]]; then
+      i=$((i + 1)); continue
+    fi
+    eval "kind_i=\$EK_${fid_i}"
+    eval "sec_i=\$ES_${fid_i}"
+    if [[ "$kind_i" == "A" ]]; then
+      eval "needle_i=\$EO_${fid_i}"
+    else
+      eval "needle_i=\$EI_${fid_i}"
+    fi
+    # Use Python to check (a) total occurrences in the buffer == 1 and
+    # (b) the one occurrence falls inside the section body range.
+    if ! REVAL_OUT="$(BUF="${SPEC}.autoapply-tmp" SEC="$sec_i" NEEDLE="$needle_i" python3 - <<'PYEOF'
+import os, sys, re
+buf_path = os.environ['BUF']
+section = os.environ['SEC']
+needle = os.environ['NEEDLE']
+data = open(buf_path).read()
+total = data.count(needle)
+if total != 1:
+    print(f"needle matches {total} times in buffer (need exactly 1)")
+    sys.exit(11)
+# Section body range = lines between the unique '^## <section>$' and the next '^## '.
+lines = data.split("\n")
+sec_re = re.compile(r"^## " + re.escape(section) + r"$")
+sec_idx = None
+for idx, line in enumerate(lines):
+    if sec_re.match(line):
+        if sec_idx is not None:
+            print(f"section \"{section}\" matches multiple times in buffer")
+            sys.exit(12)
+        sec_idx = idx
+if sec_idx is None:
+    print(f"section \"{section}\" no longer present in buffer")
+    sys.exit(13)
+end_idx = len(lines)
+for idx in range(sec_idx + 1, len(lines)):
+    if lines[idx].startswith("## "):
+        end_idx = idx; break
+body = "\n".join(lines[sec_idx + 1:end_idx])
+if body.count(needle) != 1:
+    print(f"needle no longer falls inside section \"{section}\" body range")
+    sys.exit(14)
+print("ok")
+PYEOF
+)"; then
+      rm -f "${SPEC}.autoapply-tmp"
+      append_abort "apply-failure" "$fid_i" "$fid_i re-validation against in-progress buffer failed: $REVAL_OUT"
+      emit_outcome "menu-apply-failure"
+      exit 1
+    fi
+    i=$((i + 1))
+  done
+}
+
+idx=0
 for fid in "${EXPECTED[@]}"; do
   eval "v=\$FV_${fid}"
   if [[ "$v" == "wrong-premise" ]]; then
@@ -456,6 +537,11 @@ PYEOF
       exit 1
     }
   fi
+  # Phase 1b per-finding re-validation: every remaining load-bearing finding's
+  # needle must still match exactly once AND fall inside its section body in
+  # the in-progress buffer.  Wrong-premise findings have no needle and skip.
+  revalidate_remaining "$idx"
+  idx=$((idx + 1))
 done
 
 # Atomic rename.
