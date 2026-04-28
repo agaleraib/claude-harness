@@ -543,22 +543,27 @@ idx=0
 for fid in "${EXPECTED[@]}"; do
   eval "v=\$FV_${fid}"
   if [[ "$v" == "wrong-premise" ]]; then
-    # Append a bullet to ## Open Questions (or fallback heading or new section).
+    # Append a contracted bullet to ## Open Questions (or fall through to a
+    # new section).  Shape (SKILL.md Step 6f Phase 1b "Wrong-premise → Open
+    # Questions append"):
+    #   - [<title>] (auto-applied <YYYY-MM-DD HH:MM:SS> from /planning-loop arbiter ruling: <verbatim arbiter rationale>)
+    fid_title="$(get_title "$fid")"
+    fid_rationale="$(first_rationale_line "$fid")"
+    bullet_ts="$(date '+%Y-%m-%d %H:%M:%S')"
+    bullet="- [$fid_title] (auto-applied $bullet_ts from /planning-loop arbiter ruling: $fid_rationale)"
     if grep -qE '^##[[:space:]]+[Oo]pen [Qq]uestions' "${SPEC}.autoapply-tmp"; then
       oq_start="$(awk '/^##[[:space:]]+[Oo]pen [Qq]uestions/ {print NR; exit}' "${SPEC}.autoapply-tmp")"
       oq_end="$(awk -v start="$oq_start" 'NR > start && /^## / {print NR-1; exit}' "${SPEC}.autoapply-tmp")"
       if [[ -z "$oq_end" ]]; then
         oq_end="$(wc -l < "${SPEC}.autoapply-tmp")"
       fi
-      body_first="$(get_body "$fid" | head -1)"
-      bullet="- [auto-applied $fid] (arbiter: $body_first)"
       awk -v line="$oq_end" -v bullet="$bullet" '
         NR == line {print; print bullet; next}
         {print}
       ' "${SPEC}.autoapply-tmp" > "${SPEC}.autoapply-tmp.work" \
         && mv "${SPEC}.autoapply-tmp.work" "${SPEC}.autoapply-tmp"
     else
-      printf '\n## Open Questions\n\n- [auto-applied %s]\n' "$fid" >> "${SPEC}.autoapply-tmp"
+      printf '\n## Open Questions\n\n%s\n' "$bullet" >> "${SPEC}.autoapply-tmp"
     fi
   else
     # Load-bearing: Shape A or B.

@@ -224,6 +224,15 @@ EOF
             ok=0; reason="$reason; audit entry missing Old/New (Shape A) or Anchor/Inserted (Shape B) fields"
           fi
         fi
+        # Wave 5 Task 6 — Open-Questions bullet shape. Fixture A has a
+        # wrong-premise finding (F1) that must append a bullet matching the
+        # contracted regex. Fixture G has only a load-bearing finding so
+        # this assertion is skipped there.
+        if [[ "$ok" -eq 1 && "$letter" == "A" ]]; then
+          if ! grep -qE '^- \[.+\] \(auto-applied [0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2} from /planning-loop arbiter ruling: .+\)$' "$tmp/synthetic-spec.md"; then
+            ok=0; reason="$reason; Open-Questions bullet missing or malformed"
+          fi
+        fi
         ;;
       menu)
         if [[ "${AUTOAPPLY_OUTCOME:-}" == "success" ]]; then ok=0; reason="expected menu (abort), got success"; fi
