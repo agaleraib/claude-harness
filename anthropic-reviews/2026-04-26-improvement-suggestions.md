@@ -49,7 +49,7 @@ A reader landing on the README sees Anthropic itself, in 2026, confirming the ha
 `grep -c "april-23-postmortem\|a-postmortem-of-three-recent-issues" /home/user/claude-harness/README.md` — should return `0` today; if non-zero when read tomorrow, the edit already landed.
 
 **Recommended verdict:** apply — first-party Anthropic evidence for an existing README claim, one-line bullet edit, zero risk.
-**Status:** PENDING — awaiting triage in PR review
+**Status:** APPLIED in commit fe8246f · 2026-04-28
 
 ---
 
@@ -100,7 +100,7 @@ Closes a real gap: today there's no fast path from "agent feels off" → "is it 
 `ls /home/user/claude-harness/procedures/triage-quality-issues.md 2>&1 | grep "No such file"` — should match (file absent) today; if missing tomorrow because the file was created, this suggestion is already done.
 
 **Recommended verdict:** apply — fills a real triage gap, ~30 lines of documentation, references existing infrastructure (no new mechanism needed).
-**Status:** PENDING — awaiting triage in PR review
+**Status:** APPLIED in commit fe8246f · 2026-04-28
 
 ---
 
@@ -146,7 +146,7 @@ grep -c "Anthropic.*product default\|xhigh.*product\|postmortem" /home/user/clau
 If the second grep returns non-zero or the spec already explicitly resolves the divergence, this suggestion is already addressed. Also check `docs/specs/` for a follow-up dated after 2026-04-23.
 
 **Recommended verdict:** spec — three plausible resolutions with different tradeoffs and a multi-file blast radius (`.harness-profile`, project-init schema, orchestrator fallback rule). Goes through `/spec-planner` before any edit.
-**Status:** PENDING — awaiting triage in PR review
+**Status:** PARKED in parking_lot.md — needs interactive /spec-planner for Option A/B/C design decision · 2026-04-28
 
 ---
 
