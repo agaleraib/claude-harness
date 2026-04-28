@@ -20,15 +20,16 @@ stakes:
 
 # model: pin + effort routing for the orchestrator.
 # `effort_default` is derived from `stakes.level` on first write by /project-init:
-#   stakes.level: low    → effort_default: medium
-#   stakes.level: medium → effort_default: high
+#   stakes.level: low    → effort_default: high
+#   stakes.level: medium → effort_default: xhigh
 #   stakes.level: high   → effort_default: xhigh
+# Aligned with Anthropic's 2026-04-23 postmortem (Claude Code defaults Opus-4.7 users to xhigh).
 # You may override `effort_default` by editing it directly — derivation only applies on first write.
 # `effort_cost_multiplier` is optional and reserved for future /tokens consumption (orchestrator ignores if absent).
 model:
   primary: claude-opus-4-7
   fallback: claude-sonnet-4-6
-  effort_default: high   # derived from stakes.level: medium
+  effort_default: xhigh   # derived from stakes.level: medium
   effort_cost_multiplier: {}   # optional; keys ∈ {low, medium, high, xhigh} → numeric (reserved for /tokens)
 
 quality_bar:

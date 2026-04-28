@@ -139,9 +139,11 @@ The `.harness-profile` carries a top-level `model:` block consumed by the orches
 
 | `stakes.level` | `effort_default` |
 |---|---|
-| `low` | `medium` |
-| `medium` | `high` |
+| `low` | `high` |
+| `medium` | `xhigh` |
 | `high` | `xhigh` |
+
+As of Anthropic's [2026-04-23 postmortem](https://www.anthropic.com/engineering/april-23-postmortem), Claude Code defaults Opus-4.7 users to `xhigh`. The derivation above stays at or above that floor for the primary model.
 
 The user MAY override `effort_default` by editing the field directly after init. Derivation only applies on first write — never re-derive on subsequent runs.
 
@@ -175,15 +177,16 @@ stakes:
 
 # model: pin + effort routing for the orchestrator.
 # `effort_default` is derived from `stakes.level` on first write by /project-init:
-#   stakes.level: low    → effort_default: medium
-#   stakes.level: medium → effort_default: high
+#   stakes.level: low    → effort_default: high
+#   stakes.level: medium → effort_default: xhigh
 #   stakes.level: high   → effort_default: xhigh
+# Aligned with Anthropic's 2026-04-23 postmortem (Claude Code defaults Opus-4.7 users to xhigh).
 # You may override `effort_default` by editing it directly — derivation only applies on first write.
 # `effort_cost_multiplier` is optional and reserved for future /tokens consumption (orchestrator ignores if absent).
 model:
   primary: claude-opus-4-7
   fallback: claude-sonnet-4-6
-  effort_default: [medium|high|xhigh]   # derived from stakes.level per table above
+  effort_default: [high|xhigh]          # derived from stakes.level per table above
   effort_cost_multiplier: {}            # optional; keys ∈ {low, medium, high, xhigh} → numeric (reserved for /tokens)
 
 quality_bar:
