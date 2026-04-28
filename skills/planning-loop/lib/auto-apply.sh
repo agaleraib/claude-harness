@@ -599,10 +599,24 @@ PYEOF
   idx=$((idx + 1))
 done
 
-# Atomic rename.
-if ! mv "${SPEC}.autoapply-tmp" "$SPEC"; then
+# Atomic rename. Honor PLANNING_LOOP_TEST_FORCE_MV_FAIL test hook so the
+# fixture suite can exercise the errno-capture path without filesystem
+# manipulation; otherwise invoke the real mv and capture $? on failure
+# (per SKILL.md Step 6f Phase 1b step 4).
+if [[ -n "${PLANNING_LOOP_TEST_FORCE_MV_FAIL:-}" ]]; then
+  mv_rc=99   # synthetic "test-forced" errno
+  mv_failed=1
+else
+  mv_failed=0
+  mv "${SPEC}.autoapply-tmp" "$SPEC"
+  mv_rc=$?
+  if [[ $mv_rc -ne 0 ]]; then
+    mv_failed=1
+  fi
+fi
+if [[ $mv_failed -eq 1 ]]; then
   rm -f "${SPEC}.autoapply-tmp" 2>/dev/null || true
-  append_abort "apply-failure" "n/a" "atomic rename failed"
+  append_abort "apply-failure" "n/a" "atomic rename failed: errno=$mv_rc"
   emit_outcome "menu-apply-failure"
   exit 1
 fi
