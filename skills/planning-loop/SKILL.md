@@ -518,9 +518,9 @@ Validation rules (all must hold for the edit to be eligible — Step 6f Phase 1a
 
 **Clause 6 — Hash-stable across validation→apply window (F4 mitigation, external-mutation detection):**
 
-- Step 6f Phase 1a captures `SPEC_HASH_PRE = sha256sum "$SPEC_PATH" | awk '{print $1}'` (or `shasum -a 256` on BSD/macOS — probe at startup).
+- Step 6f Phase 1a captures `SPEC_HASH_PRE = sha256sum "$SPEC_PATH" | awk '{print $1}'` (or `shasum -a 256` on BSD/macOS — probe at startup) AND `LOG_HASH_PRE` for `$LOG_PATH` if it exists.
 - Step 6f Phase 1b recomputes `SPEC_HASH_NOW` and compares to `SPEC_HASH_PRE`. Diff → abort with reason `hash-mismatch` and detail naming both 8-char hash prefixes. (External writer modified the spec between validation and apply.)
-- Same check for `$LOG_PATH` if `LOG_HASH_PRE` was recorded.
+- Same check for `$LOG_PATH`: when `LOG_HASH_PRE` was recorded, recompute `LOG_HASH_NOW` and compare. Diff → abort with reason `log-hash-mismatch` and detail naming both 8-char hash prefixes. The log-hash check guards against an external writer racing the round-3 finding parse with concurrent appends to the log; mismatching means the EXPECTED set the helper validated against may no longer match what's on disk.
 
 **Wrong-premise findings:** automatically eligible (no JSON block required). The disposition is "append a one-line bullet to the spec's Open Questions section". Phase 1a verifies the append target is resolvable: heading regex matches `^## Open Questions` OR `^## Open questions parked for v2` OR fall-through to "create new section at EOF" is available.
 
@@ -571,7 +571,7 @@ The helper captures `SPEC_HASH_PRE` (and `LOG_HASH_PRE` if applicable) at Phase-
 
 Runs only if Phase 1a passed.
 
-1. **Hash re-check** (Clause 6) — recompute `SPEC_HASH_NOW`; if `!= SPEC_HASH_PRE`, delete any tmp, abort `hash-mismatch` with detail `pre=<hex8> now=<hex8>`.
+1. **Hash re-check** (Clause 6) — recompute `SPEC_HASH_NOW`; if `!= SPEC_HASH_PRE`, delete any tmp, abort `hash-mismatch` with detail `pre=<hex8> now=<hex8>`. Then, if `LOG_HASH_PRE` was recorded, recompute `LOG_HASH_NOW`; if `!= LOG_HASH_PRE`, delete any tmp, abort `log-hash-mismatch` with detail `pre=<hex8> now=<hex8>`.
 2. **Temp buffer** — `cp $SPEC_PATH $SPEC_PATH.autoapply-tmp`. Live spec is NOT touched until step 4.
 3. **Apply each edit to the buffer in declared order:**
    - **Wrong-premise → Open Questions append:** locate the resolved heading (or create `## Open Questions` at EOF); append a bullet `- [<title>] (auto-applied <ts> from /planning-loop arbiter ruling: <verbatim arbiter rationale>)`. No MVP de-dupe — duplicates are visible in the audit entry.
@@ -617,7 +617,7 @@ There is no `### Skipped` section. Auto-apply is all-or-nothing — either every
 ```markdown
 ## Auto-apply aborted — <YYYY-MM-DD HH:MM:SS>
 
-Reason: <opt-out-set | validation-failure | hash-mismatch | apply-failure | log-append-failure | orphan-tmp-detected | verdict-id-mismatch | verdict-missing | mixed-routing-incomplete | log-parse-failure>
+Reason: <opt-out-set | validation-failure | hash-mismatch | log-hash-mismatch | apply-failure | log-append-failure | orphan-tmp-detected | verdict-id-mismatch | verdict-missing | mixed-routing-incomplete | log-parse-failure>
 Failed finding: <F-id or "n/a">
 Detail: <e.g. "F2 old_string matches 0 times in $SPEC_PATH" / "F3 insert_after matches 3 times" / "F2 section 'Constraints' not found in $SPEC_PATH" / "F2 old_string match falls outside section 'Constraints' body range" / "JSON block in F1 unparseable: <error>" / "$SPEC_PATH SHA-256 changed between validation and apply (external mutation detected): pre=<hex8> now=<hex8>" / "atomic rename failed: <errno>" / "PLANNING_LOOP_NO_AUTO_APPLY=1 set" / "orphan $SPEC_PATH.autoapply-tmp detected from prior run">
 

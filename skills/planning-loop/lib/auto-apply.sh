@@ -22,6 +22,11 @@
 # Test hooks (do NOT use in production):
 #   PLANNING_LOOP_TEST_PIN_SPEC_HASH_PRE — pin SPEC_HASH_PRE to a fixed value
 #       for the external-mutation race-window test.
+#   PLANNING_LOOP_TEST_PIN_LOG_HASH_PRE — pin LOG_HASH_PRE to a fixed value
+#       for the log-hash mismatch fixture (Wave 5 Task 2).
+#   PLANNING_LOOP_TEST_FORCE_MV_FAIL — force the atomic-rename mv to return
+#       non-zero so the apply-failure errno-capture path can be exercised
+#       (Wave 5 Task 9).
 set -uo pipefail
 
 SPEC="${1:-}"
@@ -104,7 +109,9 @@ else
   SPEC_HASH_PRE="$(hash_of "$SPEC")"
 fi
 LOG_HASH_PRE=""
-if [[ -f "$LOG" ]]; then
+if [[ -n "${PLANNING_LOOP_TEST_PIN_LOG_HASH_PRE:-}" ]]; then
+  LOG_HASH_PRE="$PLANNING_LOOP_TEST_PIN_LOG_HASH_PRE"
+elif [[ -f "$LOG" ]]; then
   LOG_HASH_PRE="$(hash_of "$LOG")"
 fi
 
@@ -387,6 +394,17 @@ if [[ "$SPEC_HASH_NOW" != "$SPEC_HASH_PRE" ]]; then
     "spec SHA-256 changed between validation and apply (external mutation): pre=${SPEC_HASH_PRE:0:8} now=${SPEC_HASH_NOW:0:8}"
   emit_outcome "menu-hash-mismatch"
   exit 1
+fi
+# Log-hash re-check (Clause 6 — same check for $LOG_PATH if LOG_HASH_PRE was recorded).
+if [[ -n "$LOG_HASH_PRE" ]]; then
+  LOG_HASH_NOW="$(hash_of "$LOG")"
+  if [[ "$LOG_HASH_NOW" != "$LOG_HASH_PRE" ]]; then
+    rm -f "${SPEC}.autoapply-tmp" 2>/dev/null || true
+    append_abort "log-hash-mismatch" "n/a" \
+      "log SHA-256 changed between validation and apply (external mutation): pre=${LOG_HASH_PRE:0:8} now=${LOG_HASH_NOW:0:8}"
+    emit_outcome "menu-hash-mismatch"
+    exit 1
+  fi
 fi
 
 # ----- Apply edits to a temp buffer (.autoapply-tmp) --------------------
