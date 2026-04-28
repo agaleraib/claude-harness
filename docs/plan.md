@@ -106,23 +106,25 @@ Deviations: (1) plan.md ↔ spec path divergence resolved at close-time — orch
 
 **Why this wave:** The 2026-04-28 token-trim refactor (5 commits on `claude/analyze-planning-loop-tokens-TO8ld`) silently dropped 5 contract guarantees + 4 detail-level guarantees the trim plan listed as non-goals. Code-reviewer DO-NOT-SHIP'd the branch. Wave 5 restores each regression with fixture coverage that actually drives `lib/auto-apply.sh` (current fixtures re-implement the logic in the runner — "15/15 pass" was meaningless). Sequential single-track because every later task's verify depends on real fixture coverage existing (Task 1).
 
-- [ ] **Planning-loop trim — regressions** [spec](./specs/2026-04-28-planning-loop-trim-remediation.md) — branch `claude/analyze-planning-loop-tokens-TO8ld` (no rebase, no force-push; Wave 5 ships as a 6th commit or 5 per-blocker commits per spec Constraints)
-  - [ ] Task 1 — Rewire `lib/test-fixtures/run-fixtures.sh` to drive real `lib/auto-apply.sh` + `lib/preflight.sh` (gates Tasks 2-9) — BLOCKER
-  - [ ] Task 2 — Restore `LOG_HASH_PRE` re-check at `auto-apply.sh:106-109` — BLOCKER
-  - [ ] Task 3 — Restore Phase 1b per-finding re-validation + section-body-range containment at `auto-apply.sh:420-440` (Rule #11(e)) — BLOCKER
-  - [ ] Task 4 — Move log-writability check back to Phase 1a pre-flight at `auto-apply.sh:373-380` — BLOCKER
-  - [ ] Task 5 — Restore rich audit-entry shape (Title / Arbiter rationale / Ruled by / Spec section / Old text / New text) at `auto-apply.sh:454-470` — BLOCKER
-  - [ ] Task 6 — Restore Open-Questions bullet format at `auto-apply.sh:404-405` (verbatim arbiter rationale) — MAJOR
-  - [ ] Task 7 — Fix Phase C cross-ref at `SKILL.md:486` — add rule 6 (Shape A containment) — MAJOR
-  - [ ] Task 8 — Live `/planning-loop --revise` end-to-end smoke against synthetic spec with at least one mechanical finding — MAJOR
-  - [ ] Task 9 — Restore `errno=<rc>` capture on `mv` failure at `auto-apply.sh:444-449` — MAJOR
+- [x] **Planning-loop trim — regressions** [spec](./specs/2026-04-28-planning-loop-trim-remediation.md) — commits `2669add` (Task 1), `bd6fa0a` (Task 2), `4cbc670` (Task 3), `3c7c391` (Task 4), `0ce2155` (Task 5), `0128604` (Task 6), `c1b9a6a` (Task 7), `35bb31a` (Task 9), `9b8a089` (Task 8 post-dispatch + parser-mismatch parking entry). Merge `ec3f49b`.
+  - [x] Task 1 — Rewire `lib/test-fixtures/run-fixtures.sh` to drive real `lib/auto-apply.sh` + `lib/preflight.sh` (`2669add`) — BLOCKER
+  - [x] Task 2 — Restore `LOG_HASH_PRE` re-check (`bd6fa0a`) — BLOCKER
+  - [x] Task 3 — Restore Phase 1b per-finding re-validation + section-body-range containment (Rule #11(e)) (`4cbc670`) — BLOCKER
+  - [x] Task 4 — Move log-writability check back to Phase 1a pre-flight (`3c7c391`) — BLOCKER
+  - [x] Task 5 — Restore rich audit-entry shape (Title / Arbiter rationale / Ruled by / Spec section / Old text / New text) (`0ce2155`) — BLOCKER
+  - [x] Task 6 — Restore Open-Questions bullet format (verbatim arbiter rationale) (`0128604`) — MAJOR
+  - [x] Task 7 — Fix Phase C cross-ref — add rule 6 (Shape A containment) (`c1b9a6a`) — MAJOR
+  - [x] Task 8 — Live `/planning-loop --revise` end-to-end smoke (executed post-dispatch 2026-04-28; auto-apply path validated end-to-end on real Codex output; spec hash 95e00505 → 70e73563; rich audit + restored Open-Questions bullet shape verified; one new finding surfaced — see parking_lot.md 2026-04-28 parser-format-mismatch entry) — MAJOR
+  - [x] Task 9 — Restore `errno=<rc>` capture on `mv` failure (`35bb31a`) — MAJOR
 
-**Wave 5 exit gate:**
-- All Wave 1 (spec-internal) fixture additions/changes (Tasks 1-6) pass against real `lib/` scripts — no inline copy.
-- `bash skills/planning-loop/lib/test-fixtures/run-fixtures.sh` exits 0.
-- `grep -c 'auto-apply\.sh' skills/planning-loop/lib/test-fixtures/run-fixtures.sh` returns ≥ 1 (was 0 — fixture-bypass anti-pattern).
-- One live `/planning-loop --revise` run completed end-to-end (Task 8); receipt or menu printed; no spec mutated without audit entry.
-- `git diff master..HEAD -- skills/planning-loop/` shows only the regression-fix lines + the rewired fixture runner.
+**Wave 5 exit gate (PASS 2026-04-28, merge `ec3f49b`):**
+- ✓ All Wave 1 (spec-internal) fixture additions/changes (Tasks 1-6) pass against real `lib/` scripts — no inline copy. (15 originals A-O + 5 Wave-5 additions P/Q/R/S/T = 20/20.)
+- ✓ `bash skills/planning-loop/lib/test-fixtures/run-fixtures.sh` exits 0 — `Total: 20  Pass: 20  Fail: 0`.
+- ✓ `grep -c 'auto-apply\.sh' skills/planning-loop/lib/test-fixtures/run-fixtures.sh` returns 11 (was 0 — fixture-bypass anti-pattern resolved).
+- ✓ One live `/planning-loop --revise` run completed end-to-end (Task 8 post-dispatch); auto-apply path fired; spec mutated via atomic rename; rich audit entry written; Open-Questions bullet appended in restored shape; `lib/restore.sh` ran cleanly. Run log: `.harness-state/planning-loop/2026-04-28-wave5-smoke-test-revise-114421.md`.
+- ✓ Branch diff shows only the regression-fix lines + rewired runner — no out-of-scope drift.
+
+Deviations: (1) **Branch-discipline deviation** — orchestrator worked on the primary checkout's `claude/analyze-planning-loop-tokens-TO8ld` branch, NOT the `/run-wave`-spawned agent worktree (worktree forked from master, lacked the trim commits being remediated; spec forbade rebase/force-push). 8 task commits + summary committed in primary; agent worktree was abandoned and runtime-cleaned. See `feedback_run_wave_branch_constraint_mismatch.md`. (2) **Fixture T scope adjustment** — spec called for "F1 shifts F2's needle outside its section" but Rule 8 (H2-in-edit-text rejection) makes this physically unreachable; substituted equivalent failure mode "F1's `old_string` overlaps F2's, F2 count drops to 0". Same `revalidate_remaining` code path. (3) **Stale line numbers** in spec — confirmed shifted; relocated edit sites by structure (variable names, function names, comment text, H2 heading text). (4) **NEW BUG SURFACED in Task 8 smoke (parked, not in this wave)** — `auto-apply.sh:161` parser requires `F1:` prefix Codex never emits; 15 fixtures pre-stamp it, masking the gap. SKILL.md Step 6e Clause 2 prose says "auto-derive position-ordered IDs" — code diverges from contract. Recommended fix is parser-side regex change. See parking_lot.md 2026-04-28 entry. Summary: `docs/2026-04-28-claude-harness-wave5-summary.md`.
 
 ---
 
