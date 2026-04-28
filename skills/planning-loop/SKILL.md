@@ -562,6 +562,7 @@ The helper parses `EXPECTED_FINDING_IDS` from the round-3 fenced block in `$LOG_
 | 11 | H2-in-edit-text rejection (Clause 5 rule 8) | `validation-failure` | `<Fi> edit text contains line starting with '## '` |
 | 12 | `$SPEC_PATH` and parent dir writable (parent for atomic rename) | `validation-failure` | `spec or its parent dir not writable` |
 | 13 | Round-3 finding set parseable from log | `log-parse-failure` | `no round-3 findings parsed from $LOG_PATH` |
+| 14 | `$LOG_PATH` writable (so the post-rename audit append cannot fail mid-window) | `validation-failure` | `log not writable: $LOG_PATH` |
 
 **Wrong-premise findings** are eligible without a JSON block; their disposition is "append a one-line bullet to `## Open Questions`". Phase 1a confirms an append target is resolvable: `^##[[:space:]]+[Oo]pen [Qq]uestions` heading regex (case-tolerant for `## Open Questions` and `## Open questions parked for v2`), with "create new section at EOF" as fall-through.
 
@@ -581,7 +582,7 @@ Runs only if Phase 1a passed.
 4. **Atomic rename** — `mv $SPEC_PATH.autoapply-tmp $SPEC_PATH`. Single commit point. On `mv` failure, delete tmp, abort `apply-failure` with `atomic rename failed: errno=<rc>`.
 5. **Audit append** — write `## Auto-apply — <ts>` to `$LOG_PATH` (single `>>` write; POSIX O_APPEND atomicity covers entry size).
 
-**Post-rename-pre-audit window.** If step 5's audit append fails, the spec is already mutated — rolling back atomically is impossible without a second non-atomic write (worse than the inconsistency). The helper prints a stderr warning naming the spec, best-effort writes a `## Auto-apply aborted — <ts>` entry with reason `log-append-failure`, and returns `menu-audit-failure`. This is the one documented exception to "spec never mutated without audit entry".
+**Post-rename-pre-audit window.** Phase 1a row #14 pre-checks `$LOG_PATH` writability so the most common failure mode (chmod, missing parent dir) aborts before any spec mutation. The window can still surface on disk-full, filesystem-error, or remount-RO conditions between rename and append. If step 5's audit append fails, the spec is already mutated — rolling back atomically is impossible without a second non-atomic write (worse than the inconsistency). The helper prints a stderr warning naming the spec, best-effort writes a `## Auto-apply aborted — <ts>` entry with reason `log-append-failure`, and returns `menu-audit-failure`. This is the one documented exception to "spec never mutated without audit entry".
 
 **Audit entry shape** (matches Data Model in the spec — `## Auto-apply — <ts>` with Preconditions line, both pre/post hashes, and `### Applied` block of per-finding bullets):
 

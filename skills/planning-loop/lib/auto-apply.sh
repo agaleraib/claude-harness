@@ -376,15 +376,18 @@ print(body.count(needle))
   eval "EI_${fid}=\$insert_after"
 done
 
-# Writability checks.
+# Writability checks (Phase 1a — performed BEFORE any spec mutation so an
+# unwritable log fails fast and the live spec stays byte-identical).
 if [[ ! -w "$SPEC" || ! -w "$(dirname "$SPEC")" ]]; then
   append_abort "validation-failure" "n/a" "spec or its parent dir not writable"
   emit_outcome "menu-validation-failure"
   exit 1
 fi
-# Note: $LOG writability is NOT pre-checked here — the post-rename audit-append
-# step is where we observe a log-append failure and emit the documented warning
-# (see SKILL.md Step 6f Phase 1b post-rename-pre-audit window).
+if [[ ! -w "$LOG" ]]; then
+  append_abort "validation-failure" "n/a" "log not writable: $LOG"
+  emit_outcome "menu-validation-failure"
+  exit 1
+fi
 
 # ----- 6f Phase 1b: hash re-check ---------------------------------------
 SPEC_HASH_NOW="$(hash_of "$SPEC")"
