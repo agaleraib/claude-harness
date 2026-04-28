@@ -375,6 +375,8 @@ Next: "Use the orchestrator to build Phase [N+1]" or review the results first.
 
 1. **Route at runtime, not in advance.** Read the task, understand the context, then decide. Don't follow a lookup table.
 2. **Brief subagents thoroughly.** A subagent starts cold — it hasn't seen the conversation. Include file contents, patterns to follow, and the verification step. Bad briefs waste more than they save.
+
+   **Anti-pattern: word/length caps in subagent prompts.** Do not write "respond in ≤25 words" or "keep final response under 100 words" in a subagent brief. Anthropic's [2026-04-23 postmortem](https://www.anthropic.com/engineering/april-23-postmortem) traced a 3% Claude Code coding-eval regression to exactly this style of cap. If a brief is too long, trim *content* (drop irrelevant context), not *response budget*.
 3. **One rung per failure.** Each verify failure escalates by exactly one rung (`low → medium → high → xhigh → promote-model`). The orchestrator stops only at `opus-4.7/xhigh` — until then, every failure climbs one step. See Step 6 for full details.
 4. **Commit per task.** Every completed task goes through `/commit`. No batching.
 5. **Parallel only when safe.** Same files or shared state → sequential. When in doubt, sequential.

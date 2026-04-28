@@ -176,6 +176,8 @@ Augment `.claude/agents/orchestrator.md` so every routing decision names an `eff
 
   Note: there is NO separate "xhigh for any task with `stakes.level: high`" rule. That duplicates the `effort_default` fallback (which is already `xhigh` on high-stakes repos per the stakes→effort mapping).
 
+- [ ] **Empirical anchor (added 2026-04-25):** Anthropic's [April 23 postmortem](https://www.anthropic.com/engineering/april-23-postmortem) confirms `effort=high` as the production-grade default on Claude Code itself (medium was rolled back April 7 after customer regressions). The spec's `effort_default: xhigh` is one tier above their consumer default and is the right setting for a harness whose primary loop is code-reviewer + generator.
+
 - [ ] **Per-task effort hint (opt-in).** If a spec task body contains a line `**Effort:** <low|medium|high|xhigh>` (same style as `**Verify:**`), the orchestrator uses that value and logs `override_source: task_hint`. Absence of the hint is fine — falls through to the selection rules above.
 
 - [ ] **Human log format** per §Logging Contract Surface A. Every decision prints `→ <task_id> → <Model> @ <effort>: <reason>` to console AND appends to `.harness-state/orchestrator.log`. No separate `Model: Sonnet → Effort: medium → reason: …` format — Surface A is the single canonical human format.
