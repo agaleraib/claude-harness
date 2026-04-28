@@ -146,7 +146,7 @@ grep -c "Anthropic.*product default\|xhigh.*product\|postmortem" /home/user/clau
 If the second grep returns non-zero or the spec already explicitly resolves the divergence, this suggestion is already addressed. Also check `docs/specs/` for a follow-up dated after 2026-04-23.
 
 **Recommended verdict:** spec — three plausible resolutions with different tradeoffs and a multi-file blast radius (`.harness-profile`, project-init schema, orchestrator fallback rule). Goes through `/spec-planner` before any edit.
-**Status:** PARKED in parking_lot.md — needs interactive /spec-planner for Option A/B/C design decision · 2026-04-28
+**Status:** RESOLVED by anthropic-reviews/2026-04-27-improvement-suggestions.md §1 — Option A applied · 2026-04-28
 
 ---
 

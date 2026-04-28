@@ -63,7 +63,7 @@ Brings the harness's tuning back into agreement with Anthropic's tuning for the 
 **Verify before applying:** re-read `skills/project-init/SKILL.md` lines 138–146 and the corresponding comment block at lines 177–181; confirm Anthropic's postmortem text at https://www.anthropic.com/engineering/april-23-postmortem still names `xhigh` as the Opus-4.7 default; check that `.harness-profile` line 31 still reads `effort_default: high`.
 
 **Recommended verdict:** apply — small mechanical edit in two places + this repo's own profile; brings harness in line with Anthropic's published default for the primary model; existing consumer projects unaffected because derivation is first-write-only.
-**Status:** PENDING — awaiting triage in PR review
+**Status:** APPLIED in commit 46806d1 · 2026-04-28 (also resolves 2026-04-26 §3)
 
 ---
 
@@ -103,7 +103,7 @@ Prevents a silent code-quality regression in any project that installs the harne
 **Verify before applying:** before promoting this from `defer` to `apply`, re-run `grep -rinE 'be concise|keep.*concise|short.*response|less verbose|reduce verbos|minimize output' skills/ .claude/agents/`. If the grep is still empty, the guardrail is still purely defensive — `defer` remains the right call. If the grep returns matches, promote to `apply` and use the matched files as the motivating example in the guardrail text.
 
 **Recommended verdict:** defer until a verbosity directive actually appears in a skill or agent prompt — current grep is empty, so adding the documentation today is speculative bloat by the harness's own anti-pattern rules.
-**Status:** PENDING — awaiting triage in PR review
+**Status:** DEFER — current grep is empty, watch-item only · 2026-04-28
 
 ---
 
