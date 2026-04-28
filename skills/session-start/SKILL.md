@@ -42,6 +42,19 @@ git status --short                                    # current working state
 
 The `git fetch` is intentional — it ensures branches pushed by automated routines (e.g. the Anthropic-reviews scheduler) are visible locally without moving master. Skip silently if there's no `origin` remote or no network.
 
+## Step 2b: Record a forensic breadcrumb (single line, no UI)
+
+```bash
+# Captures the Claude Code build at session open. If a future quality regression
+# hits, `git log .harness-state/claude_version` reconstructs which builds were
+# in use. Silent on missing CLI — never blocks session-start.
+command -v claude >/dev/null 2>&1 \
+  && claude --version 2>/dev/null > .harness-state/claude_version \
+  || true
+```
+
+The breadcrumb is intentionally write-only at session-start; nothing else reads it. Its value is forensic, not operational. Commit it (don't `.gitignore`) so timeline reconstruction works across machines — the file is one line, churn is low.
+
 ## Step 3: Inject the context reminder
 
 Print a 6-line header that will frame the entire session:
