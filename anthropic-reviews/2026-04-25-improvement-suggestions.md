@@ -57,7 +57,7 @@ Locks in a *known-cost* anti-pattern (3% coding regression — Anthropic-measure
 **Verify before applying:** before generating a diff, re-run `grep -rn "≤\\|word limit\\|max [0-9]\\+ word\\|under [0-9]\\+ word" /home/user/claude-harness/.claude/agents/ /home/user/claude-harness/skills/` — if **any** match comes back, the harness is no longer cap-free and the suggestion needs to be reframed as a *cleanup* rather than a *prevention* rule. Today (2026-04-25) the search returns zero hits across agents and skills, so the prevention framing is correct.
 
 **Recommended verdict:** apply — two-line text edits, zero new files, locks in a measurement-backed anti-pattern at the right friction point.
-**Status:** PENDING — awaiting triage in PR review
+**Status:** APPLIED in commit a9ab6b9 · 2026-04-28
 
 ---
 
