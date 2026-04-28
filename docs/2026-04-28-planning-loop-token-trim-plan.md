@@ -106,25 +106,53 @@ implementation; lean stdin-as-JSON for simplicity).
   and the matching `auto-apply.sh` call.
 - Rules section (1–11), unchanged.
 
+### A.1 — Contract collapse (folded in from former Phase C)
+
+Once the bash leaves Step 6f Phase 1a, what remains in markdown is a
+numbered list of "for each check, here's the abort reason and detail
+template if it fails". That collapses naturally into an **abort-reason
+mapping table** keyed by clause-number (`6e clause 5 rule 6 →
+validation-failure / "F<i>: <field> matches N times in $SPEC_PATH"`).
+
+Do this as the final cleanup step of Phase A, after both helper scripts
+land and `run-fixtures.sh` passes. **Gate:** if cross-references between
+6e and 6f get tangled (e.g. >5 distinct cross-refs needed, or any
+arbiter prompt template breaks), abort the collapse and leave Phase 1a
+as a verbose-but-bash-free section. Phase A still ships either way.
+
+**Pre-condition before starting A.1:** Phase A's bash extraction is
+green (`run-fixtures.sh` passes). Open 6e and 6f Phase 1a side by side
+and confirm the unique-to-each diff is ≤ 5 items. If it's longer, skip
+A.1 and accept the smaller saving.
+
 **Files touched:**
 
 - New: `skills/planning-loop/lib/preflight.sh`
 - New: `skills/planning-loop/lib/auto-apply.sh`
-- Edit: `skills/planning-loop/SKILL.md` (delete inline bash, replace with
-  one-line helper invocations)
+- Edit: `skills/planning-loop/SKILL.md` (delete inline bash, replace
+  with one-line helper invocations; collapse Phase 1a verbosity into
+  abort-reason table per A.1).
 
 **Success criteria:**
 
 - `run-fixtures.sh` passes (all 15 fixtures green).
 - A REVISE-mode dry-run on a known-clean spec reaches Step 5 without errors.
-- SKILL.md byte count drops by ≥ 8KB.
+- SKILL.md byte count drops by ≥ 10KB.
 - No paths inside SKILL.md reference `skills/planning-loop/lib/...`
   (relative); only `$HOME/.claude/skills/planning-loop/lib/...` (absolute).
+- After A.1 (if taken): every "see Step …" cross-reference in SKILL.md
+  resolves; the abort-reason enum is preserved (grep
+  `validation-failure|hash-mismatch|apply-failure|log-append-failure|orphan-tmp-detected|verdict-id-mismatch|verdict-missing|mixed-routing-incomplete|log-parse-failure|opt-out-set`
+  — distinct reasons must not drop).
 
 **Rollback:** `git restore skills/planning-loop/SKILL.md` and
 `git rm skills/planning-loop/lib/preflight.sh skills/planning-loop/lib/auto-apply.sh`.
+A.1 alone can be rolled back independently with `git restore
+skills/planning-loop/SKILL.md` if the collapse is taken and regretted —
+the helper scripts stay.
 
-**Estimated savings:** ~10KB / ~2.5K tokens off the skill load.
+**Estimated savings:** ~13KB / ~3.25K tokens (A bash extract ~10KB +
+A.1 collapse ~3KB; A.1 may not happen, in which case ~10KB / ~2.5K).
 
 ---
 
@@ -163,53 +191,11 @@ hints — they're recoverable from the body.
 
 ---
 
-## Phase C — Dedupe the JSON edit-block contract (conditional, judgment-heavy)
+## Phase C — Trim inline rationale parentheticals (conditional, judgment-heavy)
 
-**Run this phase only if Phases A+B haven't met the ~30KB target.**
-
-**The trap:** Step 6e (clause 5) and Step 6f Phase 1a (per-finding loop) look
-duplicative but are not the same content. 6e is a *contract spec* — what's
-required, in declarative voice. 6f is a *runtime check list* — how each
-clause is verified, with abort reasons and detail-message templates. A naive
-collapse loses one or the other.
-
-**Approach if we do this:**
-
-1. Pick 6e as the canonical contract definition. It already reads like a
-   spec.
-2. Rewrite 6f Phase 1a as a numbered list that *cross-references* 6e clauses
-   by number ("verifies clause 5 rule 6 — substring count == 1; abort reason
-   `validation-failure`, detail template `F<i>: <field> matches N times in
-   $SPEC_PATH`").
-3. Keep the abort-reason enum + audit-entry shape blocks intact — those are
-   the API contract with the log file (distribution invariant #3).
-4. Walk every back-reference in SKILL.md ("see Step 6f Phase 1a", "per the
-   contract in `### 6e.`") and confirm each still resolves after the
-   collapse.
-
-**Pre-condition before starting:** open Step 6e and Step 6f Phase 1a side by
-side and write a one-paragraph diff of what's actually unique to each.
-Confirm the diff is ≤ 5 items before proceeding. If it's longer, the
-sections aren't really duplicates and this phase is a no-go.
-
-**Success criteria:**
-
-- `run-fixtures.sh` passes.
-- Every "see Step …" cross-reference in SKILL.md resolves.
-- No abort reason from the master enum is silently dropped (grep
-  `validation-failure|hash-mismatch|apply-failure|log-append-failure|orphan-tmp-detected|verdict-id-mismatch|verdict-missing|mixed-routing-incomplete|log-parse-failure|opt-out-set`
-  before and after, counts must match — appearances may go down, distinct
-  reasons must not).
-
-**Rollback:** `git restore skills/planning-loop/SKILL.md`.
-
-**Estimated savings:** ~3KB / ~750 tokens.
-
----
-
-## Phase D — Trim inline rationale parentheticals (conditional, judgment-heavy)
-
-**Run this phase only if Phases A–C haven't met the target.**
+**Run this phase only if Phases A (incl. A.1) + B haven't met the ~7K-token
+target.** Note: this was "Phase D" in the original plan; the former Phase C
+was folded into Phase A as sub-step A.1, so this is now C.
 
 **The trap:** parentheticals like "(F4 mitigation, external-mutation
 detection)", "(load-bearing F2 mitigation)", "(Phase 1c — recovery for
@@ -248,24 +234,32 @@ re-anchor what F1–F5 actually are. Don't trim from memory.
 | Phase | Bytes saved | Tokens saved | Cumulative SKILL.md size | Cumulative tokens |
 |-------|-------------|--------------|--------------------------|-------------------|
 | baseline | — | — | 55,707 | ~14,000 |
-| A (bash extract) | ~10,000 | ~2,500 | ~46,000 | ~11,500 |
-| B (description) | ~330 (frontmatter only) | ~130 (per session) | ~46,000 (skill body) | ~11,500 (per invocation) |
-| C (dedupe contract) | ~3,000 | ~750 | ~43,000 | ~10,750 |
-| D (trim rationale) | ~1,500 | ~400 | ~41,500 | ~10,350 |
+| A (bash extract, no A.1) | ~10,000 | ~2,500 | ~46,000 | ~11,500 |
+| A.1 (contract collapse, if taken) | ~3,000 | ~750 | ~43,000 | ~10,750 |
+| B (description) | ~330 (frontmatter only) | ~130 (per session) | ~43,000 (skill body) | ~10,750 (per invocation) |
+| C (trim rationale, optional) | ~1,500 | ~400 | ~41,500 | ~10,350 |
 
-Phases A+B alone get ~75% of the available win. Treat C and D as optional.
+Phases A (incl. A.1 if it falls out cheap) + B get the bulk of the win.
+Treat C as a tail-end optimization only.
 
-## Open questions
+## Resolved decisions
 
-1. Should `lib/preflight.sh` and `lib/auto-apply.sh` share helpers (e.g.
-   shared abort-reason emitter)? Lean **no** for now — they exit at
-   different points and shared helpers add coupling.
-2. Should `run-fixtures.sh` be updated to source the new `lib/auto-apply.sh`
-   instead of re-implementing the logic? Big upside (eliminates the "fixture
-   driver drifts from skill" risk). Treat as a follow-up after Phase A
-   lands; don't gate Phase A on it.
-3. Phase C's contract dedupe might be cleaner to do *as part of* Phase A's
-   bash extraction (the Phase 1a loop becomes a script, so the SKILL.md
-   side naturally collapses). Decide during Phase A implementation —
-   if the natural collapse falls out cheap, take it; otherwise keep C
-   separate.
+These were the original plan's open questions; resolved 2026-04-28 before
+any implementation began.
+
+1. **Shared helpers between `preflight.sh` and `auto-apply.sh` — NO.** They
+   exit at different control-flow points: preflight aborts the whole skill,
+   auto-apply aborts to the cap-reached menu while the skill keeps running.
+   Sharing an abort-emitter would couple unrelated exit semantics for
+   minimal saved code.
+2. **`run-fixtures.sh` sourcing `lib/auto-apply.sh` — DEFER.** The fixture
+   driver was deliberately bash-3.2-compatible (per commit `846cd1b`).
+   Coupling them forces the lib script to that constraint too. Worth doing
+   eventually as a follow-up that eliminates fixture-driver drift, but it's
+   a separate decision and does NOT gate Phase A. Track in the project
+   parking lot once Phase A lands.
+3. **Phase C dedupe folds into Phase A — YES.** Once Phase A removes the
+   bash from Step 6f Phase 1a, what remains collapses naturally into an
+   abort-reason mapping table (no longer duplicative with Step 6e's
+   contract clauses). Folded in as sub-step A.1 with its own gate (skip if
+   cross-references get tangled). Former Phase D renumbered to Phase C.
