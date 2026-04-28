@@ -243,45 +243,9 @@ For each round `N` from 1 to 3:
 
 After any spec-planner dispatch, verify `test -f "$SPEC_PATH"`. If missing, stop and tell the user spec-planner failed to write the file.
 
-**Round-1 prompt template (FRESH mode only):**
+**Round-1 prompt template (FRESH mode only):** drafts the new spec from the user's pre-answered blob, with discovery suppressed. **Load `references/codex-prompts.md` §1 before dispatching.**
 
-```
-You are spec-planner. The user has pre-answered every clarifying question. **DO NOT run the Discovery Phase.** Do not call AskUserQuestion. Draft the spec directly from the inputs below and write the full spec to `<SPEC_PATH>`.
-
-Follow your normal Spec Generation Rules + Recommended Implementation block as documented in your agent definition. Do not skip the `## Implementation` block.
-
-After writing the file, return only: "Spec written to <SPEC_PATH>" — no other commentary.
-
-# Inputs (user's pre-answered blob)
-
-<verbatim $ARGUMENTS>
-```
-
-**Round-2+ prompt template (both modes):**
-
-```
-You are spec-planner, in iteration <N> of an adversarial review loop. The previous draft is at `<SPEC_PATH>`. Codex returned `needs-attention`. Findings below.
-
-**DO NOT run the Discovery Phase.** Do not call AskUserQuestion. Revise `<SPEC_PATH>` in place to address every finding without expanding scope beyond the original spec's stated goal. If a finding is genuinely out of scope or rests on a wrong premise, leave a one-line note in the spec's `## Open Questions` block explaining why — do not drop it silently.
-
-After rewriting, return only: "Spec revised at <SPEC_PATH>" — no other commentary.
-
-<if FRESH mode:>
-# Original inputs (user's pre-answered blob)
-
-<verbatim $ARGUMENTS>
-</if>
-
-<if REVISE mode:>
-# Original spec context
-
-The spec at <SPEC_PATH> was authored before this loop began; treat its existing scope, data model, and acceptance criteria as the source of truth. Codex's findings should be addressed within that envelope.
-</if>
-
-# Codex findings to address (from round <N-1>)
-
-<findings block from previous adversarial-review stdout>
-```
+**Round-2+ prompt template (both modes):** revises `$SPEC_PATH` in place against Codex findings, holding scope. **Load `references/codex-prompts.md` §2 before dispatching.**
 
 ### 5b. Run adversarial-review
 
@@ -384,49 +348,9 @@ Heuristic: if the recommendation can be applied with a text edit and a re-run of
 
 If both apply, dispatch both in a single message (parallel tool calls).
 
-**Detail-arbiter prompt template (`code-reviewer`):**
+**Detail-arbiter prompt template (`code-reviewer`):** rules each detail-classified finding as load-bearing / nice-to-have / wrong-premise / defer, and emits a fenced `json` edit block per Shape A or Shape B for every load-bearing finding. **Load `references/codex-prompts.md` §3 before dispatching.**
 
-```
-You are an independent third-arbiter for a planning-loop that hit cap with unresolved findings. Review the findings below and rule on each.
-
-Spec under review: <SPEC_PATH>
-Loop log (full round-by-round Codex output): <LOG_PATH>
-
-For EACH finding below, return one of four verdicts plus one sentence:
-- **load-bearing** — must fix before ship; Codex is right
-- **nice-to-have** — fix as a TODO in implementation, not a blocker
-- **wrong-premise** — Codex misread the spec or the recommendation rests on a false assumption; drop the finding (and explain in one sentence what the misread is)
-- **defer** — out of the spec's envelope; document in the spec's `## Open Questions` block
-
-Do NOT propose a redesign. Do NOT widen scope. Read the spec file directly to verify line references.
-
-For each load-bearing finding, emit your recommendation as a fenced ```json block with `section` (the H2 heading body the edit belongs to) plus either `{old_string, new_string}` or `{insert_after, new_string}` per the contract in `### 6e.`
-
-# Findings to rule on
-
-<list of detail-classified bullets, verbatim from round 3>
-```
-
-**Scope-arbiter prompt template (`Plan`):**
-
-```
-You are an independent third-arbiter for a planning-loop that hit cap with scope-level findings. The spec under review claims a specific envelope; Codex's findings question that envelope.
-
-Spec under review: <SPEC_PATH>
-Loop log: <LOG_PATH>
-
-For EACH finding below, return one of four verdicts plus one paragraph (≤4 sentences):
-- **load-bearing** — the envelope IS wrong; spec needs a redesign; sketch the smaller spec or the different spec
-- **nice-to-have** — envelope is right; finding is a stretch goal worth tracking but not blocking
-- **wrong-premise** — Codex misread the spec's stakes or scope; drop the finding (explain the misread)
-- **defer** — fair concern but for a follow-up spec, not this one
-
-Do NOT auto-ship; do NOT commit. The user decides; you are advisory.
-
-# Findings to rule on
-
-<list of scope-classified bullets, verbatim from round 3>
-```
+**Scope-arbiter prompt template (`Plan`):** rules each scope-classified finding using the same four-verdict taxonomy at envelope level (redesign vs follow-up vs misread). **Load `references/codex-prompts.md` §4 before dispatching.**
 
 ### 6.5c. Append arbiter verdicts to the review log
 
@@ -712,27 +636,19 @@ The skill does NOT auto-ship the spec when the cap is reached. Decide:
 
 ## Rules (load-bearing)
 
-1. **Spec-planner discovery is ALWAYS suppressed.** The dispatch prompt MUST tell the agent not to call `AskUserQuestion`. Applies to both modes; in revise mode, doubly so since we're working from an existing draft.
+Full rationale lives in `references/rules.md`. Load that file when you need the *why* behind a rule; the eleven titles below are sufficient for the constraint set during normal execution.
 
-2. **Hard cap = 3.** Do not raise it. If 3 rounds didn't converge, the gap is design-level, not detail-level.
-
-3. **Fail-closed on missing verdict line.** If Codex stdout doesn't contain a parseable `Verdict:` line, treat it as `needs-attention`. Never default to `approve` because parsing failed.
-
-4. **No auto-ship at cap.** The cap path prints findings and stops. The user decides. Auto-applying unanimously-decided arbiter rulings to the spec text is permitted and is NOT 'shipping'; the user still owns `/commit`.
-
-5. **Log every round.** Even if the user aborts mid-loop, the log under `.harness-state/planning-loop/` is the audit trail.
-
-6. **Spec lives in the working tree.** Don't commit it inside the skill — that belongs to a follow-up `/commit`. The adversarial-review picks it up via working-tree scope.
-
-7. **Slug collision is a user signal — except in revise mode.** Fresh mode stops if `SPEC_PATH` already exists. Revise mode targets an existing path on purpose.
-
-8. **Revise mode does NOT widen scope.** Spec-planner's revise prompt explicitly says: address findings within the spec's existing envelope. If Codex flags a scope-level concern, that's a candidate for the spec's `## Open Questions` block, not a silent rewrite that turns an MVP into v2.
-
-9. **Arbiters are advisory, never authoritative.** Step 6.5 surfaces a third opinion to inform the user's decision; it cannot ship the spec, edit the spec, or replace the user-decides options. Even a unanimous "drop all findings" arbiter ruling produces option 4, not auto-ship. **Clarification:** when arbiter advice is unanimous AND every load-bearing fix passes the JSON edit-block contract (see `### 6e.`), the skill may execute that advice on the spec file via the auto-apply path; the user remains the sole authority over committing. Auto-apply is editing, not shipping.
-
-10. **Auto-park is a lifecycle, not a step.** REVISE mode parks unrelated working-tree changes via a single named stash + state journal at `.git/planning-loop-park/state.json`. Every exit point (success, escalation, error) MUST invoke `bash "$HOME/.claude/skills/planning-loop/lib/restore.sh"` before returning. Leftover state from a crashed/interrupted run is detected on the next invocation by the pre-flight in Step 1 and aborts cleanly with recovery instructions; never silently proceed past leftover state. Orphan-stash detection (a stash named `planning-loop park *` without state.json) is defense-in-depth for cases where state.json was lost.
-
-11. **Auto-apply preconditions are conjunctive — ALL of (a) opt-out not set, (b) unanimous arbiter rulings on every round-3 finding, (c) drop-or-mechanical-fix (every load-bearing recommendation passes the non-mechanical pre-filter), (d) no `defer` or `nice-to-have` verdicts on any finding, (e) every load-bearing fix validates against the JSON edit-block contract including `section`-scoped containment (see `### 6e.`), (f) `$SPEC_PATH` SHA-256 unchanged between Phase 1a validation and Phase 1b apply, must hold. ANY exception falls through to the menu, all-or-nothing (no partial-apply, ever).** Detection is conservative by design — false positives (auto-apply when shouldn't) are worse than false negatives (menu when could've auto-applied), because the menu still works. Opt-out surfaces: `PLANNING_LOOP_NO_AUTO_APPLY=1` env var (precedence) and `planning_loop.auto_apply: false` in `.harness-profile` (default `true`).
+1. **Spec-planner discovery is ALWAYS suppressed.**
+2. **Hard cap = 3.**
+3. **Fail-closed on missing verdict line.**
+4. **No auto-ship at cap.**
+5. **Log every round.**
+6. **Spec lives in the working tree.**
+7. **Slug collision is a user signal — except in revise mode.**
+8. **Revise mode does NOT widen scope.**
+9. **Arbiters are advisory, never authoritative.**
+10. **Auto-park is a lifecycle, not a step.**
+11. **Auto-apply preconditions are conjunctive.**
 
 ## Out of scope
 

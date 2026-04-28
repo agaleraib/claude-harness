@@ -1,0 +1,22 @@
+[
+  {"query": "I just finished drafting docs/specs/2026-04-29-billing-export.md for a CSV export of Stripe invoices into our /admin dashboard, can you stress-test it adversarially before I ship?", "should_trigger": true},
+  {"query": "plan and adversarially review my idea for a single-tenant audit log streamer (push events to s3://logs-prod/audit/ via firehose, retention 7 yrs, SOC2 evidence rows) — write a spec and iterate it to LGTM", "should_trigger": true},
+  {"query": "iterate this spec to LGTM: docs/specs/2026-04-22-rate-limiter.md — focus on the burst-bucket math, codex flagged it round 1", "should_trigger": true},
+  {"query": "have Codex stress-test this plan, it's at /Users/me/projects/wfx/docs/specs/2026-04-25-billing-fix.md, want unanimous approve before I touch the code", "should_trigger": true},
+  {"query": "/planning-loop --revise docs/specs/2026-04-15-rss-mvp.md \"focus on rate limiting\"", "should_trigger": true},
+  {"query": "ok i have this messy idea for a slack bot that triages parking_lot.md every monday morning at 9am eastern, posts the digest to #eng-parking, opens a draft PR per cluster — draft me a spec and adversarially review it", "should_trigger": true},
+  {"query": "draft me a spec from this prose blob and run it through three rounds of codex critique: \"webhook receiver for shopify order.create events, validate HMAC, dedupe by event_id, write to postgres orders table, ack 200 within 1.5s, on dlq after 5 retries\"", "should_trigger": true},
+  {"query": "wait — before i implement the migration plan in docs/specs/2026-04-28-pg14-to-pg17.md, i want a third opinion to push back on it. can you run the adversarial review loop on it for me?", "should_trigger": true},
+  {"query": "the spec at docs/specs/2026-04-26-feature-flags.md — codex said needs-attention three rounds in a row when i tried it manually. can the skill loop fix that for me automatically?", "should_trigger": true},
+  {"query": "review my spec for typos and grammar — the file is at docs/specs/2026-04-29-blog-cms.md", "should_trigger": false},
+  {"query": "review the pull request i just opened, i'd like a security pass on the changes in src/auth/", "should_trigger": false},
+  {"query": "open codex and tell it to review the diff i'm about to push to main, just normal code review", "should_trigger": false},
+  {"query": "can you write a spec for a billing exporter? just one round, no review loop, i'll handle review myself", "should_trigger": false},
+  {"query": "what does adversarial review even mean? walk me through codex's review options before i pick one", "should_trigger": false},
+  {"query": "iterate on this prose paragraph until it sounds less marketing-y — it's the 'about us' page draft", "should_trigger": false},
+  {"query": "loop through these spec files and tell me which ones are missing an Implementation block: docs/specs/2026-04-*.md", "should_trigger": false},
+  {"query": "run the planning-loop fixture tests to make sure my changes to lib/auto-apply.sh didn't break anything", "should_trigger": false},
+  {"query": "retry the codex adversarial-review command on the working tree, the last run timed out", "should_trigger": false},
+  {"query": "merge docs/specs/2026-04-29-* into a single combined spec and clean up the duplicates before you start implementing", "should_trigger": false},
+  {"query": "park this side-quest in parking_lot.md: 'investigate why /planning-loop is hitting cap on the rss-mvp spec consistently'", "should_trigger": false}
+]
