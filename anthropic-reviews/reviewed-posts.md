@@ -49,3 +49,4 @@ Tracks every Anthropic post evaluated for relevance to the **claude-harness** re
 | 2026-04-28 | Update on election safeguards (April 2026) | https://www.anthropic.com/news (April 24 announcement) | skipped | Policy/safeguards content; no harness surface. |
 | 2026-04-28 | Anthropic names GM of Australia | https://www.anthropic.com (April 27 announcement) | skipped | Personnel/regional announcement; no harness surface. |
 | 2026-04-28 | Amazon $100B compute deal / Google $40B investment | https://www.bloomberg.com/news/articles/2026-04-24/google-plans-to-invest-up-to-40-billion-in-anthropic | skipped | Financial / compute infrastructure announcements; no harness surface. |
+| 2026-04-29 | _no new posts since 2026-04-28_ | — | — | Discovery sweep across anthropic.com/news, /engineering, /research, resources.anthropic.com — only events/webinar pages dated 2026-04-28/29 surfaced (out of scope). All recent in-window posts already tracked. |
