@@ -146,3 +146,30 @@ Deviations: (1) **Branch-discipline deviation** — orchestrator worked on the p
 Deviations: (1) **Branch discipline** — orchestrator branched off master in the worktree, NOT `claude/analyze-planning-loop-tokens-TO8ld` (already merged + cleaned during Wave 5; resurrecting was unnecessary). Authorized by dispatch. (2) **Line-count target** — 658 vs ≤540, accepted as PASS-with-deviation per the eligible-savings ceiling above. (3) Line-number drift (742 vs 741 spec baseline; no impact). (4) `evals/README.md` is 39 lines vs ≤30 soft hint (preserves both `Running` examples). (5) Routing dry-run (`model_routing` not set in `.harness-profile`; all tasks ran on the live Opus session). Summary: `docs/2026-04-28-claude-harness-wave6-summary.md`.
 
 This completes the planning-loop trim-remediation spec — all 12 tasks across 2 waves shipped (Wave 5 = spec Wave 1 = 9 regression tasks; Wave 6 = spec Wave 2 = 3 skill-creator alignment tasks).
+
+---
+
+### Wave 7 — Protocol baseline + spec-skill alignment (claude-harness scope)
+
+**Why this wave:** First wave of the harness-evolution roadmap. Ships claude-harness's own `AGENTS.md` + `WORKFLOW.md` (the tool-neutral protocol contract) AND refines `/spec-planner` + `/planning-loop` to enforce the Manual-fallback discipline going forward. Per protocol-first doctrine: every harness skill must be operable with `git + editor + shell + docs` alone — these refinements bake that check into spec authoring. Independently shippable: subsequent waves of the harness-evolution spec depend on these protocol files existing and on specs containing per-task Manual-fallback bullets. wordwideAI + gobot will track equivalent waves when those repos are next opened (not pre-created in this commit).
+
+- [ ] **Harness Evolution — spec Wave 0 (claude-harness scope)** [spec](./specs/2026-04-30-harness-evolution.md) — cherry-picks Deliverable A (claude-harness only) + Deliverable B (skill refinements live here).
+  - [ ] Task 1 — Write `AGENTS.md` at repo root (~40 lines: what any agent must do/avoid, where state lives, how to discover specs/plan/waves). Update existing `CLAUDE.md` with one-line pointer: `> Tool-neutral protocol lives in AGENTS.md. Claude-specific overrides below.` (per spec §7.1 resolved decision). Append `protocol_baseline: true` to `.harness-profile` top-level once AGENTS.md+WORKFLOW.md exist (gates Wave 3 `/run-wave` Step 0 preflight per spec §4 Wave 0 Deliverable A).
+  - [ ] Task 2 — Write `WORKFLOW.md` at repo root (~60 lines: Command / Manual / Claude / Codex / Automation matrix per spec §0). Use space-padded separator (`| --- | --- | --- | --- | --- |`) so the row-count grep below matches.
+  - [ ] Task 3 — Refine `.claude/agents/spec-planner.md`: §"Implementation Plan (Sprint Contracts)" requires per-task `**Manual fallback:**` sub-bullet; §"Spec Generation Rules" requires WORKFLOW.md row delta when a spec adds a user-facing command
+  - [ ] Task 4 — Refine `skills/planning-loop/SKILL.md`: (a) Codex review prompt gains portability criterion ("verify each task has a Manual fallback executable with git+editor+gh"); (b) auto-apply preflight (lib/preflight.sh) rejects specs adding commands without WORKFLOW.md row delta — distinct code path from the Codex-prompt path (a)
+  - [ ] Task 5 — Fixture validation: add TWO new fixtures to `skills/planning-loop/lib/test-fixtures/`. **Fixture V** — spec missing Manual-fallback bullets; exercises Codex-prompt-path criterion (Codex returns `needs-attention`); runner expected-outcome name = `menu` (the in-runner outcome that maps to a `needs-attention` verdict, cf. fixtures B/C/D/I-N). **Fixture W** — spec adding command without WORKFLOW.md row delta; exercises preflight-rejection path; runner expected-outcome name = `preflight-abort` (cf. fixture O). Wire both into run-fixtures.sh as `run_one V missing-manual-fallback menu` and `run_one W missing-workflow-delta preflight-abort`.
+
+**Wave 7 exit gate (target):**
+- ✓ `test -f AGENTS.md` exits 0
+- ✓ `test -f WORKFLOW.md` exits 0; `grep -c '^| .* | .* | .* | .* | .* |$' WORKFLOW.md` returns ≥ 8 (1 header + 7 command rows; space-padded separator excluded by regex)
+- ✓ `grep -F 'AGENTS.md' CLAUDE.md` matches (CLAUDE.md points at AGENTS.md)
+- ✓ `grep -q '^protocol_baseline: true$' .harness-profile` returns 0 (flag set; gates Wave 3 preflight)
+- ✓ Manual verification: 5-question test (spec §0) passes for claude-harness using only protocol files; result recorded in `.harness-state/wave7-verification.md` with explicit yes/no per question
+- ✓ `grep -q 'Manual fallback' .claude/agents/spec-planner.md` returns 0 (rule documented)
+- ✓ `grep -q 'WORKFLOW.md row delta' .claude/agents/spec-planner.md` returns 0 (rule documented)
+- ✓ `grep -qi 'portability' skills/planning-loop/SKILL.md` returns 0 (Codex prompt criterion present)
+- ✓ Fixture run: `bash skills/planning-loop/lib/test-fixtures/run-fixtures.sh` exits 0; pre-existing 21 fixtures (A–U) remain green; new fixtures V (`menu` outcome on missing-Manual-fallback spec) and W (`preflight-abort` on missing-WORKFLOW.md-delta spec) both pass — total 23/23
+- ✓ Sample `/spec-planner` dry-run output contains per-task Manual-fallback bullets
+
+Effort tracked in spec §4 Wave 0.
