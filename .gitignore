@@ -1,10 +1,15 @@
 # Session state — local, per-machine, regenerated on each session-start.
 # Ignore everything inside .harness-state/ EXCEPT triage-log.md (audit trail
 # for /triage-parking, meant to persist across machines per the skill's
-# always-log invariant). File-level patterns are required because gitignore
-# cannot re-include a file whose parent directory is excluded.
+# always-log invariant) and examples/ (worked-example receipts that prove
+# cross-adapter idempotency_key equality per spec §4.2 — Wave 8 Task 7).
+# File-level patterns are required because gitignore cannot re-include a
+# file whose parent directory is excluded.
 .harness-state/*
 !.harness-state/triage-log.md
+!.harness-state/examples/
+!.harness-state/examples/**
+!.harness-state/wave*-verification.md
 
 # /planning-loop side-path copy — ephemeral, written/deleted by the skill.
 # Pattern protects against accidental commit if a run is interrupted before
