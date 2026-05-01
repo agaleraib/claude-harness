@@ -132,6 +132,42 @@ if [[ "$AUTO_APPLY" == "false" ]]; then
   exit 1
 fi
 
+# ----- Phase 1a-pre: WORKFLOW.md row delta gate (Wave 1 §2.2) ------------
+# Runs BEFORE the existing classification phases. If the spec adds a
+# user-facing command (heuristic: a `Files:` entry pointing at
+# `skills/<name>/SKILL.md` OR a heading containing `command:` followed by a
+# slash-prefixed name), require a `### WORKFLOW.md row delta` subsection.
+# Missing → emit runner outcome `preflight-abort` and stop.
+phase1a_pre_workflow_delta() {
+  local spec="$1"
+  # Heuristic 1: any `Files:` entry pointing at skills/<name>/SKILL.md
+  # (covers /spec-planner Task 3 rule for "user-facing command added").
+  # Tolerates list-bullet prefixes ("- ", "* ", "  - "), bold markers (**Files:**),
+  # and backticked path values.
+  local found_command=0
+  if grep -qE 'Files:[*[:space:]`]*[^[:space:]`]*skills/[^[:space:]`]+/SKILL\.md' "$spec"; then
+    found_command=1
+  fi
+  # Heuristic 2: a heading containing "command:" with a slash-prefixed name.
+  if [[ $found_command -eq 0 ]]; then
+    if grep -qiE '^#+[[:space:]].*command:[[:space:]]*/[a-z][a-z0-9-]+' "$spec"; then
+      found_command=1
+    fi
+  fi
+  if [[ $found_command -eq 0 ]]; then
+    return 0   # spec adds no command; phase is a no-op
+  fi
+  # Spec adds a command — require WORKFLOW.md row delta subsection.
+  if grep -qE '^#+[[:space:]]+WORKFLOW\.md row delta' "$spec"; then
+    return 0   # row delta present; gate passes
+  fi
+  append_abort "preflight-abort" "n/a" \
+    "spec adds a user-facing command but lacks a '### WORKFLOW.md row delta' subsection (per Wave 1 §2.2)"
+  emit_outcome "preflight-abort"
+  exit 1
+}
+phase1a_pre_workflow_delta "$SPEC"
+
 # ----- 6f Phase 1a: capture pre-validation hashes ------------------------
 if [[ -n "${PLANNING_LOOP_TEST_PIN_SPEC_HASH_PRE:-}" ]]; then
   SPEC_HASH_PRE="$PLANNING_LOOP_TEST_PIN_SPEC_HASH_PRE"

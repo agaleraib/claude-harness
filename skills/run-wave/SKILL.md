@@ -204,6 +204,72 @@ Then use `AskUserQuestion`:
 
 If "show me the spec first", print the file and re-ask.
 
+## Step 9.5: Reserve receipt (BEFORE dispatch — §3.0a / v2 Wave 1)
+
+Per `docs/specs/2026-05-01-claude-adapter-alignment.md` §3.1, `/run-wave` MUST emit a §4.2-conforming receipt under `.harness-state/run-wave-<wave_id>-<timestamp>.yml` using the shared helper at `skills/_shared/lib/emit-receipt.sh`. The lifecycle is **reserve-then-mutate**: write a `started` receipt BEFORE any worktree creation or branch checkout.
+
+**Source the helper:**
+
+```bash
+HARNESS_REPO="$(git rev-parse --show-toplevel)"
+source "$HARNESS_REPO/skills/_shared/lib/emit-receipt.sh"
+```
+
+**Initialize and preflight** (before Step 10's dispatch):
+
+```bash
+emit_receipt_init run-wave "$WAVE_NUMBER" docs/plan.md "$SPEC_PATH" $SUB_SPEC_PATHS
+emit_receipt_set_spec_path "$SPEC_PATH"
+PREFLIGHT="$(emit_receipt_preflight)"
+case "$PREFLIGHT" in
+  PROCEED)
+    emit_receipt_started
+    ;;
+  NOOP*)
+    # Stage A success no-op — identical inputs already shipped this wave.
+    echo "$PREFLIGHT" >&2
+    echo "Wave $WAVE_NUMBER already dispatched with identical inputs; no-op via existing receipt." >&2
+    exit 0
+    ;;
+  *)
+    # Preflight aborted (.harness-state/ unwritable).
+    exit 2
+    ;;
+esac
+```
+
+**At terminal exit** (after dispatch returns), set the cause and write the terminal receipt:
+
+```bash
+# After orchestrator dispatch returns, populate verification.results and outputs.
+VERIFICATION_YAML="    - cmd: \"orchestrator dispatch\"
+      exit_code: $ORCH_RC
+      summary: \"$ORCH_SUMMARY\""
+
+case "$ORCH_RC" in
+  0) emit_receipt_terminal success "$VERIFICATION_YAML" "$WORKTREE_PATH" ".harness-state/orchestrator.log" ;;
+  *) EMIT_RECEIPT__TRAP_CAUSE=failed
+     emit_receipt_terminal failed "$VERIFICATION_YAML" ;;
+esac
+```
+
+**Receipt fields per §3.1:**
+
+| Field | Value |
+|---|---|
+| `command` | `run-wave` |
+| `wave_id` | the wave number being dispatched (numeric string) |
+| `spec_path` | the spec sourced from `docs/plan.md` (when present) |
+| `operation_id` | `sha256_hex("run-wave\n<wave_id>")` per §3.0 |
+| `inputs` | `[docs/plan.md, <spec_path>, ...sub-spec paths]` |
+| `outputs` | `[<worktree branch path>, .harness-state/<orchestrator-log-path>]` (terminal write only) |
+| `verification.results` | lint/typecheck commands and their exit codes (terminal write only) |
+| `status` | `started` → `success` / `partial` / `aborted-on-ambiguity` / `failed` per §3.0a |
+
+**Crash recovery.** If `/run-wave` is killed mid-dispatch (SIGTERM, SIGINT, host crash), the EXIT trap installed by `emit_receipt_started` rewrites the receipt to `aborted-on-ambiguity` (Stage-B-resumable). The next invocation finds the prior receipt by `operation_id` and sets `retry_of` on the new receipt, preserving the audit chain across the kill boundary.
+
+**Manual fallback.** Operator hand-authors `.harness-state/run-wave-<wave_id>-<ISO-8601-Z-ts>.yml` using `.harness-state/examples/wave1/manual-*.yml` as a template; computes `idempotency_key` via `recompute-keys.sh`-style invocation (digest each input file, sort, compute outer SHA-256). For crash recovery, manually create an `aborted-on-ambiguity`-status receipt for any signal-killed dispatch.
+
 ## Step 10: Dispatch the orchestrator
 
 Invoke the Agent tool with:

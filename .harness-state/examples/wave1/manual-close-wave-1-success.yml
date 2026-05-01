@@ -1,0 +1,56 @@
+# Example receipt — manual adapter, /close-wave 1.
+# v2 Wave 1 fixture (docs/specs/2026-05-01-claude-adapter-alignment.md §3.2).
+# Cross-adapter PAIRED with close-wave-1-success.yml: same logical
+# operation, identical idempotency_key.value byte-for-byte, different
+# adapter. Recomputer asserts the equality property at validation time.
+#
+# This fixture demonstrates the v2 protocol-first doctrine: the manual
+# adapter (a human running the manual column from WORKFLOW.md) produces
+# a receipt that's keyed identically to the claude-code adapter's
+# receipt for the same logical operation on the same input contents.
+
+receipt_id: close-wave-1-2026-05-02T1430Z-manual
+command: close-wave
+adapter: manual
+wave_id: "1"
+spec_path: docs/specs/2026-05-01-claude-adapter-alignment.md
+inputs:
+  - docs/2026-05-01-claude-harness-wave1-summary.md
+  - docs/plan.md
+  - docs/specs/2026-05-01-claude-adapter-alignment.md
+outputs:
+  - docs/plan.md
+  - docs/2026-05-01-claude-harness-wave1-summary.md
+verification:
+  commands:
+    - "test -f docs/2026-05-01-claude-harness-wave1-summary.md"
+    - "git log --oneline -1 docs/plan.md | grep -F 'Wave 1'"
+  results:
+    - cmd: "test -f docs/2026-05-01-claude-harness-wave1-summary.md"
+      exit_code: 0
+      summary: "summary file present at frozen path"
+    - cmd: "git log --oneline -1 docs/plan.md | grep -F 'Wave 1'"
+      exit_code: 0
+      summary: "Wave 1 closure entry visible in plan.md history"
+started_at: "2026-05-02T14:25:00Z"
+completed_at: "2026-05-02T14:30:00Z"
+status: success
+merge_sha: 1d7cee0
+operation_id: c233f86a25e77ee5466579b3b44ba3519a5013f954a59246607422508e60a6b9
+idempotency_key:
+  value: b408b9172128d7a254025695fa66b0b8b93eb77e5300eb0aff00d0ff3986d53f
+  trace:
+    command: close-wave
+    wave_id_or_spec_path: "1"
+    sorted_inputs:
+      - "docs/2026-05-01-claude-harness-wave1-summary.md:dddd4444dddd4444dddd4444dddd4444dddd4444dddd4444dddd4444dddd4444"
+      - "docs/plan.md:aaaa1111aaaa1111aaaa1111aaaa1111aaaa1111aaaa1111aaaa1111aaaa1111"
+      - "docs/specs/2026-05-01-claude-adapter-alignment.md:bbbb2222bbbb2222bbbb2222bbbb2222bbbb2222bbbb2222bbbb2222bbbb2222"
+    input_content_digest: a0815a604335a5d0c22993bb0e500cd932feb48770e92779c6676079921dd23f
+notes: |
+  Manual adapter: human ran the Manual column from WORKFLOW.md (verify
+  branch + merge --no-ff + write summary + emit receipt). Pair receipt
+  is close-wave-1-success.yml; both must compute identical
+  idempotency_key.value byte-for-byte per spec §4.2. Cross-adapter
+  equality is the v2 protocol's load-bearing property: identical
+  command + wave/spec + input contents across adapters → identical key.

@@ -374,6 +374,19 @@ If only one class of findings was present, omit the empty section heading.
 
 Scan arbiter verdicts for any `wrong-premise` rulings. These become **option 4** in the cap-reached output (drop the finding with a note in the spec's `## Open Questions`). If no `wrong-premise` rulings, option 4 is omitted.
 
+### 6d. Auto-apply Phase 1a-pre — WORKFLOW.md row delta gate (v2 Wave 1 §2.2)
+
+Runs FIRST inside `lib/auto-apply.sh`, before opt-out check and before the existing finding-classification phases. Heuristic detection: spec adds a user-facing command if either holds:
+
+- Any `Files:` entry points at `skills/<name>/SKILL.md` (matches the /spec-planner Task 3 rule for "user-facing command added").
+- A heading containing `command:` followed by a slash-prefixed name (e.g. `command: /run-wave`).
+
+If detected, the spec MUST include a `### WORKFLOW.md row delta` subsection (heading regex `^#+[[:space:]]+WORKFLOW\.md row delta`). Missing → `auto-apply.sh` exits 1 with stdout outcome `preflight-abort` and appends `## Auto-apply aborted — <ts>` with reason `preflight-abort` to `$LOG`.
+
+Per the v2 protocol's manual-fallback parity: a new command without a WORKFLOW.md row leaves the matrix incomplete; the protocol's portability test (§2.3) cannot be answered for it.
+
+Specs that add NO user-facing command pass this gate as a no-op regardless of WORKFLOW.md row delta presence (no false positives).
+
 ### 6e. Auto-apply preconditions
 
 Runs only at the cap-reached path, after Step 6.5d and before Step 6 prints anything. This block decides whether to fall through to the existing 4-option menu (default) or take the auto-apply branch (Step 6f). Full conjunctive precondition is codified in Rule #11; carve-out for Rule #4 + clarification of Rule #9.
@@ -465,7 +478,7 @@ The helper:
 - exit 1 + stdout `menu-*` → aborted to menu; aborted entry appended; print 4-option menu.
 - exit 2 → hard error (missing args, no SHA-256 utility, file unreadable); also fall through to menu.
 
-`$AUTOAPPLY_OUTCOME` values: `success` | `menu-validation-failure` | `menu-opt-out` | `menu-hash-mismatch` | `menu-apply-failure` | `menu-audit-failure`. Caller branches on `success` vs anything else; abort reasons are persisted in the appended `## Auto-apply aborted — <ts>` log entry.
+`$AUTOAPPLY_OUTCOME` values: `success` | `menu-validation-failure` | `menu-opt-out` | `menu-hash-mismatch` | `menu-apply-failure` | `menu-audit-failure` | `preflight-abort` (Wave 1 §2.2 — WORKFLOW.md row delta missing on a command-adding spec). Caller branches on `success` vs anything else; abort reasons are persisted in the appended `## Auto-apply aborted — <ts>` log entry.
 
 #### Phase 1a — Validation pass (in-memory, no writes)
 
@@ -542,7 +555,7 @@ There is no `### Skipped` section. Auto-apply is all-or-nothing — either every
 ```markdown
 ## Auto-apply aborted — <YYYY-MM-DD HH:MM:SS>
 
-Reason: <opt-out-set | validation-failure | hash-mismatch | log-hash-mismatch | apply-failure | log-append-failure | orphan-tmp-detected | verdict-id-mismatch | verdict-missing | mixed-routing-incomplete | log-parse-failure>
+Reason: <opt-out-set | validation-failure | hash-mismatch | log-hash-mismatch | apply-failure | log-append-failure | orphan-tmp-detected | verdict-id-mismatch | verdict-missing | mixed-routing-incomplete | log-parse-failure | preflight-abort>
 Failed finding: <F-id or "n/a">
 Detail: <e.g. "F2 old_string matches 0 times in $SPEC_PATH" / "F3 insert_after matches 3 times" / "F2 section 'Constraints' not found in $SPEC_PATH" / "F2 old_string match falls outside section 'Constraints' body range" / "JSON block in F1 unparseable: <error>" / "$SPEC_PATH SHA-256 changed between validation and apply (external mutation detected): pre=<hex8> now=<hex8>" / "atomic rename failed: <errno>" / "PLANNING_LOOP_NO_AUTO_APPLY=1 set" / "orphan $SPEC_PATH.autoapply-tmp detected from prior run">
 
@@ -650,9 +663,28 @@ Full rationale lives in `references/rules.md`. Load that file when you need the 
 10. **Auto-park is a lifecycle, not a step.**
 11. **Auto-apply preconditions are conjunctive.**
 
+## Review criteria surfaced to Codex
+
+Codex review prompts inherit the following protocol-conformance criteria. Full text in `references/codex-prompts.md`:
+
+- **Portability** — every implementation task must include a `Manual fallback:` sub-bullet executable with `git + editor + gh`. Specs that hard-require a specific LLM tool name (Claude, Codex, etc.) as the only execution path are flagged `needs-attention`. This enforces v2 protocol §"Manual is primary": adapters are accelerators, not the only path.
+
+The portability criterion is loaded into Codex's review prompt at every dispatch (round 1, rounds 2-3, and the detail-arbiter pass). Specs missing `Manual fallback:` bullets trigger `needs-attention` and runner outcome `menu`.
+
+## plan.md non-touch invariant (architectural)
+
+`/planning-loop` MUST NOT read, write, or recommend modifications to `docs/plan.md`. Plan.md ownership is exclusive to `/spec-planner`.
+
+This invariant exists because `/spec-planner` writes `### Wave N` blocks at spec-emission time (per its shape-consequence table). If `/planning-loop` also wrote plan.md, two skills would race for ownership of the same artifact — a recipe for duplicated rows, conflicting wave numbers, and idempotency drift.
+
+Read-only references to `docs/plan.md` for context (e.g. naming the next wave number when discussing spec scope) are permitted only when explicitly marked "context-only, no write". No subprocess invoked by `/planning-loop` may mutate `docs/plan.md` during fixture or production runs; `git diff docs/plan.md` before/after each fixture must show zero changes.
+
+If a Codex finding recommends that `/planning-loop` write plan.md, the arbiter classifies it as `wrong-premise` — the spec-planner ownership boundary is load-bearing.
+
 ## Out of scope
 
 - Committing the spec (use `/commit` after).
 - Routing tasks to waves or `/run-wave` (spec-planner's `## Implementation` block does this; the loop doesn't dispatch).
 - Interactive discovery (suppressed by design — see Rule #1).
 - Reviewing implementation code (use `/codex:adversarial-review` directly for that).
+- **Writing or modifying `docs/plan.md`** — see "plan.md non-touch invariant" above. Plan.md ownership is exclusive to `/spec-planner`.

@@ -1,0 +1,46 @@
+# Example receipt — claude-code adapter, /commit success (plan.md advance).
+# v2 Wave 1 fixture (docs/specs/2026-05-01-claude-adapter-alignment.md §3.3).
+# Demonstrates a commit that ADVANCES a plan.md row (sets a Wave N
+# checkbox to [x]); operation_id keys on the spec_path per §3.0.
+
+receipt_id: commit-2026-05-01-claude-adapter-alignment.md-2026-05-02T1610Z-claude
+command: commit
+adapter: claude-code
+wave_id: "1"
+spec_path: docs/specs/2026-05-01-claude-adapter-alignment.md
+inputs:
+  - docs/plan.md
+  - skills/_shared/lib/emit-receipt.sh
+outputs:
+  - cafe1234cafe1234cafe1234cafe1234cafe1234
+  - docs/plan.md
+verification:
+  commands:
+    - "pre-commit hook"
+    - "git log -1 --format=%H"
+  results:
+    - cmd: "pre-commit hook"
+      exit_code: 0
+      summary: "pre-commit hooks passed"
+    - cmd: "git log -1 --format=%H"
+      exit_code: 0
+      summary: "commit cafe1234cafe1234cafe1234cafe1234cafe1234 created"
+started_at: "2026-05-02T16:08:00Z"
+completed_at: "2026-05-02T16:10:00Z"
+status: success
+operation_id: de7c5c8b90addb65ae4f3df40a684e4068f6ba968110e2adc710dfc077ea1e25
+idempotency_key:
+  value: 5318affac685c8a645488a7c9293828688ba1629a3edc3c0a33568ac0513376c
+  trace:
+    command: commit
+    wave_id_or_spec_path: "docs/specs/2026-05-01-claude-adapter-alignment.md"
+    sorted_inputs:
+      - "docs/plan.md:aaaa1111aaaa1111aaaa1111aaaa1111aaaa1111aaaa1111aaaa1111aaaa1111"
+      - "skills/_shared/lib/emit-receipt.sh:7777aaaa7777aaaa7777aaaa7777aaaa7777aaaa7777aaaa7777aaaa7777aaaa"
+    input_content_digest: f5cafa6fa282b1828fab40eccd05a2f057566954f2cf42cbd27b5ee098ef52cc
+notes: |
+  advances Wave 1 — Task 7 (shared receipt-emission helper) marked done.
+  Plan.md-advancing commits use spec_path as the operation_id second
+  line (per §3.0). Same-spec commits across the wave share operation_id
+  but have distinct idempotency_keys due to different staged content
+  digests (per §4.6 recovery-key separation).

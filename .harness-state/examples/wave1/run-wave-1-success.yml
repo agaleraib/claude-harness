@@ -1,0 +1,48 @@
+# Example receipt — claude-code adapter, /run-wave 1 success.
+# v2 Wave 1 fixture (docs/specs/2026-05-01-claude-adapter-alignment.md §3.1).
+# Trace digests are FROZEN test fixtures, not live filesystem hashes.
+# Recomputer (.harness-state/examples/recompute-keys.sh-style) reads the
+# trace, recomputes the SHA-256 chain, and asserts the embedded
+# idempotency_key.value byte-equals the recomputed value.
+
+receipt_id: run-wave-1-2026-05-02T1430Z-claude
+command: run-wave
+adapter: claude-code
+wave_id: "1"
+spec_path: docs/specs/2026-05-01-claude-adapter-alignment.md
+inputs:
+  - docs/plan.md
+  - docs/specs/2026-05-01-claude-adapter-alignment.md
+outputs:
+  - .claude/worktrees/agent-2026-05-02T1430Z
+  - .harness-state/orchestrator.log
+verification:
+  commands:
+    - "git worktree list"
+    - "ls .harness-state/orchestrator.log"
+  results:
+    - cmd: "git worktree list"
+      exit_code: 0
+      summary: "worktree created at .claude/worktrees/agent-2026-05-02T1430Z"
+    - cmd: "ls .harness-state/orchestrator.log"
+      exit_code: 0
+      summary: "orchestrator log present"
+started_at: "2026-05-02T14:30:00Z"
+completed_at: "2026-05-02T14:42:00Z"
+status: success
+operation_id: 8dd54296d1c43bbd9fdbab9ce18d0e670c44620fc5ed855894fbd4359ab327ec
+idempotency_key:
+  value: ff429f219612a9d8c05983c513714dd9c714cd576ea4007b941b891257786b98
+  trace:
+    command: run-wave
+    wave_id_or_spec_path: "1"
+    sorted_inputs:
+      - "docs/plan.md:aaaa1111aaaa1111aaaa1111aaaa1111aaaa1111aaaa1111aaaa1111aaaa1111"
+      - "docs/specs/2026-05-01-claude-adapter-alignment.md:bbbb2222bbbb2222bbbb2222bbbb2222bbbb2222bbbb2222bbbb2222bbbb2222"
+    input_content_digest: ba7b82c913a913a78c04326053501e3f3ca510e8efd15e3db02521d9b57def39
+notes: |
+  v2 Wave 1 fixture: claude-code adapter, /run-wave 1 success.
+  Wave 1 dispatch produced an isolated worktree and orchestrator log
+  with the spec's exit-gate met. Reserve-then-mutate lifecycle per §3.0a:
+  started receipt was written before worktree creation, then atomically
+  rewritten with terminal status=success after dispatch returned.
