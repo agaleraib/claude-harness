@@ -182,20 +182,22 @@ Effort tracked in spec §4 Wave 0.
 
 **Why this wave:** Replaces superseded Wave 7. Ships v2's broader Wave 0 deliverable: `AGENTS.md` + `WORKFLOW.md` (protocol contract) PLUS the materialized receipt schema and Codex prompt contract under `docs/protocol/`, PLUS example receipts under `.harness-state/examples/`. The receipt-schema and Codex-prompt-contract materializations are what make the v2 spec a *universal* protocol — Codex and Claude implementations have a single source of truth for receipt shape and prompt contract, instead of inferring from the spec body. Spec-skill refinements (the original Wave 7 Deliverable B) are tracked separately when v2 Wave 1 is dispatched.
 
-- [ ] **Universal Harness Protocol — spec Wave 0** [spec](./specs/2026-04-30-universal-harness-protocol-v2.md) — Wave 0 deliverable per spec §8 Wave 0.
-  - [x] Task 0 — Plan-supersedure (spec §8 Wave 0 self-deliverable: "update Wave 7 to point at v2 or note v2 supersedes the old target") — satisfied at dispatch time by this commit's Wave 7 SUPERSEDED note + Wave 8 entry
-  - [ ] Task 1 — Write `AGENTS.md` at repo root (~40 lines: tool-neutral agent instructions; what to do/avoid; where state lives; how to discover specs/plan/waves)
-  - [ ] Task 2 — Write `WORKFLOW.md` at repo root populated from spec §4 command matrix (Manual / Claude Code / Codex / Automation columns); include §4.1 prompt contracts; use space-padded separator (`| --- | --- | --- | --- | --- |`); zero `deferred decision` cells in any data row of the command matrix
-  - [ ] Task 3 — Update `CLAUDE.md` with one-line pointer: `> Tool-neutral protocol lives in AGENTS.md. Claude-specific overrides below.` (per spec Open Q #1 default disposition: AGENTS.md primary, CLAUDE.md addendum)
-  - [ ] Task 4 — Append `protocol_baseline: true` to `.harness-profile` top-level once AGENTS.md+WORKFLOW.md exist (gates v2 Wave 3 `/run-wave` Step 0 preflight)
-  - [ ] Task 5 — Materialize `docs/protocol/receipt-schema.md` from spec §4.2 (all required + conditional fields, recovery semantics two-stage lookup, mutating-command discipline, canonical idempotency_key derivation, operation_id derivation)
-  - [ ] Task 6 — Materialize `docs/protocol/codex-prompt-contract.md` from spec §4.1 (clauses 1-7 verbatim; this is what Wave 5 Codex pilots inherit)
-  - [ ] Task 7 — Produce two example receipts + a deterministic recomputer under `.harness-state/examples/`:
-    - **Receipts** — one manual-adapter, one claude-code-adapter, both for the same logical operation. Choose an operation whose inputs are immutable post-fact: `/close-wave 6` referencing the closed wave's `docs/waves/2026-04-28-claude-harness-wave6-summary.md` (NOT the live mutable `docs/plan.md`). Both must validate against `docs/protocol/receipt-schema.md`. Both must include `operation_id` and an `idempotency_key.trace` field — the sorted `<path>:<sha256>` block that fed the canonical SHA-256 (frozen at receipt-author time per spec §4.2 "at the time work starts").
-    - **Recomputer script** — `.harness-state/examples/recompute-keys.sh`. Reads each receipt's `idempotency_key.trace` block (does NOT re-hash the live filesystem; trace is the frozen pre-image), recomputes the canonical SHA-256 per spec §4.2, and asserts each key matches its receipt's embedded `idempotency_key` AND that both receipts' keys are equal. Exits 0 on full agreement, non-zero with a diff message otherwise.
-  - [ ] Task 8 — Record 5-question portability-test (spec §2.3) answers in `.harness-state/wave8-verification.md` (explicit yes/no per question with the answer source — `docs/plan.md ## Now`, `docs/waves/`, etc.)
+- [x] **Universal Harness Protocol — spec Wave 0** [spec](./specs/2026-04-30-universal-harness-protocol-v2.md) — Wave 0 deliverable per spec §8 Wave 0. Merge `1d7cee0`.
+  - [x] Task 0 — Plan-supersedure (spec §8 Wave 0 self-deliverable: "update Wave 7 to point at v2 or note v2 supersedes the old target") — satisfied at dispatch time by `24b9f0a` (Wave 7 SUPERSEDED note + Wave 8 entry)
+  - [x] Task 1 — `AGENTS.md` at repo root (47 lines: tool-neutral agent instructions; state map; do/avoid; 5-question discovery) — `8ad4361`
+  - [x] Task 2 — `WORKFLOW.md` at repo root with §4 command matrix (Manual / Claude Code / Codex / Automation; space-padded separator; zero `<deferred>` placeholder cells) — `4f84dcb` + post-review prose fix `3548770`
+  - [x] Task 3 — `CLAUDE.md` minimal Claude-specific addendum pointing at AGENTS.md (created since CLAUDE.md was absent on entry) — `2b3ed7c`
+  - [x] Task 4 — `protocol_baseline: true` appended to `.harness-profile` top-level — `479aa28`
+  - [x] Task 5 — `docs/protocol/receipt-schema.md` materialized from spec §4.2 (all 18 fields including `operation_id`, recovery semantics two-stage lookup, mutating-command discipline) — `e7ed26b`
+  - [x] Task 6 — `docs/protocol/codex-prompt-contract.md` materialized from spec §4.1 (6 clauses) — `1595ef0`
+  - [x] Task 7 — `.harness-state/examples/{manual,claude}-close-wave-6.yml` + `recompute-keys.sh`. Cross-adapter `idempotency_key` equality verified mechanically: both receipts compute `238e61ca94966dcb120050cdba46c0ab0b71333cc01fb2cec077f18e6a39587b` from frozen `idempotency_key.trace` pre-images (recompute-keys.sh exit 0). **Deviation:** `idempotency_key` shipped as YAML mapping `{value, trace}` not spec-typed string — flagged in Open Q #9 (spec commit `7a439ff`), decision deferred to Wave 5. — `f34cb9c` + post-review summary metadata fix `3548770`
+  - [x] Task 8 — `.harness-state/wave8-verification.md` — 5-question portability-test candidate answers (orchestrator IS a Claude session, so cold-read manual verification is **Status: Deferred** to a fresh editor session; tracked in §Open items below) — `b8f92f1`
 
-**Wave 8 exit gate (target):**
+**Wave 8 exit gate (PASS-with-deferred 2026-05-01, merge `1d7cee0`):**
+- ✓ All 11 mechanical gate bullets pass (file existence, regex/awk pattern matches, recompute-keys.sh equality assertion, YAML validity).
+- DEFERRED — gate bullet #12 "Manual verification: opening the repo cold and answering the 5-question test (spec §2.3)" — requires fresh editor session without prior conversation context; tracked in §Open items carried forward (close-wave receipt).
+
+**Original Wave 8 exit gate (target — for historical reference; PASS results recorded above):**
 - ✓ `test -f AGENTS.md` exits 0
 - ✓ `test -f WORKFLOW.md` exits 0; `grep -c '^| .* | .* | .* | .* | .* |$' WORKFLOW.md` returns ≥ 8 (1 header + 7 command rows; space-padded separator excluded by regex)
 - ✓ `awk '/^\|/ && /deferred decision/' WORKFLOW.md` returns nothing (no `deferred decision` appears in any table row; matches in surrounding prose are acceptable)
