@@ -1,24 +1,32 @@
 #!/usr/bin/env bash
-# run-fixtures.sh — drive the 15 auto-apply test fixtures (A–O).
+# run-fixtures.sh — drive the auto-apply + emit-receipt test fixtures.
 #
-# Each fixture runs against a FRESH copy of synthetic-spec.md per fixture.
-# Exits 0 only when every fixture passes its documented contract.
+# Fixture inventory (all run; exits 0 only if every fixture's contract holds):
+#   - Auto-apply A–O   (15 — original suite covering the auto-apply pipeline)
+#   - Auto-apply P–T   (5  — Wave 5 regressions: Tasks 2/3/4/9)
+#   - Auto-apply U     (1  — Codex bullet-shape parser regression)
+#   - Auto-apply V1–V7 (7  — v2 Wave 1 §4.1/§4.5/§4.6/§4.7 documentation)
+#   - Auto-apply W1–W2 (2  — v2 Wave 1 §4.3/§4.8 preflight-abort gate)
+#   - emit-receipt-mechanical.sh — §4.5/§4.7/§4.8 mechanical assertions on
+#                                  skills/_shared/lib/emit-receipt.sh
+#
+# Each auto-apply fixture runs against a FRESH copy of synthetic-spec.md per
+# fixture. The mechanical block runs as a single trailing invocation; its
+# pass/fail count is folded into the suite total at the end.
 #
 # This driver is a THIN WRAPPER around the real lib scripts:
-#   - Fixtures A–N invoke `bash $SCRIPT_DIR/../auto-apply.sh "$SPEC" "$LOG"`
+#   - Auto-apply A–N invoke `bash $SCRIPT_DIR/../auto-apply.sh "$SPEC" "$LOG"`
 #     so the real auto-apply.sh enforces every contract under test.
 #   - Fixture O invokes `bash $SCRIPT_DIR/../preflight.sh "$SPEC"` inside an
 #     isolated `git init`'d temp directory; the orphan-tmp pre-flight is the
 #     real Phase 1c implementation, not a faithful imitation.
+#   - emit-receipt-mechanical.sh sources skills/_shared/lib/emit-receipt.sh
+#     directly and exercises §4.5/§4.7/§4.8 invariants end-to-end.
 #
 # Layout (all paths relative to the test working dir created per-fixture):
 #   $TMPDIR/synthetic-spec.md        — fresh copy of the spec under test
 #   $TMPDIR/run.log                  — synthetic LOG_PATH the executor reads
 #   $TMPDIR/.harness-profile         — written for Fixture N only
-#
-# Two new fixtures (P, Q, R) added in Wave 5 verify regressions restored by
-# auto-apply.sh Tasks 2-4 + Task 9 (log-hash mismatch, per-finding re-validation,
-# log writability, mv-errno). They are run from this driver alongside A–O.
 #
 set -u
 
@@ -356,9 +364,34 @@ rm -f "$COUNTER_FILE"
 
 echo
 echo "----------------------------------------"
-echo "Total: $((PASS + FAIL))   Pass: $PASS   Fail: $FAIL"
+echo "Auto-apply fixtures:        Total: $((PASS + FAIL))   Pass: $PASS   Fail: $FAIL"
 
-if [[ $FAIL -eq 0 ]]; then
+# v2 Wave 1 mechanical block — exercises §4.5/§4.7/§4.8 acceptance criteria
+# against the real emit-receipt.sh helper end-to-end. Counts roll into the
+# overall suite total so a single non-zero exit covers any regression.
+echo
+echo "== emit-receipt mechanical fixtures (§4.5/§4.7/§4.8) =="
+MECH_BIN="$SCRIPT_DIR/emit-receipt-mechanical.sh"
+MECH_RC=0
+if [[ -x "$MECH_BIN" ]]; then
+  # Capture both fixture output and the trailing summary line ("pass=N fail=M").
+  MECH_OUT=$(bash "$MECH_BIN") || MECH_RC=$?
+  printf '%s\n' "$MECH_OUT"
+  MECH_PASS=$(printf '%s\n' "$MECH_OUT" | tail -1 | sed -nE 's/.*pass=([0-9]+) fail=([0-9]+)/\1/p')
+  MECH_FAIL=$(printf '%s\n' "$MECH_OUT" | tail -1 | sed -nE 's/.*pass=([0-9]+) fail=([0-9]+)/\2/p')
+  [[ -z "${MECH_PASS:-}" ]] && MECH_PASS=0
+  [[ -z "${MECH_FAIL:-}" ]] && MECH_FAIL=0
+  PASS=$((PASS + MECH_PASS))
+  FAIL=$((FAIL + MECH_FAIL))
+else
+  echo "WARN: $MECH_BIN missing or not executable; mechanical block skipped"
+fi
+
+echo
+echo "----------------------------------------"
+echo "Combined total: $((PASS + FAIL))   Pass: $PASS   Fail: $FAIL"
+
+if [[ $FAIL -eq 0 && $MECH_RC -eq 0 ]]; then
   exit 0
 else
   exit 1

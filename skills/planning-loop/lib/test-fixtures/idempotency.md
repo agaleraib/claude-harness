@@ -7,11 +7,12 @@
 # byte-identical idempotency_key and operation_id. The receipt would
 # be the same; subsequent invocations no-op via Stage A.
 #
-# (run-fixtures.sh runs each fixture once in a fresh tmp directory, so
-# the idempotency property here is documented in the fixture's prose
-# context — not mechanically asserted via double-invocation. The
-# emit-receipt.sh smoke test in /tmp covers double-invocation Stage A
-# during build-time validation.)
+# AUTO-APPLY-LAYER property: this fixture exercises the auto-apply pipeline.
+# EMIT-RECEIPT-LAYER property: §4.5 (idempotency_key byte-equality across
+# double-invocation, second-invocation no-op via Stage A) is mechanically
+# asserted by `emit-receipt-mechanical.sh` (invoked by run-fixtures.sh after
+# the auto-apply fixtures complete). Both layers must pass for §4.5 to be
+# satisfied.
 
 ## Round 3 — 2026-05-01 14:25:00
 

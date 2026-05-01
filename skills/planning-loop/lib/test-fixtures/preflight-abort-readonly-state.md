@@ -8,12 +8,15 @@
 # No worktree, no merge, no commit; clear stderr error citing
 # .harness-state/ write failure.
 #
-# The runner exercises this by triggering Phase 1a-pre's WORKFLOW.md
-# row delta gate (which fires preflight-abort outcome) — it's a
-# semantically equivalent path that achieves the same runner outcome
-# tag. The actual readonly-state preflight abort lives in
-# emit-receipt.sh's emit_receipt_preflight() and is exercised at
-# build-time by the helper smoke test.
+# AUTO-APPLY-LAYER property: this fixture log triggers Phase 1a-pre's
+# WORKFLOW.md row delta gate (a semantically-equivalent preflight-abort
+# code path) so the auto-apply runner outcome tag matches.
+# EMIT-RECEIPT-LAYER property: §4.8 acceptance criteria (chmod 0500 on
+# .harness-state/ → preflight rc=2 for /run-wave, /close-wave, /commit;
+# no receipt files written) are mechanically asserted by
+# `emit-receipt-mechanical.sh` (invoked by run-fixtures.sh after the
+# auto-apply fixtures). All three command preflights plus the
+# zero-receipts assertion must pass for §4.8 to be satisfied.
 
 ## Round 3 — 2026-05-01 14:40:00
 
