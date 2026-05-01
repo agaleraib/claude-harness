@@ -97,15 +97,38 @@ Once discovery is complete:
 
 After drafting the spec body, compute a recommended execution flow and emit it as the `## Implementation` block (placed right after `## Overview` in the output). This makes every spec self-describing: a reader knows which skill to invoke without asking.
 
-### Decision tree
+### Wave-vs-micro shape decision
+
+**Single principle:** Waves are commit batches with **ALL-or-NOTHING merge semantics**. A wave's value is that partial completion is worse than no change. Use a wave when that is true; use micro when it isn't.
+
+> REPLACES the previous 3-rule heuristic (parallelism rank / total ≥6 + stakes:high / otherwise). The principle + 5-signal checklist + shape-consequence table is the single source of truth.
+
+**5-signal checklist** (any TRUE => lean wave-shaped; multiple TRUE => commit to wave-shaped):
+
+1. Parallelism rank ≥2 in any dependency layer.
+2. Partial completion is materially worse than no change (i.e., shipping half the spec breaks invariants).
+3. The spec touches ≥3 files OR introduces a new directory tree.
+4. `stakes: high` in `.harness-profile` AND total tasks ≥3.
+5. Expected dispatch session > 30 minutes of orchestrator wall time.
+
+**Shape-consequence table:**
+
+| Shape | When | Plan.md consequence |
+|---|---|---|
+| Wave-shaped | ≥1 signal TRUE | Auto-append `### Wave N` block to `docs/plan.md` (see §"plan.md auto-append" below) |
+| Micro-shaped | All signals FALSE, ≥2 implementation tasks | plan.md untouched; user runs `/micro` per task |
+| Trivial | All signals FALSE, ≤1 implementation task | plan.md untouched; user edits directly |
+
+### Procedural steps
 
 1. **Count tasks** in the Implementation Plan.
 2. **Build dependency layers** — group tasks with no deps on each other into the same rank.
 3. **Read `.harness-profile`** (if present) for `stakes.level` (`high` / `medium` / `low`). If profile missing, assume `medium`.
-4. Pick the flow:
-   - **Any rank has ≥2 parallel tasks** → waves (parallelism earns the ceremony)
-   - **Total ≥6 tasks AND `stakes: high`** → waves (rollback insurance)
-   - **Otherwise** → plain `/micro` per task with `/commit` between
+4. Apply the 5-signal checklist. Pick the matching shape from the table above.
+5. Pick the flow:
+   - **Wave-shaped** → waves (e.g. `/run-wave 1 → /close-wave 1`)
+   - **Micro-shaped** → plain `/micro` per task with `/commit` between
+   - **Trivial** → direct edit, no skill needed
 
 ### Skill discovery (source of truth — no hallucinating)
 
