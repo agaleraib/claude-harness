@@ -174,6 +174,78 @@ If "Show diff first", run `git diff $MAIN_BRANCH..HEAD --stat` + targeted `git d
 
 **Success criteria:** explicit user approval captured.
 
+## Step 3.5: Reserve receipt (BEFORE merge — §3.0a / v2 Wave 1)
+
+Per `docs/specs/2026-05-01-claude-adapter-alignment.md` §3.2, `/close-wave` MUST emit a §4.2-conforming receipt under `.harness-state/close-wave-<wave_id>-<timestamp>.yml` using the shared helper at `skills/_shared/lib/emit-receipt.sh`. The lifecycle is **reserve-then-mutate**: write a `started` receipt BEFORE `git merge --no-ff`.
+
+**Source the helper:**
+
+```bash
+HARNESS_REPO="$(git rev-parse --show-toplevel)"
+source "$HARNESS_REPO/skills/_shared/lib/emit-receipt.sh"
+```
+
+**Initialize and preflight** (before Step 4's merge):
+
+```bash
+emit_receipt_init close-wave "$wave_number" docs/plan.md "$SPEC_PATH" "$SUMMARY_PATH"
+PREFLIGHT="$(emit_receipt_preflight)"
+case "$PREFLIGHT" in
+  PROCEED)
+    emit_receipt_started
+    ;;
+  NOOP*)
+    # Stage A success no-op — wave already closed with identical inputs.
+    echo "$PREFLIGHT" >&2
+    echo "Wave $wave_number already closed with identical inputs; no-op via existing receipt." >&2
+    exit 0
+    ;;
+  *)
+    exit 2   # preflight abort
+    ;;
+esac
+```
+
+**At terminal exit** (after Step 11's blocking gate passes), write `success` with `merge_sha`:
+
+```bash
+VERIFICATION_YAML="    - cmd: \"git log --oneline -1 docs/plan.md | grep -F 'Wave $wave_number'\"
+      exit_code: 0
+      summary: \"plan.md tick visible in history\""
+
+# Step 12 receipt complements this — both files exist after a successful close.
+emit_receipt_terminal success "$VERIFICATION_YAML" docs/plan.md "$SUMMARY_PATH"
+```
+
+The shared-helper terminal receipt sits next to the existing `wave$wave_number-closed.md` Step 12 receipt; they capture different shapes of audit information (the helper is §4.2-conformant; Step 12 is human-readable).
+
+**Receipt fields per §3.2:**
+
+| Field | Value |
+|---|---|
+| `command` | `close-wave` |
+| `wave_id` | the wave being closed (numeric string) |
+| `spec_path` | the spec the wave was sourced from |
+| `operation_id` | `sha256_hex("close-wave\n<wave_id>")` per §3.0 |
+| `inputs` | `[docs/plan.md, <spec_path>, docs/waves/<summary file path>]` (the summary doc lives at `docs/<date>-<project>-wave<N>-summary.md` per /run-wave Step 8 convention; pass that path as the third input) |
+| `outputs` | `[docs/plan.md, <summary path>]` (terminal write only) |
+| `merge_sha` | populated when `status=success` (REQUIRED — absent or null is invalid). Sourced from `MERGE_HASH` captured in Step 4. |
+| `status` | `started` → `success` / `partial` / `failed` / `aborted-on-ambiguity` per §3.0a |
+
+The §3.0a lifecycle's `merge_sha` field is written by appending it to the `verification.results` list and into a top-level `merge_sha:` line; the helper's atomic-rewrite already includes the receipt body, but `/close-wave` MUST manually append the `merge_sha` field (or pass it via a future helper extension). Until the helper supports `merge_sha` natively, the operator-side terminal write does:
+
+```bash
+# Append merge_sha after emit_receipt_terminal succeeds.
+RECEIPT_PATH="$(emit_receipt_get_path)"
+{ printf 'merge_sha: %s\n' "$MERGE_HASH"; } >> "$RECEIPT_PATH"
+```
+
+**Cross-adapter equality.** A hand-authored manual receipt and the claude-code receipt for the same logical close-wave operation MUST share an identical `idempotency_key.value` byte-for-byte. The `recompute-keys.sh` validator at `.harness-state/examples/recompute-keys.sh` proves this property for the Wave 8 example pair (`manual-close-wave-6.yml` / `claude-close-wave-6.yml`).
+
+**Crash recovery.** If `/close-wave` is killed mid-merge (SIGTERM after `started` receipt but before `git merge --no-ff` returns), the EXIT trap rewrites the receipt to `aborted-on-ambiguity` (Stage-B-resumable). Next invocation Stage-B-chains via matching `operation_id`. `failed` receipts are NEVER Stage-B-resumable per the schema.
+
+**Manual fallback.** Hand-author `.harness-state/close-wave-<wave_id>-<ISO-8601-Z-ts>.yml` using `.harness-state/examples/wave1/manual-*.yml` as a template; copy `merge_sha` from `git log -1 --format=%H`. For crash recovery, manually rewrite any orphan `started` receipt to `aborted-on-ambiguity` (signal exits are Stage-B-resumable; reserve `failed` for clean non-zero command exits with no signal involvement).
+
 ## Step 4: `--no-ff` merge + handle expected plan.md conflict
 
 ```bash
