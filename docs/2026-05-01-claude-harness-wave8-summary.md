@@ -114,8 +114,8 @@ Cross-adapter `idempotency_key` equality demonstrated mechanically: both manual 
 
 Worktree: `/Users/klorian/workspace/claude-harness/.claude/worktrees/agent-aef3d6786eeb34206`
 Branch: `worktree-agent-aef3d6786eeb34206`
-Locked: yes (per /run-wave convention; /close-wave 8 may need `git worktree unlock` first)
-HEAD: `b8f92f1`
-Commits: 8 (one per task)
+Locked: yes (per /run-wave convention; /close-wave 8 may need `git worktree unlock --force` first)
+HEAD: post-summary tip is the merge target; per-task HEADs listed in §Shipped above (Tasks 1-8 = `8ad4361` through `b8f92f1`; this summary commit + any post-review fix commits land after that). `/close-wave 8` reads the wave-branch tip directly via `git rev-parse worktree-agent-aef3d6786eeb34206`, not this static field.
+Commits: 9+ (8 task commits + this summary + any post-review-fix commits; the wave-branch tip is authoritative).
 
 Next step: human merge via `/close-wave 8` (or manual `git merge --no-ff`) plus the cold-read manual verification of the 5-question portability test (gate #12).

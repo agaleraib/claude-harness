@@ -1,6 +1,6 @@
 # WORKFLOW.md
 
-Command-form matrix per `docs/specs/2026-04-30-universal-harness-protocol-v2.md` §4. Every protocol command resolves to an executable form in each adapter column — no `deferred decision` cells in any data row (spec §4 line 97 is explicit).
+Command-form matrix per `docs/specs/2026-04-30-universal-harness-protocol-v2.md` §4. Every protocol command resolves to an executable form in each adapter column — no `<deferred>` placeholders in any data row (spec §4 forbids the alternative wording explicitly).
 
 ## Commands
 
