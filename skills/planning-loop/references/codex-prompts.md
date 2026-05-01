@@ -13,6 +13,16 @@ When SKILL.md says "load this file before dispatching", read the corresponding s
 
 ---
 
+## Review criteria — added by v2 Wave 1 (claude-adapter-alignment)
+
+Codex review prompts §3 (detail-arbiter) and the round-1/2+ spec-planner prompts inherit the following protocol-conformance criterion. Adapters MUST surface this criterion when reviewing any spec.
+
+> **Portability:** Verify each implementation task has a `Manual fallback:` sub-bullet executable with git + editor + gh. Flag specs that hard-require a specific LLM tool name (Claude, Codex, etc.) as the only execution path.
+
+The criterion enforces v2 protocol §"Manual is primary": every adapter is an accelerator, never the only path. A spec that can only be executed by a specific LLM is a portability defect — flag it as `needs-attention`.
+
+---
+
 ## 1. Round-1 spec-planner dispatch (FRESH mode only)
 
 Used in Step 5a, FRESH mode, round 1 only. Spec-planner drafts a new spec from the user's pre-answered blob.

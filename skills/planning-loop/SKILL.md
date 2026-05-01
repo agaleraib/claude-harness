@@ -650,9 +650,28 @@ Full rationale lives in `references/rules.md`. Load that file when you need the 
 10. **Auto-park is a lifecycle, not a step.**
 11. **Auto-apply preconditions are conjunctive.**
 
+## Review criteria surfaced to Codex
+
+Codex review prompts inherit the following protocol-conformance criteria. Full text in `references/codex-prompts.md`:
+
+- **Portability** — every implementation task must include a `Manual fallback:` sub-bullet executable with `git + editor + gh`. Specs that hard-require a specific LLM tool name (Claude, Codex, etc.) as the only execution path are flagged `needs-attention`. This enforces v2 protocol §"Manual is primary": adapters are accelerators, not the only path.
+
+The portability criterion is loaded into Codex's review prompt at every dispatch (round 1, rounds 2-3, and the detail-arbiter pass). Specs missing `Manual fallback:` bullets trigger `needs-attention` and runner outcome `menu`.
+
+## plan.md non-touch invariant (architectural)
+
+`/planning-loop` MUST NOT read, write, or recommend modifications to `docs/plan.md`. Plan.md ownership is exclusive to `/spec-planner`.
+
+This invariant exists because `/spec-planner` writes `### Wave N` blocks at spec-emission time (per its shape-consequence table). If `/planning-loop` also wrote plan.md, two skills would race for ownership of the same artifact — a recipe for duplicated rows, conflicting wave numbers, and idempotency drift.
+
+Read-only references to `docs/plan.md` for context (e.g. naming the next wave number when discussing spec scope) are permitted only when explicitly marked "context-only, no write". No subprocess invoked by `/planning-loop` may mutate `docs/plan.md` during fixture or production runs; `git diff docs/plan.md` before/after each fixture must show zero changes.
+
+If a Codex finding recommends that `/planning-loop` write plan.md, the arbiter classifies it as `wrong-premise` — the spec-planner ownership boundary is load-bearing.
+
 ## Out of scope
 
 - Committing the spec (use `/commit` after).
 - Routing tasks to waves or `/run-wave` (spec-planner's `## Implementation` block does this; the loop doesn't dispatch).
 - Interactive discovery (suppressed by design — see Rule #1).
 - Reviewing implementation code (use `/codex:adversarial-review` directly for that).
+- **Writing or modifying `docs/plan.md`** — see "plan.md non-touch invariant" above. Plan.md ownership is exclusive to `/spec-planner`.
