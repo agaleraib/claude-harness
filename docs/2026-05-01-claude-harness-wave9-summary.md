@@ -153,3 +153,45 @@ These are advisory; they belong in the file-based auto-memory under `~/.claude/p
 **The protocol-first doctrine is now adapter-enforced.** /spec-planner mandates Manual-fallback bullets and WORKFLOW.md row deltas; /planning-loop's Codex prompt criterion fires on missing fallbacks; auto-apply Phase 1a-pre rejects command-add specs without WORKFLOW.md row deltas; /run-wave, /close-wave, and /commit emit §4.2-conforming receipts via the shared helper. WORKFLOW.md cites the receipt paths and manual-fallback sequences for all three commands.
 
 **Trust-boundary trade-off (preempt verified):** the `/spec-planner` plan.md auto-append is opt-out via env var (`SPEC_PLANNER_NO_AUTO_PLAN=1`) and profile (`.harness-profile.spec_planner.auto_plan_append: false`), default `true`. NO confirmation prompt on the happy path. Codex review may flag this; expected disposition is `wrong-premise` per the spec's pre-empt section (per `feedback_codex_walks_back_friction_reducers`).
+
+## Codex review gaps — addressed 2026-05-01
+
+Codex review of the 11 Wave 9 commits flagged 3 BLOCKERs + 3 MAJORs + 1 MINOR. Two follow-up commits land them on top of `757200b` in the same worktree branch.
+
+| # | Severity | Gap | Fix commit(s) | Verify |
+|---|---|---|---|---|
+| G1 | BLOCKER 1 | `/run-wave` and `/close-wave` runtime receipts dropped `spec_path` (helper guard required `WAVE_OR_SPEC` itself to start with `docs/specs/`, never true for wave-keyed commands). | `0ec37dd` | `/tmp/wave9-smoke-spec-path.sh` Tests 1+2: `grep '^spec_path: docs/specs/2026-05-01-claude-adapter-alignment.md$'` PASS on both run-wave and close-wave receipts. |
+| G2 | BLOCKER 2 | `/commit` receipts hard-coded `wave_id: null` even when the commit advanced a plan.md row. Spec §3.3 requires numeric string when advancing. | `0ec37dd` | `/tmp/wave9-smoke-spec-path.sh` Tests 3+4: advancing-commit `wave_id: "9"` (numeric string), no-advance `wave_id: null`. |
+| G3 | BLOCKER 3 | `/close-wave` SKILL appended `merge_sha` non-atomically with `>>` AFTER `emit_receipt_terminal`, violating spec §3.0a step 3 (atomic write = tmp + mv -f). | `0ec37dd` | `/tmp/wave9-smoke-spec-path.sh` Test 2: `grep -c '^merge_sha:'` = 1 (single occurrence in same atomic write); SIGTERM-mid-merge fixture in `emit-receipt-mechanical.sh` §4.7 produces `aborted-on-ambiguity` with NO `merge_sha` set. |
+| G4 | MAJOR 1 | No receipt-path reservation lock; same-second concurrent runs could overwrite via `mv -f`. | `0ec37dd` | `/tmp/wave9-smoke-lock-orphan.sh` Test 5: same-second collision bumps suffix to `-2`; both receipts persist with non-empty content. Bash 3.2 portable (`set -C; : > "$path"`). |
+| G5 | MAJOR 2 | Spec §Phase 5 orphan-started 60-min recovery rule was absent (SIGKILL-prevented trap → next run finds `status: started` orphan; >60 min should chain `retry_of`). | `0ec37dd` | `/tmp/wave9-smoke-lock-orphan.sh` Test 6: orphan with mtime 67 min ago → `retry_of: run-wave-5-2026-05-01T100000Z` chained. Test 7: fresh started receipt (no age) NOT chained. |
+| G6 | MAJOR 3 | `idempotency.md`, `crash-recovery.md`, `preflight-abort-readonly-state.md` were prose-only documentation; `run-fixtures.sh` ran a semantically-equivalent auto-apply path but never asserted §4.5/§4.7/§4.8 invariants against `emit-receipt.sh`. | `fd5a972` | New `skills/planning-loop/lib/test-fixtures/emit-receipt-mechanical.sh` runs 14 mechanical assertions (5 for §4.5, 5 for §4.7, 4 for §4.8) end-to-end against the real helper. Combined `run-fixtures.sh` total: **44/44 PASS** (30 auto-apply + 14 mechanical). |
+| G7 | MINOR | `run-fixtures.sh` header still claimed "15 auto-apply test fixtures (A–O)" despite 30+ fixtures running. | `fd5a972` | Header rewrite lists actual inventory: A–O (15) + P–T (5) + U (1) + V1–V7 (7) + W1–W2 (2) + emit-receipt-mechanical block. |
+
+### Side-effect fix (no separate gap, fell out of G5 implementation)
+
+The existing Stage B partial/aborted lookup in `emit_receipt_preflight` had the same shell-variable-loss bug as the new orphan code: callers invoke preflight via `PREFLIGHT="$(emit_receipt_preflight)"`, so any var assignment in the subshell is lost. Fixed once for both code paths via a sidecar file under `.harness-state/.emit-receipt-retry-of.<pid>` written by preflight and consumed by `emit_receipt_started` in the parent shell. Without this fix, no `retry_of` would EVER be written by the runtime, even when partial/aborted receipts were correctly detected. Surfaced incidentally by the §4.7 mechanical fixture.
+
+### Cross-adapter equality — value unchanged
+
+The Wave 1 fixture pair's `idempotency_key.value` remains `b408b9172128d7a254025695fa66b0b8b93eb77e5300eb0aff00d0ff3986d53f` byte-for-byte across `manual-close-wave-1-success.yml` and `close-wave-1-success.yml`. **Note:** the dispatch instruction predicted the key would change once `spec_path` was threaded through — that prediction was incorrect because `spec_path` is a top-level YAML body field, NOT part of `idempotency_key.trace`. The trace covers `command`, `wave_id_or_spec_path`, `sorted_inputs`, and `input_content_digest`; adding `spec_path:` to the YAML body alone leaves the key derivation unchanged. The example receipts already carried `spec_path:` (hand-authored to model the correct shape); the fix made the runtime helper actually emit it.
+
+The Wave 8 canonical recomputer (`b\.harness-state/examples/recompute-keys.sh`) also still PASSes with `238e61ca...39587b` byte-for-byte — no regression on the older fixture.
+
+### Re-verification of the 9 Wave 9 exit-gate items (post-fix)
+
+| # | Item | Result |
+|---|------|--------|
+| 1 | `grep -q 'Manual fallback' .claude/agents/spec-planner.md` | PASS |
+| 2 | `grep -q 'WORKFLOW.md row delta' .claude/agents/spec-planner.md` | PASS |
+| 3 | `grep -q 'ALL-or-NOTHING merge semantics' .claude/agents/spec-planner.md` | PASS |
+| 4 | `grep -qi 'portability' skills/planning-loop/SKILL.md` | PASS |
+| 5 | `bash skills/planning-loop/lib/test-fixtures/run-fixtures.sh` | PASS — Combined total 44, Pass 44, Fail 0 |
+| 6 | each of /run-wave, /close-wave, /commit produces §4.2-valid success receipt with `command`, `adapter=claude-code`, `idempotency_key`, `inputs`, `outputs`, `verification`, `status=success` | PASS for all three |
+| 7 | each command produces §4.2-valid partial/failed/aborted-on-ambiguity receipt with `verification.results` populated | PASS — `run-wave-1-partial.yml` (partial), `close-wave-1-failed.yml` (failed), `commit-1-aborted.yml` (aborted-on-ambiguity) |
+| 8 | Idempotency fixture proves second invocation matches first `idempotency_key` and no-ops | PASS — asserted by `emit-receipt-mechanical.sh` §4.5 block (5 sub-cases all PASS) |
+| 9 | Sample `/spec-planner` dry-run on wave-shaped input shows per-task Manual-fallback bullets, WORKFLOW.md row delta, plan.md `### Wave N` block (idempotent on re-run) | PASS — procedural rules present in agent body (Tasks 1–3 commits); V1 fixture in `run-fixtures.sh` validates wave-shape classification path |
+
+### Cross-repo flag (still applies)
+
+The `skills/_shared/` directory was added in Task 7 (commit `5190f85`) and remains the only `_shared` subdirectory under `skills/`. Per CLAUDE.md, skills are symlinked OUT to `~/.claude/skills/`; `~/.claude/skills/_shared` does NOT exist on the operator's machine. **Action required after merge:** run `setup-harness` or manually `ln -s "$REPO/skills/_shared" ~/.claude/skills/_shared` so consumer Claude Code sessions can `source $HOME/.claude/skills/_shared/lib/emit-receipt.sh`. The Codex-fix commits (`0ec37dd`, `fd5a972`) introduce no new sibling subdirectories under `skills/_shared/` — `lib/emit-receipt.sh` remains the only file. The new mechanical-fixtures script lives under the existing `skills/planning-loop/lib/test-fixtures/` tree and is already covered by the planning-loop symlink.
