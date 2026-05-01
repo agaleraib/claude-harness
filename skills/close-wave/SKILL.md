@@ -189,6 +189,7 @@ source "$HARNESS_REPO/skills/_shared/lib/emit-receipt.sh"
 
 ```bash
 emit_receipt_init close-wave "$wave_number" docs/plan.md "$SPEC_PATH" "$SUMMARY_PATH"
+emit_receipt_set_spec_path "$SPEC_PATH"
 PREFLIGHT="$(emit_receipt_preflight)"
 case "$PREFLIGHT" in
   PROCEED)
@@ -213,6 +214,11 @@ VERIFICATION_YAML="    - cmd: \"git log --oneline -1 docs/plan.md | grep -F 'Wav
       exit_code: 0
       summary: \"plan.md tick visible in history\""
 
+# Set merge_sha BEFORE emit_receipt_terminal so it lands in the SAME atomic
+# write as the rest of the YAML (per spec §3.0a step 3 — appending later
+# with `>>` would violate the atomic-rewrite invariant).
+emit_receipt_set_merge_sha "$MERGE_HASH"
+
 # Step 12 receipt complements this — both files exist after a successful close.
 emit_receipt_terminal success "$VERIFICATION_YAML" docs/plan.md "$SUMMARY_PATH"
 ```
@@ -225,20 +231,12 @@ The shared-helper terminal receipt sits next to the existing `wave$wave_number-c
 |---|---|
 | `command` | `close-wave` |
 | `wave_id` | the wave being closed (numeric string) |
-| `spec_path` | the spec the wave was sourced from |
+| `spec_path` | the spec the wave was sourced from (set via `emit_receipt_set_spec_path`) |
 | `operation_id` | `sha256_hex("close-wave\n<wave_id>")` per §3.0 |
 | `inputs` | `[docs/plan.md, <spec_path>, docs/waves/<summary file path>]` (the summary doc lives at `docs/<date>-<project>-wave<N>-summary.md` per /run-wave Step 8 convention; pass that path as the third input) |
 | `outputs` | `[docs/plan.md, <summary path>]` (terminal write only) |
-| `merge_sha` | populated when `status=success` (REQUIRED — absent or null is invalid). Sourced from `MERGE_HASH` captured in Step 4. |
+| `merge_sha` | populated when `status=success` via `emit_receipt_set_merge_sha "$MERGE_HASH"` BEFORE `emit_receipt_terminal success`. The helper writes it as part of the single atomic terminal-write YAML; absent or null is invalid for `status=success`. |
 | `status` | `started` → `success` / `partial` / `failed` / `aborted-on-ambiguity` per §3.0a |
-
-The §3.0a lifecycle's `merge_sha` field is written by appending it to the `verification.results` list and into a top-level `merge_sha:` line; the helper's atomic-rewrite already includes the receipt body, but `/close-wave` MUST manually append the `merge_sha` field (or pass it via a future helper extension). Until the helper supports `merge_sha` natively, the operator-side terminal write does:
-
-```bash
-# Append merge_sha after emit_receipt_terminal succeeds.
-RECEIPT_PATH="$(emit_receipt_get_path)"
-{ printf 'merge_sha: %s\n' "$MERGE_HASH"; } >> "$RECEIPT_PATH"
-```
 
 **Cross-adapter equality.** A hand-authored manual receipt and the claude-code receipt for the same logical close-wave operation MUST share an identical `idempotency_key.value` byte-for-byte. The `recompute-keys.sh` validator at `.harness-state/examples/recompute-keys.sh` proves this property for the Wave 8 example pair (`manual-close-wave-6.yml` / `claude-close-wave-6.yml`).
 

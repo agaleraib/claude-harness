@@ -126,14 +126,16 @@ source "$HARNESS_REPO/skills/_shared/lib/emit-receipt.sh"
 
 **Determine the second-line key per §3.0:**
 
-- If this commit will advance a `### Wave N` row in `docs/plan.md` (Step 6 will mark it done) → second line is `<spec_path>` from the row's `spec:` field.
-- Otherwise → second line is the literal string `-`.
+- If this commit will advance a `### Wave N` row in `docs/plan.md` (Step 6 will mark it done) → second line is `<spec_path>` from the row's `spec:` field. The advancing wave number (`N`) is captured separately for the receipt's `wave_id` field.
+- Otherwise → second line is the literal string `-`; `wave_id` stays null.
 
 ```bash
 if [[ -n "$ADVANCING_SPEC_PATH" ]]; then
   WAVE_OR_SPEC="$ADVANCING_SPEC_PATH"   # commit advances plan.md
+  # ADVANCING_WAVE_ID is the numeric N from the `### Wave N` row.
 else
   WAVE_OR_SPEC="-"                       # no plan.md advance
+  ADVANCING_WAVE_ID=""
 fi
 ```
 
@@ -147,6 +149,13 @@ for f in $STAGED_FILES; do INPUTS+=("$f"); done
 [[ -f docs/plan.md ]] && INPUTS+=(docs/plan.md)
 
 emit_receipt_init commit "$WAVE_OR_SPEC" "${INPUTS[@]}"
+# Spec_path + wave_id are required when the commit advances a plan.md row
+# (per spec §3.3 / §Data Model row for `wave_id`). The setters land in the
+# SAME atomic terminal-write YAML.
+if [[ -n "$ADVANCING_SPEC_PATH" ]]; then
+  emit_receipt_set_spec_path "$ADVANCING_SPEC_PATH"
+  emit_receipt_set_wave_id "$ADVANCING_WAVE_ID"
+fi
 PREFLIGHT="$(emit_receipt_preflight)"
 case "$PREFLIGHT" in
   PROCEED)  emit_receipt_started ;;

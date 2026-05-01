@@ -46,6 +46,9 @@ set -uo pipefail
 
 EMIT_RECEIPT__COMMAND=""
 EMIT_RECEIPT__WAVE_OR_SPEC=""           # wave_id, spec_path, or literal "-"
+EMIT_RECEIPT__SPEC_PATH=""              # repo-relative spec path (set via emit_receipt_set_spec_path)
+EMIT_RECEIPT__WAVE_ID_OVERRIDE=""       # numeric wave_id for /commit advancing plan.md (set via emit_receipt_set_wave_id)
+EMIT_RECEIPT__MERGE_SHA=""              # populated by close-wave callers via emit_receipt_set_merge_sha
 EMIT_RECEIPT__INPUTS=()                 # array of input paths (sorted at started-write time)
 EMIT_RECEIPT__OUTPUTS=()                # array of output paths (populated at terminal-write)
 EMIT_RECEIPT__RECEIPT_PATH=""           # full path to .harness-state/<command>-<slug>-<ts>.yml
@@ -107,6 +110,13 @@ emit_receipt_init() {
     EMIT_RECEIPT__INPUTS+=("$1")
     shift
   done
+  # Reset per-init optional fields. Callers that need them invoke the
+  # public setters after emit_receipt_init returns.
+  EMIT_RECEIPT__SPEC_PATH=""
+  EMIT_RECEIPT__WAVE_ID_OVERRIDE=""
+  EMIT_RECEIPT__MERGE_SHA=""
+  EMIT_RECEIPT__RETRY_OF=""
+  EMIT_RECEIPT__TERMINAL_WRITTEN=0
 
   # Resolve .harness-state/ directory (test hook overrides repo root).
   if [[ -n "${EMIT_RECEIPT_TEST_HARNESS_STATE_DIR:-}" ]]; then
@@ -216,16 +226,95 @@ emit_receipt_preflight() {
     return 0
   fi
 
-  # 3. Stage B — partial / aborted-on-ambiguity resume via operation_id.
+  # Stage B + orphan-started lookup (§3.0a / §Phase 5) — note these run in
+  # this subshell when callers do `PREFLIGHT="$(emit_receipt_preflight)"`,
+  # so any RETRY_OF assignment here would be discarded. Persist the result
+  # by writing it to a sidecar file under .harness-state/ keyed on
+  # operation_id; emit_receipt_started reads it back in the caller's shell.
+  local sidecar
+  sidecar="$dir/.emit-receipt-retry-of.$$"
+  : > "$sidecar" 2>/dev/null || true
+
   local prior
   prior="$(emit_receipt__find_partial_match "$dir" \
     "$EMIT_RECEIPT__OPERATION_ID")"
   if [[ -n "$prior" ]]; then
-    EMIT_RECEIPT__RETRY_OF="$(emit_receipt__extract_yaml_field "$prior" receipt_id)"
+    emit_receipt__extract_yaml_field "$prior" receipt_id > "$sidecar" 2>/dev/null
+  else
+    # 3b. Orphan-started 60-minute recovery rule (spec §Phase 5).
+    # When SIGKILL or host crash prevents the trap from rewriting a `started`
+    # receipt, the next run finds it stuck at status=started. Per the spec
+    # rule, an orphan `started` receipt older than 60 minutes is treated as
+    # `aborted-on-ambiguity` for `retry_of` chaining purposes (resumable,
+    # schema-aligned). This runs only when Stage B above didn't already
+    # match — a fresh partial/aborted is preferred over an old started orphan.
+    local orphan
+    orphan="$(emit_receipt__find_orphan_started "$dir" \
+      "$EMIT_RECEIPT__OPERATION_ID")"
+    if [[ -n "$orphan" ]]; then
+      emit_receipt__extract_yaml_field "$orphan" receipt_id > "$sidecar" 2>/dev/null
+    fi
   fi
 
   printf 'PROCEED\n'
   return 0
+}
+
+# -----------------------------------------------------------------------------
+# Sidecar reader — invoked by emit_receipt_started in the caller's shell to
+# pick up RETRY_OF computed during the preflight subshell. The sidecar file
+# is written by emit_receipt_preflight under $HARNESS_STATE_DIR keyed on PID.
+# -----------------------------------------------------------------------------
+emit_receipt__load_retry_of_sidecar() {
+  local sidecar="$EMIT_RECEIPT__HARNESS_STATE_DIR/.emit-receipt-retry-of.$$"
+  if [[ -f "$sidecar" ]]; then
+    local val
+    val="$(head -1 "$sidecar" 2>/dev/null)"
+    val="${val%$'\n'}"
+    if [[ -n "$val" ]]; then
+      EMIT_RECEIPT__RETRY_OF="$val"
+    fi
+    rm -f "$sidecar" 2>/dev/null || true
+  fi
+}
+
+# -----------------------------------------------------------------------------
+# Orphan-started scanner (spec §Phase 5 — 60-minute recovery rule).
+# Returns the most-recent matching `started` receipt whose mtime is older
+# than 60 minutes AND whose operation_id matches the current invocation.
+# Bash 3.2 compatible: uses stat -f / stat -c fallback for portability.
+# -----------------------------------------------------------------------------
+emit_receipt__find_orphan_started() {
+  local dir="$1" opid="$2"
+  local now cutoff_seconds=3600
+  if [[ -n "${EMIT_RECEIPT_TEST_ORPHAN_CUTOFF_SECONDS:-}" ]]; then
+    cutoff_seconds="$EMIT_RECEIPT_TEST_ORPHAN_CUTOFF_SECONDS"
+  fi
+  now="$(date -u +%s)"
+  local newest_match=""
+  local newest_mtime=0
+  local f
+  while IFS= read -r f; do
+    [[ -z "$f" ]] && continue
+    [[ -f "$f" ]] || continue
+    local rstatus
+    rstatus="$(emit_receipt__extract_yaml_field "$f" status)"
+    [[ "$rstatus" == "started" ]] || continue
+    local rop
+    rop="$(emit_receipt__extract_yaml_field "$f" operation_id)"
+    [[ "$rop" == "$opid" ]] || continue
+    local m
+    m="$(stat -f %m "$f" 2>/dev/null || stat -c %Y "$f" 2>/dev/null || echo 0)"
+    local age=$(( now - m ))
+    if [[ "$age" -lt "$cutoff_seconds" ]]; then
+      continue   # not yet aged out — leave for the live process to finish
+    fi
+    if [[ "$m" -gt "$newest_mtime" ]]; then
+      newest_mtime="$m"
+      newest_match="$f"
+    fi
+  done < <(find "$dir" -maxdepth 1 -type f -name '*.yml' 2>/dev/null)
+  printf '%s' "$newest_match"
 }
 
 # -----------------------------------------------------------------------------
@@ -361,6 +450,10 @@ emit_receipt__slug() {
 # before exit when they know the cause); default is "aborted-on-ambiguity".
 # -----------------------------------------------------------------------------
 emit_receipt_started() {
+  # Pick up RETRY_OF from the preflight sidecar (preflight runs in a subshell
+  # via $(...), so its var assignments don't survive — see Stage B comment).
+  emit_receipt__load_retry_of_sidecar
+
   local ts
   if [[ -n "${EMIT_RECEIPT_TEST_PIN_TIMESTAMP:-}" ]]; then
     ts="$EMIT_RECEIPT_TEST_PIN_TIMESTAMP"
@@ -371,9 +464,32 @@ emit_receipt_started() {
 
   local slug
   slug="$(emit_receipt__slug "$EMIT_RECEIPT__WAVE_OR_SPEC")"
-  EMIT_RECEIPT__RECEIPT_ID="$EMIT_RECEIPT__COMMAND-$slug-$ts"
+  local base_id="$EMIT_RECEIPT__COMMAND-$slug-$ts"
+  EMIT_RECEIPT__RECEIPT_ID="$base_id"
   EMIT_RECEIPT__RECEIPT_PATH="$EMIT_RECEIPT__HARNESS_STATE_DIR/$EMIT_RECEIPT__RECEIPT_ID.yml"
 
+  # MAJOR 1 fix: reserve the receipt path with an EXCLUSIVE-CREATE first
+  # (`set -C; : > "$path"`). If two same-second concurrent invocations land
+  # on the same path, the second one gets EEXIST and we bump the receipt_id
+  # suffix `-2`, `-3`, ... up to a small bound. This prevents `mv -f` in
+  # emit_receipt__write_atomic from silently clobbering a peer receipt.
+  # Bash 3.2 compatible (`set -C` is POSIX).
+  local n=1 reserved=0
+  while [[ "$n" -le 32 ]]; do
+    if ( set -C; : > "$EMIT_RECEIPT__RECEIPT_PATH" ) 2>/dev/null; then
+      reserved=1
+      break
+    fi
+    n=$((n + 1))
+    EMIT_RECEIPT__RECEIPT_ID="$base_id-$n"
+    EMIT_RECEIPT__RECEIPT_PATH="$EMIT_RECEIPT__HARNESS_STATE_DIR/$EMIT_RECEIPT__RECEIPT_ID.yml"
+  done
+  if [[ "$reserved" -ne 1 ]]; then
+    echo "✗ emit-receipt: receipt-path reservation exhausted 32 retries at $base_id" >&2
+    return 1
+  fi
+  # Reservation succeeded. Now write the started YAML via the atomic helper;
+  # the empty placeholder file we just created is overwritten by mv -f.
   emit_receipt__write_atomic "$EMIT_RECEIPT__RECEIPT_PATH" started "" || return 1
 
   if [[ "$EMIT_RECEIPT__TRAP_INSTALLED" -ne 1 ]]; then
@@ -476,22 +592,27 @@ emit_receipt__write_atomic() {
     printf 'adapter: claude-code\n'
     case "$EMIT_RECEIPT__COMMAND" in
       run-wave|close-wave)
+        # wave_id slot is the wave number for run-wave/close-wave.
         printf 'wave_id: "%s"\n' "$EMIT_RECEIPT__WAVE_OR_SPEC"
         ;;
       commit)
-        # wave_id is null when the dash placeholder is in use
-        if [[ "$EMIT_RECEIPT__WAVE_OR_SPEC" == "-" ]]; then
-          printf 'wave_id: null\n'
+        # wave_id is numeric string when the commit advances a plan.md row
+        # (caller passed it via emit_receipt_set_wave_id), else null.
+        if [[ -n "$EMIT_RECEIPT__WAVE_ID_OVERRIDE" ]]; then
+          printf 'wave_id: "%s"\n' "$EMIT_RECEIPT__WAVE_ID_OVERRIDE"
         else
-          # commit advancing plan.md: wave_id is set by the caller via spec_path lookup.
-          # When not set, fall through to null (caller convention).
           printf 'wave_id: null\n'
         fi
         ;;
     esac
-    if [[ "$EMIT_RECEIPT__WAVE_OR_SPEC" != "-" ]] && \
-       [[ "$EMIT_RECEIPT__COMMAND" == "commit" || "$EMIT_RECEIPT__COMMAND" == "close-wave" || "$EMIT_RECEIPT__COMMAND" == "run-wave" ]] && \
-       [[ "$EMIT_RECEIPT__WAVE_OR_SPEC" =~ ^docs/specs/ ]]; then
+    # spec_path: required for spec-related commands per spec §3 data model.
+    # Sourced from emit_receipt_set_spec_path (run-wave / close-wave / commit
+    # advancing plan.md). Falls back to wave_or_spec when that slot itself is
+    # already a docs/specs/ path (back-compat for any caller that hasn't
+    # adopted the setter yet).
+    if [[ -n "$EMIT_RECEIPT__SPEC_PATH" ]]; then
+      printf 'spec_path: %s\n' "$EMIT_RECEIPT__SPEC_PATH"
+    elif [[ "$EMIT_RECEIPT__WAVE_OR_SPEC" =~ ^docs/specs/ ]]; then
       printf 'spec_path: %s\n' "$EMIT_RECEIPT__WAVE_OR_SPEC"
     fi
     printf 'inputs:\n'
@@ -531,6 +652,13 @@ emit_receipt__write_atomic() {
       printf 'completed_at: "%s"\n' "$completed_ts"
     fi
     printf 'status: %s\n' "$rstatus"
+    # merge_sha: emitted as part of the SAME atomic write when caller has
+    # set it via emit_receipt_set_merge_sha (close-wave success path). Per
+    # spec §3.0a the merge_sha must be present in the single terminal-write
+    # YAML; appending later with `>>` would violate atomicity.
+    if [[ -n "$EMIT_RECEIPT__MERGE_SHA" && "$rstatus" == "success" ]]; then
+      printf 'merge_sha: %s\n' "$EMIT_RECEIPT__MERGE_SHA"
+    fi
     printf 'operation_id: %s\n' "$EMIT_RECEIPT__OPERATION_ID"
     printf 'idempotency_key:\n'
     printf '  value: %s\n' "$EMIT_RECEIPT__IDEMPOTENCY_KEY"
@@ -568,6 +696,25 @@ emit_receipt_compute_idempotency_key() { printf '%s' "$EMIT_RECEIPT__IDEMPOTENCY
 emit_receipt_compute_operation_id()    { printf '%s' "$EMIT_RECEIPT__OPERATION_ID"; }
 emit_receipt_get_path()                { printf '%s' "$EMIT_RECEIPT__RECEIPT_PATH"; }
 emit_receipt_get_retry_of()            { printf '%s' "$EMIT_RECEIPT__RETRY_OF"; }
+
+# -----------------------------------------------------------------------------
+# Public setters — invoked between emit_receipt_init and emit_receipt_started
+# (or before emit_receipt_terminal). They populate the YAML's spec_path,
+# wave_id (commit advancing plan.md), and merge_sha (close-wave success)
+# fields so the helper writes them in the SAME atomic write as the rest of
+# the receipt body. Per-init values are reset on every emit_receipt_init.
+# -----------------------------------------------------------------------------
+emit_receipt_set_spec_path() {
+  EMIT_RECEIPT__SPEC_PATH="${1:-}"
+}
+emit_receipt_set_wave_id() {
+  # Numeric wave_id for /commit when it advances a plan.md row.
+  EMIT_RECEIPT__WAVE_ID_OVERRIDE="${1:-}"
+}
+emit_receipt_set_merge_sha() {
+  # Used by /close-wave on success-path terminal write.
+  EMIT_RECEIPT__MERGE_SHA="${1:-}"
+}
 
 # -----------------------------------------------------------------------------
 # Bash 3.2 compatibility check — invoked when sourced.

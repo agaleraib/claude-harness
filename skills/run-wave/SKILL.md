@@ -219,6 +219,7 @@ source "$HARNESS_REPO/skills/_shared/lib/emit-receipt.sh"
 
 ```bash
 emit_receipt_init run-wave "$WAVE_NUMBER" docs/plan.md "$SPEC_PATH" $SUB_SPEC_PATHS
+emit_receipt_set_spec_path "$SPEC_PATH"
 PREFLIGHT="$(emit_receipt_preflight)"
 case "$PREFLIGHT" in
   PROCEED)
