@@ -113,6 +113,82 @@ For each issue, append to `parking_lot.md`:
 
 Continue to Step 5.
 
+## Step 4.5: Reserve receipt (BEFORE git commit — §3.0a / v2 Wave 1)
+
+Per `docs/specs/2026-05-01-claude-adapter-alignment.md` §3.3, `/commit` MUST emit a §4.2-conforming receipt under `.harness-state/commit-<spec-or-dash-slug>-<timestamp>.yml` using the shared helper at `skills/_shared/lib/emit-receipt.sh`. The lifecycle is **reserve-then-mutate**: write a `started` receipt BEFORE `git commit` runs (after staging, after pre-commit hooks queue, before the commit SHA exists).
+
+**Source the helper:**
+
+```bash
+HARNESS_REPO="$(git rev-parse --show-toplevel)"
+source "$HARNESS_REPO/skills/_shared/lib/emit-receipt.sh"
+```
+
+**Determine the second-line key per §3.0:**
+
+- If this commit will advance a `### Wave N` row in `docs/plan.md` (Step 6 will mark it done) → second line is `<spec_path>` from the row's `spec:` field.
+- Otherwise → second line is the literal string `-`.
+
+```bash
+if [[ -n "$ADVANCING_SPEC_PATH" ]]; then
+  WAVE_OR_SPEC="$ADVANCING_SPEC_PATH"   # commit advances plan.md
+else
+  WAVE_OR_SPEC="-"                       # no plan.md advance
+fi
+```
+
+**Initialize and preflight** (before Step 5's `git commit`):
+
+```bash
+STAGED_FILES="$(git diff --cached --name-only)"
+INPUTS=()
+for f in $STAGED_FILES; do INPUTS+=("$f"); done
+[[ -f parking_lot.md ]] && INPUTS+=(parking_lot.md)
+[[ -f docs/plan.md ]] && INPUTS+=(docs/plan.md)
+
+emit_receipt_init commit "$WAVE_OR_SPEC" "${INPUTS[@]}"
+PREFLIGHT="$(emit_receipt_preflight)"
+case "$PREFLIGHT" in
+  PROCEED)  emit_receipt_started ;;
+  NOOP*)    echo "Identical staged content already committed; no-op." >&2; exit 0 ;;
+  *)        exit 2 ;;
+esac
+```
+
+**At terminal exit** (after `git commit` succeeds), write `success`:
+
+```bash
+COMMIT_SHA="$(git log -1 --format=%H)"
+VERIFICATION_YAML="    - cmd: \"git commit\"
+      exit_code: 0
+      summary: \"commit $COMMIT_SHA created\""
+
+OUTPUTS=("$COMMIT_SHA")
+[[ -f parking_lot.md ]] && [[ "$PARKING_TOUCHED" == "1" ]] && OUTPUTS+=(parking_lot.md)
+[[ -f docs/plan.md ]] && [[ "$PLAN_TOUCHED" == "1" ]] && OUTPUTS+=(docs/plan.md)
+
+emit_receipt_terminal success "$VERIFICATION_YAML" "${OUTPUTS[@]}"
+```
+
+**Receipt fields per §3.3:**
+
+| Field | Value |
+|---|---|
+| `command` | `commit` |
+| `wave_id` | numeric string when the commit advances plan.md (`notes: "advances Wave N"`); else `null` |
+| `spec_path` | required when advancing plan.md (sourced from row's `spec:` field); else absent |
+| `operation_id` | `sha256_hex("commit\n<spec_path>")` when advancing plan.md, else `sha256_hex("commit\n-")` |
+| `inputs` | `[<staged paths>, parking_lot.md (if checked), docs/plan.md (if checked)]` |
+| `outputs` | `[<commit SHA>, parking_lot.md (if updated), docs/plan.md (if updated)]` (terminal write only) |
+| `verification.results` | pre-commit hook results + code-reviewer agent verdict (when run) |
+| `status` | `started` → `success` / `partial` / `failed` (terminal) per §3.0a |
+
+**Recovery-key separation (§4.6).** Two unrelated no-advance commits on the same branch share `operation_id = sha256_hex("commit\n-")` but have **different** `idempotency_key.value` (because the staged-content digest differs). Stage A success-lookup uses `idempotency_key`, NOT `operation_id`, so the second commit does NOT no-op against the first. Mutated content (same paths, different bytes) likewise produces a different `idempotency_key` and never short-circuits a prior success.
+
+**Logical retry vs. terminal failure.** SIGTERM mid-pre-commit-hook → terminal `aborted-on-ambiguity` (Stage-B-resumable). Re-run with same staged paths and unchanged content: Stage A finds no success match (prior was aborted); Stage B chains `retry_of` to the prior receipt; fresh work proceeds. Companion case: pre-commit-hook clean non-zero exit (no signal) → terminal `failed`; re-running produces a fresh `started` receipt with NO `retry_of` chain (`failed` is terminal per schema).
+
+**Manual fallback.** Hand-author `.harness-state/commit-<spec-or-dash-slug>-<ISO-8601-Z-ts>.yml`; commit SHA from `git log -1 --format=%H`; compute the input content digest for `idempotency_key.trace` manually via `git diff --cached | sha256sum`.
+
 ## Step 5: Commit
 
 Draft a commit message from the staged changes. Follow the repo's existing commit style (check `git log --oneline -5`).
