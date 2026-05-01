@@ -1,0 +1,44 @@
+# Example receipt — claude-code adapter, /commit ABORTED-ON-AMBIGUITY.
+# v2 Wave 1 fixture (docs/specs/2026-05-01-claude-adapter-alignment.md §3.3).
+# Demonstrates a SIGTERM mid-pre-commit-hook (signal exit). status is
+# aborted-on-ambiguity (Stage-B-resumable per schema; reserve `failed`
+# for clean non-zero command exits with no signal involvement).
+# No-advance variant (operation_id = sha256_hex("commit\n-")).
+
+receipt_id: commit-noop-2026-05-02T1700Z-claude
+command: commit
+adapter: claude-code
+wave_id: null
+inputs:
+  - skills/_shared/lib/emit-receipt.sh
+outputs:
+  []
+verification:
+  commands:
+    - "pre-commit hook"
+  results:
+    - cmd: "trap-handler"
+      exit_code: 143
+      summary: "caught aborted-on-ambiguity via EXIT trap (SIGTERM mid-hook)"
+started_at: "2026-05-02T17:00:00Z"
+status: aborted-on-ambiguity
+operation_id: 110ea775fb327905b4cf9eff70310d6b449d1b5851ca182b55d3e538c3833944
+idempotency_key:
+  value: 80a68e7902c7bd060a94bef1d4d462adc462db663dbfe46623e15ea377233e7d
+  trace:
+    command: commit
+    wave_id_or_spec_path: "-"
+    sorted_inputs:
+      - "skills/_shared/lib/emit-receipt.sh:8888bbbb8888bbbb8888bbbb8888bbbb8888bbbb8888bbbb8888bbbb8888bbbb"
+    input_content_digest: fb7f692523e4e43cb1e3d4c2469ee82f83b9a758cf1d89e782b5a7528614724c
+notes: |
+  Signal exit caught by EXIT trap installed in emit_receipt_started.
+  status=aborted-on-ambiguity is Stage-B-resumable per schema. The next
+  /commit invocation with the same staged content will:
+    - Stage A: idempotency_key match against this receipt, but status
+      != success → no no-op.
+    - Stage B: operation_id match AND status ∈ {partial,
+      aborted-on-ambiguity} → set retry_of: <this receipt_id> on the
+      new receipt, proceed with fresh work.
+  Compare to clean non-zero exit (no signal): would write status=failed
+  (terminal; NOT Stage-B-resumable).

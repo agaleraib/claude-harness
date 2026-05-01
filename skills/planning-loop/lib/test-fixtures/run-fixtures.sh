@@ -111,6 +111,15 @@ run_one() {
   tmp="$(mktemp -d)"
   cp -- "$SYNTH_SPEC" "$tmp/synthetic-spec.md"
   cp -- "$fixture_log" "$tmp/run.log"
+
+  # Wave 9 (v2 Wave 1) fixtures W1, W2 — append a command-adding `Files:`
+  # entry to synthetic-spec.md so Phase 1a-pre's WORKFLOW.md row delta gate
+  # fires. These two fixtures specifically exercise the preflight-abort path.
+  case "$letter" in
+    W1|W2)
+      printf '\n\n## Implementation Plan (Wave 9 fixture)\n\n- [ ] **Task 1:** Add a fixture skill\n  - **Files:** `skills/fixture-cmd/SKILL.md`\n  - **Verify:** ls skills/fixture-cmd/SKILL.md\n' >> "$tmp/synthetic-spec.md"
+      ;;
+  esac
   local pre_hash post_hash
   pre_hash="$(hash_of "$tmp/synthetic-spec.md")"
 
@@ -326,6 +335,21 @@ run_one T needle-removed-by-prior-edit    menu
 # (no F-prefix). Fixtures A-T all pre-stamp `F1:`/`F2:`; this one doesn't.
 # Surfaced by Wave 5 Task 8 live smoke (parking_lot.md 2026-04-28 entry).
 run_one U codex-shape-no-prefix       success
+
+# Wave 9 (v2 Wave 1) fixtures — claude-adapter-alignment §4.1–§4.8.
+# V1–V6: success-path fixtures asserting auto-apply pipeline still works on
+# the wave-shape/micro-shape/trivial categorizations and on the §4.5–§4.7
+# documentation fixtures. W1–W2: preflight-abort fixtures (Phase 1a-pre
+# WORKFLOW.md row delta gate) — see per-letter setup hook above.
+run_one V1 wave-shape-classification             success
+run_one V2 micro-shape-classification            success
+run_one V3 trivial-shape-classification          success
+run_one V4 missing-manual-fallback               menu
+run_one V5 idempotency                           success
+run_one V6 commit-recovery-key-separation        success
+run_one V7 crash-recovery                        success
+run_one W1 missing-workflow-delta                preflight-abort
+run_one W2 preflight-abort-readonly-state        preflight-abort
 
 read -r PASS FAIL < "$COUNTER_FILE"
 rm -f "$COUNTER_FILE"

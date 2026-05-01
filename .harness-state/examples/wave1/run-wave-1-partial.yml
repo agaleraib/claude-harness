@@ -1,0 +1,43 @@
+# Example receipt — claude-code adapter, /run-wave 1 PARTIAL.
+# v2 Wave 1 fixture (docs/specs/2026-05-01-claude-adapter-alignment.md §3.1).
+# Demonstrates a partial dispatch: orchestrator started but the wave's
+# exit gate was not fully met (e.g., one task's verify still pending).
+# Same operation_id as run-wave-1-success but DIFFERENT idempotency_key
+# (different docs/plan.md content_digest) — Stage B resume eligible.
+
+receipt_id: run-wave-1-2026-05-02T1100Z-claude
+command: run-wave
+adapter: claude-code
+wave_id: "1"
+spec_path: docs/specs/2026-05-01-claude-adapter-alignment.md
+inputs:
+  - docs/plan.md
+  - docs/specs/2026-05-01-claude-adapter-alignment.md
+outputs:
+  - .claude/worktrees/agent-2026-05-02T1100Z
+  - .harness-state/orchestrator.log
+verification:
+  commands:
+    - "bash skills/planning-loop/lib/test-fixtures/run-fixtures.sh"
+  results:
+    - cmd: "bash skills/planning-loop/lib/test-fixtures/run-fixtures.sh"
+      exit_code: 1
+      summary: "fixture suite reported 2 failures — exit gate not met"
+started_at: "2026-05-02T11:00:00Z"
+status: partial
+operation_id: 8dd54296d1c43bbd9fdbab9ce18d0e670c44620fc5ed855894fbd4359ab327ec
+idempotency_key:
+  value: 14f3040b901223379ea0b0657b096844e6d72308959f6952c6279cca8abcc29c
+  trace:
+    command: run-wave
+    wave_id_or_spec_path: "1"
+    sorted_inputs:
+      - "docs/plan.md:cccc3333cccc3333cccc3333cccc3333cccc3333cccc3333cccc3333cccc3333"
+      - "docs/specs/2026-05-01-claude-adapter-alignment.md:bbbb2222bbbb2222bbbb2222bbbb2222bbbb2222bbbb2222bbbb2222bbbb2222"
+    input_content_digest: c20b81172d7ba1a5beb2d73fe58b40678242fdb5886c61863886384a6c726333
+notes: |
+  Partial dispatch: 2 tasks shipped successfully, 1 failed verify on
+  the second pass. Orchestrator stopped at user-decides menu. The next
+  /run-wave 1 invocation finds this receipt by operation_id (Stage B)
+  and chains retry_of to receipt_id since idempotency_key differs
+  (docs/plan.md content changed during partial-completion mutation).

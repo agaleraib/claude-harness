@@ -1,0 +1,45 @@
+# Example receipt — claude-code adapter, /close-wave 1 FAILED.
+# v2 Wave 1 fixture (docs/specs/2026-05-01-claude-adapter-alignment.md §3.2).
+# Demonstrates a clean non-zero exit (e.g., merge-conflict that wasn't
+# auto-resolvable). status=failed is TERMINAL per schema — NOT
+# Stage-B-resumable. Next invocation runs as a fresh logical operation
+# with no retry_of chain.
+
+receipt_id: close-wave-1-2026-05-02T1330Z-claude
+command: close-wave
+adapter: claude-code
+wave_id: "1"
+spec_path: docs/specs/2026-05-01-claude-adapter-alignment.md
+inputs:
+  - docs/2026-05-01-claude-harness-wave1-summary.md
+  - docs/plan.md
+  - docs/specs/2026-05-01-claude-adapter-alignment.md
+outputs:
+  []
+verification:
+  commands:
+    - "git merge --no-ff worktree-agent-... -m 'Wave 1: ...'"
+  results:
+    - cmd: "git merge --no-ff worktree-agent-..."
+      exit_code: 1
+      summary: "merge conflict in unrelated path; not auto-resolvable; halted"
+started_at: "2026-05-02T13:30:00Z"
+status: failed
+operation_id: c233f86a25e77ee5466579b3b44ba3519a5013f954a59246607422508e60a6b9
+idempotency_key:
+  value: 27f29f682e83ce897bfe3b10fbf7f10ff3952ec79ff170660cf93631e8166119
+  trace:
+    command: close-wave
+    wave_id_or_spec_path: "1"
+    sorted_inputs:
+      - "docs/2026-05-01-claude-harness-wave1-summary.md:eeee5555eeee5555eeee5555eeee5555eeee5555eeee5555eeee5555eeee5555"
+      - "docs/plan.md:ffff6666ffff6666ffff6666ffff6666ffff6666ffff6666ffff6666ffff6666"
+      - "docs/specs/2026-05-01-claude-adapter-alignment.md:bbbb2222bbbb2222bbbb2222bbbb2222bbbb2222bbbb2222bbbb2222bbbb2222"
+    input_content_digest: 89d1ebbe7dca74107733ca96bfcfce8b4a2a41ba765242a6930808e58d3694bb
+notes: |
+  Clean non-zero exit (merge conflict in an unrelated path; rebase or
+  conflict resolution required). status=failed is TERMINAL per the §4.2
+  schema — re-running /close-wave 1 after fixing the conflict starts a
+  fresh logical operation; failed receipts are NOT Stage-B-resumable.
+  No outputs were committed (no merge commit; no plan.md mutation).
+  Compare to aborted-on-ambiguity (signal exit, Stage-B-resumable).
