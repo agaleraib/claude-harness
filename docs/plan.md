@@ -212,3 +212,48 @@ Effort tracked in spec §4 Wave 0.
 - ✓ Manual verification: opening the repo cold and answering the 5-question test (spec §2.3) succeeds using only the protocol files (no Claude/Codex session)
 
 Effort: ~3-4 days per spec §8 Wave 0 header. Spec-skill refinements (the prior Wave 7 Deliverable B — `/spec-planner` Manual-fallback enforcement, `/planning-loop` portability criterion, fixtures V/W) tracked separately when v2 Wave 1 is dispatched (no plan.md row pre-created until then).
+
+---
+
+### Wave 9 — Claude Code adapter alignment (v2 Wave 1)
+
+**Why this wave:** Implements v2 Wave 1 — bring Claude Code skills into compliance with the v2 universal harness protocol. Per `feedback_protocol_first_doctrine`: AGENTS.md + WORKFLOW.md exist (Wave 8 ✓), but the spec-authoring + wave-execution skills don't yet enforce the doctrine. Wave 9 closes that loop. Also folds in two adjacent concerns surfaced 2026-05-01 by the Wave 8 retrospective: (a) the wave-vs-micro decision rule in `/spec-planner` is vague and plan-invented thresholds (3 rules with "≥6 tasks AND stakes:high" — needs replacement per `feedback_wave_vs_micro_shape_rule`); (b) `/spec-planner` and `/planning-loop` don't auto-write `docs/plan.md`, forcing every wave-shaped spec to be hand-paste-bridged before `/run-wave` can dispatch (per `project_plan_md_update_gap` + `project_spec_planner_run_wave_gap` + `feedback_run_wave_commit_plan_entry`).
+
+- [ ] **Universal Harness Protocol — spec Wave 1 (Claude adapter alignment)** [spec](./specs/2026-05-01-claude-adapter-alignment.md) — to be drafted via `/planning-loop` FRESH mode at the path above. Tasks below will be refined by spec-planner/planning-loop and re-listed at /run-wave time; what's enumerated here is the dispatch SCOPE, not the final task IDs.
+  - [ ] `/spec-planner` (`.claude/agents/spec-planner.md`) refinements:
+    - replace decision tree with principle ("waves are commit batches with ALL-or-NOTHING merge semantics") + 5-signal checklist + shape-consequence table per `feedback_wave_vs_micro_shape_rule`
+    - mandate per-task `**Manual fallback:**` sub-bullet
+    - require WORKFLOW.md row delta when a spec adds a user-facing command
+    - auto-append `### Wave N` block to `docs/plan.md` for wave-shaped specs (idempotent; computes N as max(existing) + 1)
+    - surface shape classification in final summary line ("Spec shape: wave-shaped. Appended docs/plan.md Wave N entry." OR "Spec shape: micro-shaped. plan.md untouched.")
+  - [ ] `/planning-loop` (`skills/planning-loop/SKILL.md`) refinements:
+    - Codex review prompt gains portability criterion ("verify each task has a Manual fallback executable with git+editor+gh; flag specs that hard-require a specific LLM tool name as the only execution path")
+    - auto-apply preflight (Phase 1a) rejects specs adding commands without WORKFLOW.md row delta
+    - never touch plan.md (architectural: spec-planner owns plan.md ownership end-to-end)
+  - [ ] §4.2 receipt emission for `/run-wave`, `/close-wave`, `/commit`:
+    - each command writes a §4.2-conforming YAML receipt under `.harness-state/<command>-<wave-or-spec-id>-<timestamp>.yml`
+    - canonical `idempotency_key` algorithm (per spec `docs/protocol/receipt-schema.md`)
+    - `operation_id` field present (Wave 5 pre-decision: keep `idempotency_key.trace` shape used by Wave 8 receipts pending Open Q #9 resolution)
+    - read-only-exempt rule: `/harness-status` (Wave 2) and any future read-only command write only under `.harness-state/`
+  - [ ] Fixtures:
+    - one wave-shaped spec input → spec-planner classifies as wave-shaped + appends plan.md entry
+    - one micro-shaped spec input → spec-planner classifies as micro-shaped + plan.md untouched
+    - one spec missing Manual-fallback bullets → `/planning-loop` Codex review returns `needs-attention` (Codex-prompt path; runner outcome `menu`)
+    - one spec adding a command without WORKFLOW.md row delta → `/planning-loop` auto-apply preflight aborts (preflight path; runner outcome `preflight-abort`)
+    - one §4.2-valid success receipt + one §4.2-valid partial/failed receipt per command in scope (`/run-wave`, `/close-wave`, `/commit`) under `.harness-state/examples/wave1/`
+    - one same-inputs-twice idempotency fixture: second invocation no-ops to first receipt's `idempotency_key`
+
+**Wave 9 exit gate (target — refined by spec):**
+- ✓ `grep -q 'Manual fallback' .claude/agents/spec-planner.md` exits 0
+- ✓ `grep -q 'WORKFLOW.md row delta' .claude/agents/spec-planner.md` exits 0
+- ✓ `grep -q 'ALL-or-NOTHING merge semantics' .claude/agents/spec-planner.md` exits 0 (principle present)
+- ✓ `grep -qi 'portability' skills/planning-loop/SKILL.md` exits 0 (Codex prompt criterion)
+- ✓ `bash skills/planning-loop/lib/test-fixtures/run-fixtures.sh` exits 0 with new wave-shape + micro-shape + missing-Manual-fallback + missing-WORKFLOW.md-delta + idempotency fixtures green
+- ✓ `/run-wave`, `/close-wave`, `/commit` each produce a §4.2-valid success receipt during their fixture run; receipts include `command`, `adapter=claude-code`, `idempotency_key`, `inputs`, `outputs`, `verification`, `status=success`
+- ✓ `/run-wave`, `/close-wave`, `/commit` each produce a §4.2-valid partial/failed receipt under a deliberately-broken fixture (`status` ∈ {`partial`, `failed`, `aborted-on-ambiguity`}, `verification.results` populated when applicable)
+- ✓ Idempotency fixture proves second invocation matches first `idempotency_key` and no-ops
+- ✓ Sample `/spec-planner` dry-run on a wave-shaped input shows: per-task Manual-fallback bullets, WORKFLOW.md row delta, plan.md `### Wave N` block appended (idempotent on re-run)
+
+**Pre-empt: trust-boundary trade-off (per `feedback_codex_walks_back_friction_reducers`).** The plan.md auto-append is friction-removal by design — opt-out lives at `.harness-profile.spec_planner.auto_plan_append: false` (default `true`) AND env var `SPEC_PLANNER_NO_AUTO_PLAN=1`. NOT via a confirmation prompt on the happy path. Codex review may flag this; route to scope arbiter, expect `wrong-premise`.
+
+Effort tracked in spec §8 Wave 1 of `docs/specs/2026-04-30-universal-harness-protocol-v2.md` (~4-6 days; ~half-day delta for the folded scope per Wave 1 expansion note in `project_universal_harness_protocol_v2.md`).
