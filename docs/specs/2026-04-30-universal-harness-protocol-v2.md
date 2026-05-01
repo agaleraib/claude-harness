@@ -363,7 +363,7 @@ Six waves, each independently shippable. Stop after any wave if the next one doe
 - `grep -c '^| .* | .* | .* | .* | .* |$' WORKFLOW.md` returns at least 8
 - `WORKFLOW.md` contains zero occurrences of `deferred decision` for required protocol commands
 - `.harness-state/examples/` contains at least one manual-adapter receipt and one claude-code-adapter receipt; both pass schema validation (manual or scripted)
-- `.harness-state/wave7-verification.md` records the five portability-test answers for this repo
+- `.harness-state/wave<N>-verification.md` records the five portability-test answers for this repo, where `<N>` is the implementing wave's number in the consumer repo's plan.md (claude-harness uses `wave8-verification.md` since plan.md Wave 8 dispatches v2 Wave 0)
 - Wave 7 plan entry no longer ambiguously targets a superseded spec
 
 **Updates `WORKFLOW.md`?** Yes, creates it.

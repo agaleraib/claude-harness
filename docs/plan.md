@@ -149,7 +149,9 @@ This completes the planning-loop trim-remediation spec — all 12 tasks across 2
 
 ---
 
-### Wave 7 — Protocol baseline + spec-skill alignment (claude-harness scope)
+### Wave 7 — Protocol baseline + spec-skill alignment (claude-harness scope) — SUPERSEDED
+
+> **Status: SUPERSEDED by Wave 8.** The [harness-evolution.md](./specs/2026-04-30-harness-evolution.md) spec this wave referenced was superseded by [universal-harness-protocol-v2.md](./specs/2026-04-30-universal-harness-protocol-v2.md) after a 3-round `/planning-loop` adversarial review and a manual fix pass (F1 — `operation_id` split in §4.2 receipt schema applied; F2 — Codex's "Codex rows lack explicit-input contract" finding dropped as wrong-premise per code-reviewer arbiter ruling, see spec Open Q #8). Do not dispatch Wave 7 — its scope is a strict subset of v2 Wave 0, which Wave 8 dispatches with broader deliverables (receipt-schema materialization, example receipts, Codex prompt contract). Kept here for historical context only.
 
 **Why this wave:** First wave of the harness-evolution roadmap. Ships claude-harness's own `AGENTS.md` + `WORKFLOW.md` (the tool-neutral protocol contract) AND refines `/spec-planner` + `/planning-loop` to enforce the Manual-fallback discipline going forward. Per protocol-first doctrine: every harness skill must be operable with `git + editor + shell + docs` alone — these refinements bake that check into spec authoring. Independently shippable: subsequent waves of the harness-evolution spec depend on these protocol files existing and on specs containing per-task Manual-fallback bullets. wordwideAI + gobot will track equivalent waves when those repos are next opened (not pre-created in this commit).
 
@@ -173,3 +175,38 @@ This completes the planning-loop trim-remediation spec — all 12 tasks across 2
 - ✓ Sample `/spec-planner` dry-run output contains per-task Manual-fallback bullets
 
 Effort tracked in spec §4 Wave 0.
+
+---
+
+### Wave 8 — Universal protocol core (v2 Wave 0)
+
+**Why this wave:** Replaces superseded Wave 7. Ships v2's broader Wave 0 deliverable: `AGENTS.md` + `WORKFLOW.md` (protocol contract) PLUS the materialized receipt schema and Codex prompt contract under `docs/protocol/`, PLUS example receipts under `.harness-state/examples/`. The receipt-schema and Codex-prompt-contract materializations are what make the v2 spec a *universal* protocol — Codex and Claude implementations have a single source of truth for receipt shape and prompt contract, instead of inferring from the spec body. Spec-skill refinements (the original Wave 7 Deliverable B) are tracked separately when v2 Wave 1 is dispatched.
+
+- [ ] **Universal Harness Protocol — spec Wave 0** [spec](./specs/2026-04-30-universal-harness-protocol-v2.md) — Wave 0 deliverable per spec §8 Wave 0.
+  - [x] Task 0 — Plan-supersedure (spec §8 Wave 0 self-deliverable: "update Wave 7 to point at v2 or note v2 supersedes the old target") — satisfied at dispatch time by this commit's Wave 7 SUPERSEDED note + Wave 8 entry
+  - [ ] Task 1 — Write `AGENTS.md` at repo root (~40 lines: tool-neutral agent instructions; what to do/avoid; where state lives; how to discover specs/plan/waves)
+  - [ ] Task 2 — Write `WORKFLOW.md` at repo root populated from spec §4 command matrix (Manual / Claude Code / Codex / Automation columns); include §4.1 prompt contracts; use space-padded separator (`| --- | --- | --- | --- | --- |`); zero `deferred decision` cells in any data row of the command matrix
+  - [ ] Task 3 — Update `CLAUDE.md` with one-line pointer: `> Tool-neutral protocol lives in AGENTS.md. Claude-specific overrides below.` (per spec Open Q #1 default disposition: AGENTS.md primary, CLAUDE.md addendum)
+  - [ ] Task 4 — Append `protocol_baseline: true` to `.harness-profile` top-level once AGENTS.md+WORKFLOW.md exist (gates v2 Wave 3 `/run-wave` Step 0 preflight)
+  - [ ] Task 5 — Materialize `docs/protocol/receipt-schema.md` from spec §4.2 (all required + conditional fields, recovery semantics two-stage lookup, mutating-command discipline, canonical idempotency_key derivation, operation_id derivation)
+  - [ ] Task 6 — Materialize `docs/protocol/codex-prompt-contract.md` from spec §4.1 (clauses 1-7 verbatim; this is what Wave 5 Codex pilots inherit)
+  - [ ] Task 7 — Produce two example receipts + a deterministic recomputer under `.harness-state/examples/`:
+    - **Receipts** — one manual-adapter, one claude-code-adapter, both for the same logical operation. Choose an operation whose inputs are immutable post-fact: `/close-wave 6` referencing the closed wave's `docs/waves/2026-04-28-claude-harness-wave6-summary.md` (NOT the live mutable `docs/plan.md`). Both must validate against `docs/protocol/receipt-schema.md`. Both must include `operation_id` and an `idempotency_key.trace` field — the sorted `<path>:<sha256>` block that fed the canonical SHA-256 (frozen at receipt-author time per spec §4.2 "at the time work starts").
+    - **Recomputer script** — `.harness-state/examples/recompute-keys.sh`. Reads each receipt's `idempotency_key.trace` block (does NOT re-hash the live filesystem; trace is the frozen pre-image), recomputes the canonical SHA-256 per spec §4.2, and asserts each key matches its receipt's embedded `idempotency_key` AND that both receipts' keys are equal. Exits 0 on full agreement, non-zero with a diff message otherwise.
+  - [ ] Task 8 — Record 5-question portability-test (spec §2.3) answers in `.harness-state/wave8-verification.md` (explicit yes/no per question with the answer source — `docs/plan.md ## Now`, `docs/waves/`, etc.)
+
+**Wave 8 exit gate (target):**
+- ✓ `test -f AGENTS.md` exits 0
+- ✓ `test -f WORKFLOW.md` exits 0; `grep -c '^| .* | .* | .* | .* | .* |$' WORKFLOW.md` returns ≥ 8 (1 header + 7 command rows; space-padded separator excluded by regex)
+- ✓ `awk '/^\|/ && /deferred decision/' WORKFLOW.md` returns nothing (no `deferred decision` appears in any table row; matches in surrounding prose are acceptable)
+- ✓ `grep -F 'AGENTS.md' CLAUDE.md` matches (CLAUDE.md points at AGENTS.md)
+- ✓ `grep -q '^protocol_baseline: true$' .harness-profile` exits 0
+- ✓ `test -f docs/protocol/receipt-schema.md` exits 0; `grep -q 'operation_id' docs/protocol/receipt-schema.md` exits 0; `grep -q 'idempotency_key' docs/protocol/receipt-schema.md` exits 0
+- ✓ `test -f docs/protocol/codex-prompt-contract.md` exits 0
+- ✓ `.harness-state/examples/` contains at least one `*manual*.yml` and one `*claude*.yml` receipt; both YAML-valid; both include `operation_id` + `idempotency_key` + `idempotency_key.trace`
+- ✓ `test -f .harness-state/examples/recompute-keys.sh` exits 0
+- ✓ `bash .harness-state/examples/recompute-keys.sh` exits 0 — reads each receipt's `idempotency_key.trace` (frozen pre-image), recomputes the canonical SHA-256 per spec §4.2, and asserts both keys equal each other AND equal the value embedded in the receipt (catches both adapter divergence and trace tampering; does NOT re-hash live filesystem)
+- ✓ `test -f .harness-state/wave8-verification.md` exits 0; file contains explicit yes/no answers for all 5 portability questions (spec §2.3)
+- ✓ Manual verification: opening the repo cold and answering the 5-question test (spec §2.3) succeeds using only the protocol files (no Claude/Codex session)
+
+Effort: ~3-4 days per spec §8 Wave 0 header. Spec-skill refinements (the prior Wave 7 Deliverable B — `/spec-planner` Manual-fallback enforcement, `/planning-loop` portability criterion, fixtures V/W) tracked separately when v2 Wave 1 is dispatched (no plan.md row pre-created until then).
