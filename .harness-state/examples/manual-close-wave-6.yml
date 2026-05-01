@@ -1,0 +1,52 @@
+# Example receipt — manual adapter, /close-wave 6
+# Demonstrates the cross-adapter idempotency_key equality property of
+# docs/specs/2026-04-30-universal-harness-protocol-v2.md §4.2.
+# Paired with claude-close-wave-6.yml: same logical operation, same inputs,
+# same key — different adapter.
+#
+# Trace block is the FROZEN pre-image used to derive the key. Recomputer
+# (recompute-keys.sh) reads the trace, recomputes the SHA-256 chain, and
+# asserts the embedded key equals the recomputed value AND equals the
+# paired claude-code receipt's key. Recomputer does NOT re-hash live
+# filesystem (that contradicts spec §4.2 "at the time work starts").
+
+receipt_id: close-wave-6-2026-04-28T1900Z-manual
+command: close-wave
+adapter: manual
+wave_id: "6"
+spec_path: docs/specs/2026-04-28-planning-loop-trim-remediation.md
+inputs:
+  - docs/2026-04-28-claude-harness-wave6-summary.md
+  - docs/specs/2026-04-28-planning-loop-trim-remediation.md
+outputs:
+  - docs/plan.md
+verification:
+  commands:
+    - "test -f docs/2026-04-28-claude-harness-wave6-summary.md"
+    - "git log --oneline -1 docs/plan.md | grep -F 'Wave 6'"
+  results:
+    - cmd: "test -f docs/2026-04-28-claude-harness-wave6-summary.md"
+      exit_code: 0
+      summary: "summary file present at frozen path"
+    - cmd: "git log --oneline -1 docs/plan.md | grep -F 'Wave 6'"
+      exit_code: 0
+      summary: "Wave 6 closure entry visible in plan.md history"
+started_at: "2026-04-28T18:55:00Z"
+completed_at: "2026-04-28T19:00:00Z"
+status: success
+merge_sha: b051ee8
+operation_id: bb524b2d3b226b6d566e0590ad30e76e2e8df01485ef414c9a96e5714ab926a0
+idempotency_key:
+  value: 238e61ca94966dcb120050cdba46c0ab0b71333cc01fb2cec077f18e6a39587b
+  trace:
+    command: close-wave
+    wave_id_or_spec_path: "6"
+    sorted_inputs:
+      - "docs/2026-04-28-claude-harness-wave6-summary.md:f3229166f2c046cce131d16acf31d4ce53bef37ff9a59392b48daf8a107c045c"
+      - "docs/specs/2026-04-28-planning-loop-trim-remediation.md:8118ac66bc87eac3b3b1ed4ca5022fb16cd6e5731cfa861e4337e070df7eab1f"
+    input_content_digest: 8b2ad003e7ee67307740bd7a26b684b5ccc8fbfe837e952ee356c016b7ab80e4
+notes: |
+  Manual adapter: human ran the manual /close-wave column from
+  WORKFLOW.md (verify branch + merge + receipt). Pair receipt is
+  claude-close-wave-6.yml; both must compute identical
+  idempotency_key.value byte-for-byte per spec §4.2.
