@@ -9,6 +9,7 @@
 !.harness-state/triage-log.md
 !.harness-state/examples/
 !.harness-state/examples/**
+!.harness-state/wave*-verification.md
 
 # /planning-loop side-path copy — ephemeral, written/deleted by the skill.
 # Pattern protects against accidental commit if a run is interrupted before
