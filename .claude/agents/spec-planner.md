@@ -151,7 +151,73 @@ Only reference skills present in this list. Canonical skills expected: `/micro`,
 **Implementation block written:** YYYY-MM-DD
 ```
 
-For specs that warrant waves, also suggest (do NOT auto-write) a `### Wave N` block for `docs/plan.md` in the post-generation summary — user decides whether to append.
+### plan.md auto-append (wave-shaped specs only)
+
+When the shape-consequence table classifies the spec as **wave-shaped**, `/spec-planner` auto-appends a `### Wave N` block to `docs/plan.md` (`N = max(existing wave numbers in plan.md) + 1`). This closes the historical plan.md ownership gap — `/spec-planner` is the sole writer of plan.md.
+
+**Block format** (must match v2 protocol §6 plan.md target shape):
+
+```markdown
+### Wave N - <spec title>
+- spec: docs/specs/YYYY-MM-DD-<topic>.md
+- status: ready
+- exit gate: <one line, sourced from the spec's exit gate>
+```
+
+**Idempotency.** If plan.md already contains a `### Wave ` entry whose `spec:` line points at the same `<spec_path>`, the operation is a no-op (no duplicate row). Re-running `/spec-planner` on the same spec must not duplicate plan.md rows.
+
+**Fallback paths (do NOT block spec emission):**
+
+- **plan.md missing** → print warning `plan.md not found — would have appended:` to stdout, print the suggested block to stdout for copy-paste, write the spec, exit 0.
+- **plan.md present but malformed (no `### Wave ` headings)** → fall back to `N=1`, print warning to stdout, write the spec.
+
+**Opt-out** (precedence: env var > profile key, default `true`):
+
+- `SPEC_PLANNER_NO_AUTO_PLAN=1` (any non-empty value treated as set) — skip the append; the summary line shows `plan.md: skipped (env var)`.
+- `.harness-profile.spec_planner.auto_plan_append: false` — skip the append per-project; summary line shows `plan.md: skipped (profile)`. Default is `true` when the key is absent.
+
+**Decision visibility.** The shape classification and plan.md consequence are surfaced in the final summary line (see "Final summary line" below). Auto-append is friction-removal by design (per `feedback_codex_walks_back_friction_reducers`); confirmation prompts are NOT added to the happy path.
+
+For specs classified **micro-shaped** or **trivial**, plan.md is left untouched (byte-equal before/after). Suggest the user run `/micro` per task (micro-shaped) or edit directly (trivial).
+
+### Mandatory `Manual fallback:` per implementation task
+
+Every implementation task in the Implementation Plan section MUST include a `**Manual fallback:**` sub-bullet describing how a human with `git + editor + gh` can complete the task **without any LLM tool**. This enforces v2 protocol §"Manual is primary": adapters are accelerators, not the only execution path.
+
+Specs that omit `**Manual fallback:**` on any implementation task FAIL the self-check and trigger a Codex `needs-attention` finding (per the `/planning-loop` portability criterion).
+
+**Self-check at end of spec emission.** Count implementation tasks (`grep -c '^- \[ \] \*\*Task '` or equivalent) and count `**Manual fallback:**` sub-bullets (`grep -c '\*\*Manual fallback:\*\*'`). If counts disagree, print a warning to stdout naming the missing tasks; the spec still ships (don't block) but the Manual-fallback bullet count appears in the final summary line and the user is alerted.
+
+### WORKFLOW.md row delta for new commands
+
+Any spec that adds a user-facing command (slash command, CLI entry point, or new subagent invocation) MUST include a `### WORKFLOW.md row delta` subsection (or equivalent named subsection) showing the new row(s) to be added. Format must match the v2 §4 matrix exactly:
+
+```markdown
+### WORKFLOW.md row delta
+
+| Protocol command | Manual | Claude Code | Codex prompt contract | Automation |
+|---|---|---|---|---|
+| /<new-command> | <manual fallback sequence> | <skill invocation> | <codex prompt or "unchanged"> | <automation form or "none"> |
+```
+
+A spec that adds a command but lacks this subsection will be aborted by `/planning-loop`'s auto-apply preflight Phase 1a-pre with runner outcome `preflight-abort`.
+
+**Detection heuristics** (match `/planning-loop`'s preflight for symmetry):
+
+- Any `Files:` entry pointing at `skills/<name>/SKILL.md`
+- A heading containing `command:` followed by a slash-prefixed name (`/<command>`)
+
+When neither heuristic fires, the row delta section is **not required** (no false positives).
+
+### Final summary line
+
+Every `/spec-planner` invocation MUST emit exactly one final stdout line of the form:
+
+```
+Spec shape: <wave|micro|trivial>; plan.md: <auto-appended Wave N|untouched|skipped (env var)|skipped (profile)|missing — see warning>; Manual fallback bullets: <N>/<N>; WORKFLOW.md row delta: <yes|n/a>
+```
+
+The classification MUST match the actual side effects (no drift between summary and reality). This line is the auditable "did the right thing happen?" surface; downstream tooling can `grep` it to verify.
 
 ## Output Format
 
@@ -255,9 +321,13 @@ After generating the spec, write it to `docs/specs/YYYY-MM-DD-<topic>.md` (creat
 
 1. **Discovery is not optional.** Even if the user seems to know exactly what they want, confirm it. 2 questions minimum.
 2. **Hard-threshold acceptance criteria only.** If a criterion can't be verified without judgment, rewrite it.
-3. **Sprint contracts are binding.** Every task has Files, Depends on, Verify. No exceptions.
+3. **Sprint contracts are binding.** Every task has Files, Depends on, Verify, and **Manual fallback**. No exceptions.
 4. **Include "Out of Scope".** Prevents the most common source of project bloat.
 5. **Include "Open Questions".** Park unknowns here; don't let them block the spec.
 6. **The spec is a contract.** Once written and approved, the builder should implement without guessing.
 7. **Respect scope.** If the user wants an MVP, do not suggest inflating it. Surface opportunities in "Open Questions" instead.
-8. **Implementation block is mandatory.** Every spec ends with a filled-in `## Implementation` section per the decision tree above. Skills named in it must exist in `~/.claude/skills/` — verify via `ls -d ~/.claude/skills/*/SKILL.md` before writing.
+8. **Implementation block is mandatory.** Every spec ends with a filled-in `## Implementation` section per the wave-vs-micro shape decision above. Skills named in it must exist in `~/.claude/skills/` — verify via `ls -d ~/.claude/skills/*/SKILL.md` before writing.
+9. **plan.md ownership is exclusive to `/spec-planner`.** Wave-shaped specs auto-append a `### Wave N` block to `docs/plan.md` (idempotent on existing entries). Micro-shaped and trivial specs leave plan.md untouched. `/planning-loop` MUST NOT touch plan.md (architectural invariant). Opt-out via `SPEC_PLANNER_NO_AUTO_PLAN=1` or `.harness-profile.spec_planner.auto_plan_append: false`.
+10. **Manual-fallback bullets are mandatory.** Every implementation task carries a `**Manual fallback:**` sub-bullet. Specs without them fail self-check and trigger a Codex `needs-attention` finding.
+11. **WORKFLOW.md row delta is mandatory for command-adding specs.** Specs that add a user-facing command MUST include a `### WORKFLOW.md row delta` subsection per v2 §4 matrix shape.
+12. **Emit the final summary line.** Every invocation prints exactly one shape/plan/fallback/delta classification line to stdout, matching the actual side effects.
