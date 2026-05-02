@@ -239,3 +239,11 @@ Effort: ~3-4 days per spec §8 Wave 0 header. Spec-skill refinements (the prior 
 **Pre-empt: trust-boundary trade-off (per `feedback_codex_walks_back_friction_reducers`).** The plan.md auto-append is friction-removal by design — opt-out lives at `.harness-profile.spec_planner.auto_plan_append: false` (default `true`) AND env var `SPEC_PLANNER_NO_AUTO_PLAN=1`. NOT via a confirmation prompt on the happy path. Codex review may flag this; route to scope arbiter, expect `wrong-premise`.
 
 Effort tracked in spec §8 Wave 1 of `docs/specs/2026-04-30-universal-harness-protocol-v2.md` (~4-6 days; ~half-day delta for the folded scope per Wave 1 expansion note in `project_universal_harness_protocol_v2.md`).
+
+---
+
+### Wave 10 - Plan maintenance, docs/waves/ archive, registry, and /harness-status (v2 Wave 2)
+- spec: docs/specs/2026-05-02-plan-registry-maintenance.md
+- status: ready
+- exit gate: docs/plan.md is a four-section active board; eight wave summaries migrated to docs/waves/; close-wave Step 8 retargeted to docs/waves/; /archive-plan idempotent + §4.2-receipt with cross-adapter idempotency_key equality (manual+claude-code success-receipt pair byte-equal); ~/.config/harness/projects.yml is path-only; /harness-status read-only with §4.2-receipt and pre-conversion-repo tolerance; WORKFLOW.md +2 rows; fixtures green
+- note: this Wave 10 row sits in the legacy accreting-log format until Task 1 lands (which converts plan.md to the four-section active-board format and migrates this row to `## Now`); intentional interim state.
