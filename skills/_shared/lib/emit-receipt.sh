@@ -40,6 +40,16 @@
 
 set -uo pipefail
 
+# Bash-only — guards against zsh sourcing (`local status=...` clashes with
+# zsh's read-only special `$status`; `local rstatus` was already adopted in
+# write_atomic, but emit_receipt_terminal kept `local status` and the bug
+# stayed latent until /commit ran on a zsh-default macOS shell). Surfaced
+# in feedback_emit_receipt_zsh_incompat.md (2026-05-02).
+if [[ -z "${BASH_VERSION:-}" ]]; then
+  echo "✗ emit-receipt.sh requires bash (got '$0' under non-bash shell). Wrap callers in 'bash <<EOF ... EOF'." >&2
+  return 1 2>/dev/null || exit 1
+fi
+
 # -----------------------------------------------------------------------------
 # Internal state — uses dynamic vars instead of associative arrays.
 # -----------------------------------------------------------------------------
@@ -547,7 +557,9 @@ emit_receipt_terminal() {
     echo "✗ emit_receipt_terminal: requires <status> [verification_yaml] [outputs...]" >&2
     return 2
   fi
-  local status="$1"
+  # NB: `local status=...` clashes with zsh's read-only $status special var
+  # (see top-of-file bash guard); use rstatus to mirror write_atomic's naming.
+  local rstatus="$1"
   local verification_yaml="${2:-}"
   shift
   [[ $# -gt 0 ]] && shift
@@ -557,15 +569,15 @@ emit_receipt_terminal() {
     shift
   done
 
-  case "$status" in
+  case "$rstatus" in
     success|partial|failed|aborted-on-ambiguity) ;;
     *)
-      echo "✗ emit_receipt_terminal: invalid status '$status'" >&2
+      echo "✗ emit_receipt_terminal: invalid status '$rstatus'" >&2
       return 2
       ;;
   esac
 
-  emit_receipt__write_atomic "$EMIT_RECEIPT__RECEIPT_PATH" "$status" \
+  emit_receipt__write_atomic "$EMIT_RECEIPT__RECEIPT_PATH" "$rstatus" \
     "$verification_yaml" || {
       emit_receipt__write_recovery_marker
       return 1

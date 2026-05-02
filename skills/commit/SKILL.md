@@ -117,6 +117,21 @@ Continue to Step 5.
 
 Per `docs/specs/2026-05-01-claude-adapter-alignment.md` §3.3, `/commit` MUST emit a §4.2-conforming receipt under `.harness-state/commit-<spec-or-dash-slug>-<timestamp>.yml` using the shared helper at `skills/_shared/lib/emit-receipt.sh`. The lifecycle is **reserve-then-mutate**: write a `started` receipt BEFORE `git commit` runs (after staging, after pre-commit hooks queue, before the commit SHA exists).
 
+**CRITICAL — single-shell-session lifecycle.** The full receipt lifecycle (`source` → `init` → `preflight` → `started` → `git commit` → `terminal`) MUST run in **one shell invocation**. The helper's state lives in shell variables (`EMIT_RECEIPT__*`) that don't survive across:
+- Separate Bash tool calls (each is a fresh shell — sourcing in one and calling functions in the next loses everything).
+- A subshell exit (the EXIT trap fires; if state was reserved but not terminally written, an `aborted-on-ambiguity` placeholder may be left behind).
+
+**Wrap everything below in one bash heredoc when invoking from Claude Code:**
+
+```bash
+bash <<'BASH_EOF'
+set -e
+# (entire Step 4.5 + Step 5 + terminal write goes here)
+BASH_EOF
+```
+
+The helper also requires bash (it guards against zsh sourcing — see `feedback_emit_receipt_zsh_incompat.md`). On macOS where the default shell is zsh, the explicit `bash <<'BASH_EOF'` is mandatory.
+
 **Source the helper:**
 
 ```bash
