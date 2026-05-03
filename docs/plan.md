@@ -14,10 +14,7 @@ Navigator-style active board. Per v2 §6, the file has exactly four sections —
 
 ## Now
 
-### Wave 10 - Plan maintenance, docs/waves/ archive, registry, and /harness-status (v2 Wave 2)
-- spec: docs/specs/2026-05-02-plan-registry-maintenance.md
-- status: ready
-- exit gate: docs/plan.md is a four-section active board; eight wave summaries migrated to docs/waves/; close-wave Step 8 retargeted to docs/waves/; /archive-plan idempotent + §4.2-receipt with cross-adapter idempotency_key equality (manual+claude-code success-receipt pair byte-equal); ~/.config/harness/projects.yml is path-only; /harness-status read-only with §4.2-receipt and pre-conversion-repo tolerance; WORKFLOW.md +2 rows; fixtures green
+(none active)
 
 ## Next
 
@@ -29,6 +26,7 @@ Navigator-style active board. Per v2 §6, the file has exactly four sections —
 
 ## Recently Shipped
 
+- [x] Wave 10 - Plan maintenance, docs/waves/ archive, registry, and /harness-status (v2 Wave 2) -> docs/waves/wave10-plan-registry-maintenance.md (a113829)
 - [x] Wave 9 - Universal Harness Protocol — spec Wave 1 (Claude adapter alignment) -> docs/waves/wave9-claude-adapter-alignment.md (a5c844b)
 - [x] Wave 8 - Universal Harness Protocol — spec Wave 0 -> docs/waves/wave8-universal-protocol-core.md (1d7cee0)
 - [x] Wave 6 - Planning-loop trim — skill-creator alignment -> docs/waves/wave6-planning-loop-skill-creator-alignment.md (b051ee8)

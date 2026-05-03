@@ -2,8 +2,8 @@
 wave_number: 10
 slug: plan-registry-maintenance
 spec_path: docs/specs/2026-05-02-plan-registry-maintenance.md
-merge_sha: <pending>
-closed_at: <pending>
+merge_sha: a113829
+closed_at: 2026-05-03
 ---
 
 # Wave 10 — Plan maintenance, docs/waves/ archive, registry, /harness-status — orchestrator summary
