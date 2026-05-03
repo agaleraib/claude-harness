@@ -198,6 +198,16 @@ cp ~/.claude/harness/.claude/agents/spec-planner.md ~/.claude/agents/
 cp ~/.claude/harness/.claude/agents/project-tracker.md ~/.claude/agents/
 ```
 
+Also check that universal hardening (`~/.claude/CLAUDE.md`) exists:
+
+```bash
+ls ~/.claude/CLAUDE.md 2>/dev/null
+```
+
+If missing, print a warning (do NOT auto-create — too opinionated for a partner's machine):
+
+> ⚠️  `~/.claude/CLAUDE.md` not found. Universal behavioral guidelines (surgical-changes, no speculative features, verification-after-edit) won't apply globally. If you have a claude-harness checkout (typical maintainer location: `~/.claude/harness/CLAUDE.md`; else clone from your fork of claude-harness), copy its `CLAUDE.md` as a starting point; otherwise create one manually.
+
 ## Step 6: Verify Global Git Hook (first-time only)
 
 ```bash

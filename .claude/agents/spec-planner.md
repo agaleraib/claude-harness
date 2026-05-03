@@ -293,13 +293,13 @@ Each task is a contract: build it, verify it, move on. Do not skip ahead.
 - [ ] **Task 2:** [Next task]
   - **Files:** [paths]
   - **Depends on:** Task 1
-  - **Verify:** [criterion]
+  - **Verify:** [Concrete check that fails before, passes after — test/grep/fixture]
 
 ### Phase 2
 - [ ] **Task 3:** [Feature F-001]
   - **Files:** [paths]
   - **Depends on:** Task 2
-  - **Verify:** [Maps to F-001's acceptance criteria]
+  - **Verify:** [Maps to F-001's acceptance criteria — name the failing-before / passing-after check]
 
 ## Constraints
 [Technical constraints, integration requirements, performance targets]
@@ -321,7 +321,7 @@ After generating the spec, write it to `docs/specs/YYYY-MM-DD-<topic>.md` (creat
 
 1. **Discovery is not optional.** Even if the user seems to know exactly what they want, confirm it. 2 questions minimum.
 2. **Hard-threshold acceptance criteria only.** If a criterion can't be verified without judgment, rewrite it.
-3. **Sprint contracts are binding.** Every task has Files, Depends on, Verify, and **Manual fallback**. No exceptions.
+3. **Sprint contracts are binding.** Every task has Files, Depends on, Verify, and **Manual fallback**. No exceptions. Verify blocks must name a check (test, grep, fixture call) that fails before the change and passes after — not "manually inspect."
 4. **Include "Out of Scope".** Prevents the most common source of project bloat.
 5. **Include "Open Questions".** Park unknowns here; don't let them block the spec.
 6. **The spec is a contract.** Once written and approved, the builder should implement without guessing.

@@ -50,13 +50,17 @@ Check for, in priority order:
 
 **Minor (professional polish):**
 - Naming — do names accurately describe what things do?
-- Complexity — functions over 50 lines, deeply nested logic, premature abstraction?
+- Complexity — functions over 50 lines, deeply nested logic? (Premature abstraction belongs in Simplifications when `criteria/code-simplicity.md` exists; otherwise here.)
 - Consistency — does this follow the patterns established elsewhere in the codebase?
 - Dead code — unused imports, commented-out blocks, unreachable branches?
 
 ### 4. Check Against Criteria (if available)
 
 If the project has a `criteria/` directory, score against those rubrics with specific evidence. If not, use your judgment based on the categories above.
+
+If `criteria/code-simplicity.md` exists, score it AND emit findings into a separate `## Simplifications` section in the report (see structure below). Simplification findings are flagged, never auto-rewritten — Rule #6 still applies.
+
+**Routing rule when `criteria/code-simplicity.md` exists:** premature-abstraction, single-use wrappers, unused configurability, and similar findings go to `## Simplifications` and are dropped from the `#### Minor` Complexity bullet to avoid double-reporting. The `#### Minor` bucket retains: oversized functions, deep nesting, naming, dead code (commented-out blocks, unreachable branches), and consistency issues that don't map to a simplicity dimension.
 
 ### 5. Report
 
@@ -82,8 +86,12 @@ Structure your review as:
 #### Minor
 - [file:line] [issue] → [what should happen instead]
 
+### Simplifications
+[Only if criteria/code-simplicity.md exists. One bullet per finding. "Reuse" / "Duplication" / "Dead Abstraction" / "Indirection" prefix indicates which dimension.]
+- [dimension] [file:line] [what to cut and why] → [shorter shape]
+
 ### Verdict
-[1-2 sentences. "Ready to merge", "Fix critical issues first", or "Needs rework".]
+[1-2 sentences. "Ready to merge", "Fix critical issues first", or "Needs rework". Simplifications alone do NOT block merge unless a dimension hard-fails (≤3).]
 ```
 
 ## Rules
