@@ -1,3 +1,11 @@
+---
+wave_number: 3
+slug: readme-cross-reference
+spec_path: docs/specs/2026-04-19-harness-model-pin-and-effort-routing.md
+merge_sha: 146908c
+closed_at: 2026-04-25
+---
+
 # Wave 3 Summary — claude-harness
 
 **Date:** 2026-04-25

@@ -1,0 +1,45 @@
+# Example receipt — manual adapter, /archive-plan success.
+# Wave 10 (v2 Wave 2) fixture — docs/specs/2026-05-02-plan-registry-maintenance.md §3.2.
+# Cross-adapter PAIRED with archive-plan-success.yml: same logical operation,
+# identical idempotency_key.value byte-for-byte, different adapter.
+# Recomputer (.harness-state/examples/wave2/recompute-wave2-keys.sh) asserts
+# the equality property at validation time.
+
+receipt_id: archive-plan-noop-2026-05-03T1500Z-manual
+command: archive-plan
+adapter: manual
+inputs:
+  - docs/plan.md
+  - docs/waves/wave1-test.md
+  - docs/waves/wave2-test.md
+outputs:
+  - docs/plan.md
+verification:
+  commands:
+    - "git diff --stat docs/plan.md"
+  results:
+    - cmd: "git diff --stat docs/plan.md"
+      exit_code: 0
+      summary: "2 row(s) removed from ## Recently Shipped; 2 wave file(s) verified present (manual edit)"
+started_at: "2026-05-03T15:00:00Z"
+completed_at: "2026-05-03T15:00:30Z"
+status: success
+operation_id: 6deabca5f770c059e1263c91401daf053b64c394653f6a01033cca54d9fcf818
+idempotency_key:
+  value: 47ec3f42bf21d03606d84bc1f6de5bbdb432a50a173efdfcc6831ba62699dd91
+  trace:
+    command: archive-plan
+    wave_id_or_spec_path: "-"
+    sorted_inputs:
+      - "docs/plan.md:aaaa1111aaaa1111aaaa1111aaaa1111aaaa1111aaaa1111aaaa1111aaaa1111"
+      - "docs/waves/wave1-test.md:cccc3333cccc3333cccc3333cccc3333cccc3333cccc3333cccc3333cccc3333"
+      - "docs/waves/wave2-test.md:dddd4444dddd4444dddd4444dddd4444dddd4444dddd4444dddd4444dddd4444"
+    input_content_digest: 3a394cdab75aaddf955b363537823f65415372c5593e2ba4a03ee75224939831
+notes: |
+  Manual adapter: human ran the WORKFLOW.md Manual column for /archive-plan
+  (edit docs/plan.md to remove rows whose linked docs/waves/wave<N>-<slug>.md
+  exist; hand-author the receipt; recompute idempotency_key via
+  recompute-wave2-keys.sh). Pair receipt is archive-plan-success.yml; both
+  share idempotency_key.value byte-for-byte per spec §4.2 / receipt-schema.md.
+  Cross-adapter equality is the v2 protocol's load-bearing property:
+  identical command + wave/spec + input contents across adapters → identical key.

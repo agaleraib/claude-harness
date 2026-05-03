@@ -1,3 +1,11 @@
+---
+wave_number: 8
+slug: universal-protocol-core
+spec_path: docs/specs/2026-04-30-universal-harness-protocol-v2.md
+merge_sha: 1d7cee0
+closed_at: 2026-05-01
+---
+
 # Wave 8 Summary — Universal Harness Protocol v2 Wave 0
 
 **Date:** 2026-05-01

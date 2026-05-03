@@ -1,0 +1,54 @@
+# Example receipt — manual adapter, /harness-status success.
+# Wave 10 (v2 Wave 2) fixture — manual adapter exercises the WORKFLOW.md
+# Manual column for /harness-status (enumerate registry by hand; per-repo
+# read-only `git --no-optional-locks status/worktree`; compose summary;
+# hand-author the §4.2 receipt YAML with stage_a_exempt: true).
+# Trace digests are FROZEN test fixtures.
+#
+# Note: Wave 1's cross-adapter equality property (manual key byte-equals
+# claude key) does NOT apply to /harness-status — the Stage A no-op
+# exemption causes each invocation's idempotency_key.value to differ by
+# timestamp. Two adapters running the same logical /harness-status scan
+# at the same instant could share a key; in practice they don't, and
+# the recompute-wave2-keys.sh script asserts the timestamp-salted
+# formula per receipt, not cross-adapter equality.
+
+receipt_id: harness-status-noop-2026-05-03T1500Z-manual
+command: harness-status
+adapter: manual
+inputs:
+  - skills/harness-status/lib/test-fixtures/example-projects.yml
+outputs:
+  - .harness-state/harness-status-2026-05-03T1500Z-manual.md
+  - .harness-state/harness-status-2026-05-03T1500Z-manual.json
+verification:
+  commands:
+    - "git --no-optional-locks status --porcelain"
+    - "git --no-optional-locks worktree list --porcelain"
+  results:
+    - cmd: "git --no-optional-locks status --porcelain"
+      exit_code: 0
+      summary: "3 repo(s) scanned read-only via manual loop; 0 missing on disk"
+    - cmd: "git --no-optional-locks worktree list --porcelain"
+      exit_code: 0
+      summary: "per-scanned-repo worktree enumeration composed into summary.md by hand"
+started_at: "2026-05-03T15:00:30Z"
+completed_at: "2026-05-03T15:01:30Z"
+status: success
+operation_id: 127ca8f970d741585f9f2dfe3d4819a07cf2bec34cbe61cd5183d97f3f214a81
+idempotency_key:
+  value: 4b0fce0eb25a3ee6543c6d3adeb6c78023470997dcff5791105288c237374c2d
+  trace:
+    command: harness-status
+    wave_id_or_spec_path: "-"
+    sorted_inputs:
+      - "skills/harness-status/lib/test-fixtures/example-projects.yml:bbbb2222bbbb2222bbbb2222bbbb2222bbbb2222bbbb2222bbbb2222bbbb2222"
+    input_content_digest: 0000aaaa0000aaaa0000aaaa0000aaaa0000aaaa0000aaaa0000aaaa0000aaaa
+    stage_a_exempt: true
+notes: |
+  Manual adapter: human ran the WORKFLOW.md Manual column for
+  /harness-status. Differs from harness-status-success.yml only in
+  `started_at` (and consequently `idempotency_key.value`, since the
+  timestamp-salted formula depends on it). The Stage A exemption design
+  intentionally produces different keys per invocation regardless of
+  adapter — see receipt-schema.md §"Stage A no-op exemption".

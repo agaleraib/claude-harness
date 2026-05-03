@@ -1,0 +1,36 @@
+# Example receipt — claude-code adapter, /archive-plan aborted-on-ambiguity.
+# Wave 10 (v2 Wave 2) fixture: missing-wave-file abort.
+# Trace digests are FROZEN test fixtures.
+
+receipt_id: archive-plan-noop-2026-05-03T1505Z-claude
+command: archive-plan
+adapter: claude-code
+inputs:
+  - docs/plan.md
+  - docs/waves/wave2-test.md
+outputs:
+  []
+verification:
+  commands: []
+  results:
+    - cmd: "test -f docs/waves/wave2-test.md"
+      exit_code: 1
+      summary: "missing wave archive file referenced by ## Recently Shipped row at line 36"
+started_at: "2026-05-03T15:05:00Z"
+status: aborted-on-ambiguity
+operation_id: 6deabca5f770c059e1263c91401daf053b64c394653f6a01033cca54d9fcf818
+idempotency_key:
+  value: 82128d19095a6de631710fa5dc61ecdd2e87c5021ae30e44099083ac6640d416
+  trace:
+    command: archive-plan
+    wave_id_or_spec_path: "-"
+    sorted_inputs:
+      - "docs/plan.md:aaaa1111aaaa1111aaaa1111aaaa1111aaaa1111aaaa1111aaaa1111aaaa1111"
+      - "docs/waves/wave2-test.md:eeee5555eeee5555eeee5555eeee5555eeee5555eeee5555eeee5555eeee5555"
+    input_content_digest: 3df7ba29f51252162b2be484389202095bc7b846c5e8c377376623fdb615b217
+notes: |
+  Aborted-on-ambiguity: wave file referenced by ## Recently Shipped row
+  is missing on disk. /archive-plan refused to mutate plan.md before any
+  removal — the docs/waves/ archive file is canonical for any wave whose
+  row is being removed; removing the row when its wave file is missing
+  would destroy the only durable trace. Stage-B-resumable per schema.

@@ -1,0 +1,49 @@
+# Example receipt — claude-code adapter, /harness-status success.
+# Wave 10 (v2 Wave 2) fixture — Stage A no-op exemption per §5.4.
+# Trace digests are FROZEN test fixtures.
+#
+# idempotency_key.value uses the timestamp-salted formula:
+#   value = sha256_hex(operation_id + "\n" + started_at + "\n" + sha256(<registry contents>))
+# `idempotency_key.trace.stage_a_exempt: true` documents the opt-out from
+# Stage A prior-success no-op reuse. Two consecutive runs with frozen
+# inputs and frozen git state will produce DIFFERENT idempotency_key.value
+# byte-for-byte (timestamp differs).
+
+receipt_id: harness-status-noop-2026-05-03T1500Z-claude
+command: harness-status
+adapter: claude-code
+inputs:
+  - skills/harness-status/lib/test-fixtures/example-projects.yml
+outputs:
+  - .harness-state/harness-status-2026-05-03T1500Z.md
+  - .harness-state/harness-status-2026-05-03T1500Z.json
+verification:
+  commands:
+    - "git --no-optional-locks status --porcelain"
+    - "git --no-optional-locks worktree list --porcelain"
+  results:
+    - cmd: "git --no-optional-locks status --porcelain"
+      exit_code: 0
+      summary: "3 repo(s) scanned read-only; 0 missing on disk"
+    - cmd: "git --no-optional-locks worktree list --porcelain"
+      exit_code: 0
+      summary: "per-scanned-repo worktree enumeration aggregated into summary.md"
+started_at: "2026-05-03T15:00:00Z"
+completed_at: "2026-05-03T15:00:00Z"
+status: success
+operation_id: 127ca8f970d741585f9f2dfe3d4819a07cf2bec34cbe61cd5183d97f3f214a81
+idempotency_key:
+  value: 404a270e59f1cce650f4065f7532b819934be3cfdf9ef16d0b21ede054ceae12
+  trace:
+    command: harness-status
+    wave_id_or_spec_path: "-"
+    sorted_inputs:
+      - "skills/harness-status/lib/test-fixtures/example-projects.yml:bbbb2222bbbb2222bbbb2222bbbb2222bbbb2222bbbb2222bbbb2222bbbb2222"
+    input_content_digest: 0000aaaa0000aaaa0000aaaa0000aaaa0000aaaa0000aaaa0000aaaa0000aaaa
+    stage_a_exempt: true
+notes: |
+  Stage A no-op exemption (per docs/protocol/receipt-schema.md): every
+  /harness-status receipt sets idempotency_key.trace.stage_a_exempt: true
+  and computes idempotency_key.value via the timestamp-salted formula
+  rather than the standard inner+outer chain. recompute-wave2-keys.sh
+  detects stage_a_exempt and runs the special-case recompute.

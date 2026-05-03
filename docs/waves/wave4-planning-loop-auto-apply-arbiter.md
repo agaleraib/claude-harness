@@ -1,3 +1,11 @@
+---
+wave_number: 4
+slug: planning-loop-auto-apply-arbiter
+spec_path: docs/specs/2026-04-27-planning-loop-auto-apply-arbiter.md
+merge_sha: 5b29e9a
+closed_at: 2026-04-27
+---
+
 # claude-harness — Wave 4 summary
 
 **Generated:** 2026-04-27 16:45

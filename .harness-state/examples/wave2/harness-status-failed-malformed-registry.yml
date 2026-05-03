@@ -1,0 +1,39 @@
+# Example receipt — claude-code adapter, /harness-status failed.
+# Wave 10 (v2 Wave 2) fixture — registry validation failed (e.g., duplicate id
+# or disallowed field). Terminal per schema; NOT Stage-B-resumable.
+# Trace digests are FROZEN test fixtures.
+
+receipt_id: harness-status-noop-2026-05-03T1502Z-claude
+command: harness-status
+adapter: claude-code
+inputs:
+  - skills/harness-status/lib/test-fixtures/example-projects.yml
+outputs:
+  []
+verification:
+  commands:
+    - "hs_validate_registry skills/harness-status/lib/test-fixtures/example-projects.yml"
+  results:
+    - cmd: "hs_validate_registry skills/harness-status/lib/test-fixtures/example-projects.yml"
+      exit_code: 1
+      summary: "registry validation failed: duplicate id 'dup' (or disallowed field 'quality_gate' per v2 §5)"
+started_at: "2026-05-03T15:02:00Z"
+status: failed
+operation_id: 127ca8f970d741585f9f2dfe3d4819a07cf2bec34cbe61cd5183d97f3f214a81
+idempotency_key:
+  value: b6659f969d2e8f04c40625b0928a2d28fab4c18ad98b8f360efaec39e12283cf
+  trace:
+    command: harness-status
+    wave_id_or_spec_path: "-"
+    sorted_inputs:
+      - "skills/harness-status/lib/test-fixtures/example-projects.yml:ffff6666ffff6666ffff6666ffff6666ffff6666ffff6666ffff6666ffff6666"
+    input_content_digest: 0000bbbb0000bbbb0000bbbb0000bbbb0000bbbb0000bbbb0000bbbb0000bbbb
+    stage_a_exempt: true
+notes: |
+  Failed: registry parse rejected one or more entries. Common causes:
+  duplicate `id` value, relative `path`, disallowed top-level field per
+  v2 §5 disallow list (e.g., quality_gate, plan_path, tracker_team).
+  No summary file was written; per schema, `failed` is terminal and
+  not Stage-B-resumable. stage_a_exempt: true is still set so the
+  receipt is internally consistent with the rest of the
+  /harness-status receipt family.

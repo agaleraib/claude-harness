@@ -85,6 +85,35 @@ operation_id = sha256_hex( "<command>\n<wave_id-or-spec_path-or-'-'>" )
 
 Paths/IDs only — NO input content. This makes the value stable across input mutations within a single logical operation; the content-derived `idempotency_key` provides the freshness check; together they enable both no-op detection and mutated-input recovery.
 
+## Stage A no-op exemption (read-only freshness-probe commands)
+
+**Schema extension introduced in Wave 10 (v2 Wave 2).** Read-only commands whose value lives in *live state outside the receipt's input file set* — git branch / dirty-tree / worktree state aggregated across registered repos — MAY opt out of Stage A prior-success no-op reuse by setting an explicit boolean field in `idempotency_key.trace`:
+
+```yaml
+idempotency_key:
+  value: <sha256_hex(...)>
+  trace:
+    command: <command>
+    wave_id_or_spec_path: "-"
+    sorted_inputs: [...]
+    input_content_digest: <sha256_hex(...)>
+    stage_a_exempt: true
+```
+
+When `stage_a_exempt: true` is present in a prior receipt's trace AND a later invocation of the same `operation_id` evaluates Stage A, adapters MUST skip the prior-success short-circuit and execute a fresh scan. Two consecutive runs with identical receipt-input file contents and identical git state across all registered repos will produce DIFFERENT `idempotency_key.value` byte-for-byte (the inverse of every other command's idempotency assertion). For exempt commands, `idempotency_key.value` is computed as a non-content-stable shape that includes the invocation timestamp:
+
+```text
+idempotency_key.value = sha256_hex( operation_id + "\n" + ISO-8601 timestamp + "\n" + sha256_hex(<resolved input file contents or 'MISSING'>) )
+```
+
+**Canonical example: `/harness-status`.** The command's value is freshness — the branch, dirty-tree state, and worktree list of every registered repo at the moment of invocation. That state lives outside the receipt's input file set (which contains the registry YAML + each registered repo's `docs/plan.md` + `.harness-profile`). If `/harness-status` reused a prior `success` receipt via Stage A whenever its input file set was unchanged, a branch switch / new uncommitted edit / worktree add in any scanned repo would silently no-op into a stale snapshot — defeating the command's purpose with no mechanically observable failure mode.
+
+The alternative — mechanizing per-repo `git rev-parse HEAD` / `git status --porcelain` / `git worktree list --porcelain` digests into the receipt's input set — was rejected because it makes `recompute-keys.sh` fragile: live git state at recompute time would have to match git state at original-run time exactly, which is unreproducible across machines, days, and CI runs. The exemption preserves the receipt schema and `idempotency_key` contract for mutating commands like `/archive-plan` while accurately marking `/harness-status` as the documented freshness-probe exception.
+
+**Currently the sole consumer.** Mutating commands (`/archive-plan`, `/run-wave`, `/close-wave`, `/commit`) continue to use Stage A unchanged — they MUST NOT set `stage_a_exempt`. Future read-only freshness-probe commands MAY adopt the same opt-out by following the canonical example.
+
+**`recompute-keys.sh` handling.** Wave 2 / Wave 10 fixtures' recomputer treats receipts with `stage_a_exempt: true` as a special case: instead of asserting `idempotency_key.value` recomputes to the original value, it asserts the trace's `stage_a_exempt: true` field is present AND that the `value` matches the timestamp-salted formula given the receipt's own `created_at` field.
+
 ## Validation
 
 Wave 0's exit gate validates this schema AND the canonical key algorithm: it ships at least one manual-generated example and one Claude-generated example for the same logical operation, and a fixture or verification step proves they compute the same `idempotency_key` byte-for-byte. The Codex-compatible release (§1.1) requires at least one Codex-generated example per command row, and Wave 5's exit gate proves the Codex receipt's key matches the manual/Claude key for the same logical operation.

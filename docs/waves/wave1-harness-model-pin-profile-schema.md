@@ -1,3 +1,11 @@
+---
+wave_number: 1
+slug: harness-model-pin-profile-schema
+spec_path: docs/specs/2026-04-19-harness-model-pin-and-effort-routing.md
+merge_sha: 4109de6
+closed_at: 2026-04-25
+---
+
 # Wave 1 Summary — claude-harness model pin + effort routing schema
 
 **Date:** 2026-04-25

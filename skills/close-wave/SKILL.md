@@ -10,7 +10,7 @@ Close a fully-shipped wave from an orchestrator's isolated worktree onto the cur
 
 **Assumed inputs (per /run-wave convention):**
 - One isolated agent worktree at `$REPO/.claude/worktrees/agent-<id>/` with N task commits + plan-tick commit.
-- One summary doc at `$REPO/.claude/worktrees/agent-<id>/docs/<YYYY-MM-DD>-<project>-wave<wave_number>-summary.md` written by the orchestrator per /run-wave Step 8.
+- One summary doc at `$REPO/.claude/worktrees/agent-<id>/docs/waves/wave<wave_number>-<slug>.md` written by the orchestrator per /run-wave Step 8 (docs/waves/ archive convention; legacy `docs/<date>-<project>-wave<N>-summary.md` path retired in Wave 10 — no dual-write, no symlink).
 
 ## Why this skill is idempotent
 
@@ -23,7 +23,7 @@ A wave can fall out of the happy path in three ways, each observed in real sessi
 **Contract:** re-invoking `/close-wave $wave_number` at any point is safe. Step 0 probes current state, the skill skips phases already done, and only stops when the final gate (Step 11) confirms the wave is fully closed and the receipt (Step 12) is written.
 
 ## Inputs
-- `$wave_number`: The wave to close. Used to find `docs/*-wave$wave_number-summary.md` and the `### Wave $wave_number` section in `docs/plan.md`.
+- `$wave_number`: The wave to close. Used to find `docs/waves/wave$wave_number-*.md` and the `### Wave $wave_number` section in `docs/plan.md`.
 
 ## Done-definition (checked by Step 11 — ALL must hold before the receipt is written)
 1. Every `- [ ]` under `### Wave $wave_number` in `docs/plan.md` is either `- [x]` (with commit hash) or explicitly `**Status: Deferred**`.
@@ -98,8 +98,8 @@ git log --oneline --grep="Wave $wave_number" --merges | head -5
 ```bash
 git -C "$REPO" worktree list
 ls "$REPO/.claude/worktrees/" 2>/dev/null
-ls "$REPO/.claude/worktrees/agent-*/docs/*-wave$wave_number-summary.md" 2>/dev/null
-ls "$REPO/docs/*-wave$wave_number-summary.md" 2>/dev/null
+ls "$REPO/.claude/worktrees/agent-*/docs/waves/wave$wave_number-*.md" 2>/dev/null
+ls "$REPO/docs/waves/wave$wave_number-*.md" 2>/dev/null
 ```
 
 Expected: exactly one `agent-<id>` worktree AND exactly one summary file for this wave.
@@ -233,7 +233,7 @@ The shared-helper terminal receipt sits next to the existing `wave$wave_number-c
 | `wave_id` | the wave being closed (numeric string) |
 | `spec_path` | the spec the wave was sourced from (set via `emit_receipt_set_spec_path`) |
 | `operation_id` | `sha256_hex("close-wave\n<wave_id>")` per §3.0 |
-| `inputs` | `[docs/plan.md, <spec_path>, docs/waves/<summary file path>]` (the summary doc lives at `docs/<date>-<project>-wave<N>-summary.md` per /run-wave Step 8 convention; pass that path as the third input) |
+| `inputs` | `[docs/plan.md, <spec_path>, docs/waves/wave<N>-<slug>.md]` (the summary doc lives at `docs/waves/wave<N>-<slug>.md` per Wave 10 archive convention; pass that path as the third input). The legacy `docs/<date>-<project>-wave<N>-summary.md` path is retired — pre-Wave-10 receipts pointed at the legacy path, which has been migrated under `docs/waves/` in Wave 10 Task 2. |
 | `outputs` | `[docs/plan.md, <summary path>]` (terminal write only) |
 | `merge_sha` | populated when `status=success` via `emit_receipt_set_merge_sha "$MERGE_HASH"` BEFORE `emit_receipt_terminal success`. The helper writes it as part of the single atomic terminal-write YAML; absent or null is invalid for `status=success`. |
 | `status` | `started` → `success` / `partial` / `failed` / `aborted-on-ambiguity` per §3.0a |
@@ -476,7 +476,7 @@ Write `$REPO/.harness-state/wave$wave_number-closed.md`:
 - **Post-merge fixes:** <FIX_COMMITS or "none">
 - **Pushed to origin:** <yes | deferred — reason>
 - **Deploy:** <confirmed HEAD=<hash> | no deploy hook configured | deferred>
-- **Summary doc:** `docs/<date>-<project>-wave$wave_number-summary.md`
+- **Summary doc:** `docs/waves/wave$wave_number-<slug>.md`
 - **Next wave opening:** <line from plan.md §Wave N+1>
 - **Open items carried forward:** <deferred TODOs / OQs verbatim>
 ```

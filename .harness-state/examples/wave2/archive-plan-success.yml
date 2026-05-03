@@ -1,0 +1,42 @@
+# Example receipt — claude-code adapter, /archive-plan success.
+# Wave 10 (v2 Wave 2) fixture — docs/specs/2026-05-02-plan-registry-maintenance.md §3.2.
+# Trace digests are FROZEN test fixtures, not live filesystem hashes.
+# Pair: manual-archive-plan-success.yml (cross-adapter equality property).
+
+receipt_id: archive-plan-noop-2026-05-03T1500Z-claude
+command: archive-plan
+adapter: claude-code
+inputs:
+  - docs/plan.md
+  - docs/waves/wave1-test.md
+  - docs/waves/wave2-test.md
+outputs:
+  - docs/plan.md
+verification:
+  commands:
+    - "git diff --stat docs/plan.md"
+  results:
+    - cmd: "git diff --stat docs/plan.md"
+      exit_code: 0
+      summary: "2 row(s) removed from ## Recently Shipped; 2 wave file(s) verified present"
+started_at: "2026-05-03T15:00:00Z"
+completed_at: "2026-05-03T15:00:01Z"
+status: success
+operation_id: 6deabca5f770c059e1263c91401daf053b64c394653f6a01033cca54d9fcf818
+idempotency_key:
+  value: 47ec3f42bf21d03606d84bc1f6de5bbdb432a50a173efdfcc6831ba62699dd91
+  trace:
+    command: archive-plan
+    wave_id_or_spec_path: "-"
+    sorted_inputs:
+      - "docs/plan.md:aaaa1111aaaa1111aaaa1111aaaa1111aaaa1111aaaa1111aaaa1111aaaa1111"
+      - "docs/waves/wave1-test.md:cccc3333cccc3333cccc3333cccc3333cccc3333cccc3333cccc3333cccc3333"
+      - "docs/waves/wave2-test.md:dddd4444dddd4444dddd4444dddd4444dddd4444dddd4444dddd4444dddd4444"
+    input_content_digest: 3a394cdab75aaddf955b363537823f65415372c5593e2ba4a03ee75224939831
+notes: |
+  Wave 10 fixture: claude-code adapter, /archive-plan success path.
+  Reserve-then-mutate (§3.0a): started receipt written before plan.md
+  modification, then atomically rewritten with terminal status=success
+  after the temp+rename plan.md write completed. Pair receipt is
+  manual-archive-plan-success.yml; both must compute identical
+  idempotency_key.value byte-for-byte.
