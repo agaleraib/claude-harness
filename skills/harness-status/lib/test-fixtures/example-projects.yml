@@ -1,0 +1,21 @@
+# Example registry fixture for /harness-status.
+# Path-only per v2 §5: id (kebab-case, unique), path (absolute), group (optional).
+# Disallowed fields: main_branch, plan_path, waves_path, quality_gate,
+# tracker_team, deploy_command, protected_paths, anything that belongs in a
+# per-repo .harness-profile. Parser refuses unknown top-level fields.
+#
+# Paths below are illustrative — `/tmp/example/<id>` so the fixture NEVER
+# points at a real on-disk repo. Test-driver invocations point fixture
+# code at this file via HARNESS_REGISTRY_PATH for reproducibility across
+# machines and CI runs (no dependency on per-user ~/.config/harness/).
+
+projects:
+  - id: claude-harness
+    path: /tmp/example/claude-harness
+    group: harness
+  - id: wordwideAI
+    path: /tmp/example/wordwideAI
+    group: product
+  - id: gobot
+    path: /tmp/example/gobot
+    group: infra
