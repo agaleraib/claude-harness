@@ -1,0 +1,48 @@
+# Example receipt — claude-code adapter, /archive-plan dry-run (partial).
+# Wave 10 (v2 Wave 2) fixture: --dry-run flag (or ARCHIVE_PLAN_DRY_RUN=1).
+# Trace digests are FROZEN test fixtures.
+#
+# Partial reflects "preview only — no side effects applied."
+# Distinct from a success no-op: the operation ran, computed the diff,
+# made the diff visible, but did NOT mutate plan.md. plan.md is byte-
+# identical to its pre-run state.
+
+receipt_id: archive-plan-noop-2026-05-03T1510Z-claude
+command: archive-plan
+adapter: claude-code
+inputs:
+  - docs/plan.md
+  - docs/waves/wave1-test.md
+  - docs/waves/wave2-test.md
+outputs:
+  []
+verification:
+  commands:
+    - "git diff docs/plan.md"
+  results:
+    - cmd: "git diff docs/plan.md"
+      exit_code: 0
+      summary: "dry-run preview only; no mutation"
+started_at: "2026-05-03T15:10:00Z"
+status: partial
+operation_id: 6deabca5f770c059e1263c91401daf053b64c394653f6a01033cca54d9fcf818
+idempotency_key:
+  value: 47ec3f42bf21d03606d84bc1f6de5bbdb432a50a173efdfcc6831ba62699dd91
+  trace:
+    command: archive-plan
+    wave_id_or_spec_path: "-"
+    sorted_inputs:
+      - "docs/plan.md:aaaa1111aaaa1111aaaa1111aaaa1111aaaa1111aaaa1111aaaa1111aaaa1111"
+      - "docs/waves/wave1-test.md:cccc3333cccc3333cccc3333cccc3333cccc3333cccc3333cccc3333cccc3333"
+      - "docs/waves/wave2-test.md:dddd4444dddd4444dddd4444dddd4444dddd4444dddd4444dddd4444dddd4444"
+    input_content_digest: 3a394cdab75aaddf955b363537823f65415372c5593e2ba4a03ee75224939831
+notes: |
+  Dry-run: --dry-run flag (or ARCHIVE_PLAN_DRY_RUN=1 env var) printed
+  the would-be unified diff to stdout and produced this `partial`-status
+  receipt. NO plan.md mutation occurred; sha256 of plan.md is byte-
+  identical pre/post. Inputs match the success-receipt pair, so
+  idempotency_key.value matches archive-plan-success.yml — both are the
+  same logical operation against the same content; the difference is
+  only side-effect application. (A subsequent `/archive-plan` without
+  --dry-run on the same plan.md will Stage-A-no-op against the
+  paired success receipt if one exists.)

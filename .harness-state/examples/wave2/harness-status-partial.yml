@@ -1,0 +1,44 @@
+# Example receipt — claude-code adapter, /harness-status partial.
+# Wave 10 (v2 Wave 2) fixture — partial reflects "some scanned repos
+# missing on disk; others reachable; receipt audit trail still complete."
+# Trace digests are FROZEN test fixtures.
+
+receipt_id: harness-status-noop-2026-05-03T1501Z-claude
+command: harness-status
+adapter: claude-code
+inputs:
+  - skills/harness-status/lib/test-fixtures/example-projects.yml
+outputs:
+  - .harness-state/harness-status-2026-05-03T1501Z.md
+  - .harness-state/harness-status-2026-05-03T1501Z.json
+verification:
+  commands:
+    - "git --no-optional-locks status --porcelain"
+    - "git --no-optional-locks worktree list --porcelain"
+  results:
+    - cmd: "git --no-optional-locks status --porcelain"
+      exit_code: 0
+      summary: "2 repo(s) scanned read-only; 1 missing on disk"
+    - cmd: "git --no-optional-locks worktree list --porcelain"
+      exit_code: 0
+      summary: "per-scanned-repo worktree enumeration aggregated into summary.md"
+started_at: "2026-05-03T15:01:00Z"
+completed_at: "2026-05-03T15:01:00Z"
+status: partial
+operation_id: 127ca8f970d741585f9f2dfe3d4819a07cf2bec34cbe61cd5183d97f3f214a81
+idempotency_key:
+  value: 270bd536e3f1fc2ee6e848fae021610f520f9fdcaa8005e5c0c9fedbe6236f72
+  trace:
+    command: harness-status
+    wave_id_or_spec_path: "-"
+    sorted_inputs:
+      - "skills/harness-status/lib/test-fixtures/example-projects.yml:bbbb2222bbbb2222bbbb2222bbbb2222bbbb2222bbbb2222bbbb2222bbbb2222"
+    input_content_digest: 0000aaaa0000aaaa0000aaaa0000aaaa0000aaaa0000aaaa0000aaaa0000aaaa
+    stage_a_exempt: true
+notes: |
+  Partial: at least one registered repo's path was missing on disk
+  (annotated in the summary.md as "(repo path missing on disk: <path>)").
+  The scan continued through the other registered repos; the receipt's
+  status is `partial` reflecting the mixed reachability state.
+  stage_a_exempt: true still applies — the receipt remains opt-out from
+  Stage A prior-success no-op reuse.

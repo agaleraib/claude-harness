@@ -427,9 +427,13 @@ done
 {
   printf '# Harness status — %s\n\n' "$TS"
   printf 'Registry: %s (%s projects)\n\n' "$REGISTRY_PATH" "$PROJ_COUNT"
-  for blk in "${MD_BLOCKS[@]}"; do
-    printf '%s\n\n' "$blk"
-  done
+  if [[ "${#MD_BLOCKS[@]:-0}" -gt 0 ]]; then
+    for blk in "${MD_BLOCKS[@]}"; do
+      printf '%s\n\n' "$blk"
+    done
+  else
+    printf 'no projects registered\n\n'
+  fi
   printf -- '---\nTotal: %s registered, %s reachable, %s missing\n' \
     "$PROJ_COUNT" "$REACHABLE" "$MISSING"
 } > "$SUMMARY_MD"
@@ -437,6 +441,7 @@ done
 {
   printf '['
   first=1
+  if [[ "${#JSON_ENTRIES[@]:-0}" -gt 0 ]]; then
   for j in "${JSON_ENTRIES[@]}"; do
     if [[ "$first" -eq 1 ]]; then
       first=0
@@ -445,6 +450,7 @@ done
     fi
     printf '%s' "$j"
   done
+  fi
   printf ']\n'
 } > "$SUMMARY_JSON"
 

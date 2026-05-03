@@ -387,11 +387,33 @@ else
   echo "WARN: $MECH_BIN missing or not executable; mechanical block skipped"
 fi
 
+# Wave 10 (v2 Wave 2) — /archive-plan + /harness-status fixtures.
+# Driven by skills/planning-loop/lib/test-fixtures/wave2-fixtures.sh, which
+# isolates each fixture under mktemp and exercises the real archive.sh +
+# scan.sh helpers. Pass/fail count is parsed from the trailing summary line
+# and folded into the suite total.
+echo
+echo "== Wave 2 fixtures (/archive-plan + /harness-status — Wave 10) =="
+W2_BIN="$SCRIPT_DIR/wave2-fixtures.sh"
+W2_RC=0
+if [[ -x "$W2_BIN" ]]; then
+  W2_OUT=$(bash "$W2_BIN") || W2_RC=$?
+  printf '%s\n' "$W2_OUT"
+  W2_PASS=$(printf '%s\n' "$W2_OUT" | tail -1 | sed -nE 's/.*pass=([0-9]+) fail=([0-9]+)/\1/p')
+  W2_FAIL=$(printf '%s\n' "$W2_OUT" | tail -1 | sed -nE 's/.*pass=([0-9]+) fail=([0-9]+)/\2/p')
+  [[ -z "${W2_PASS:-}" ]] && W2_PASS=0
+  [[ -z "${W2_FAIL:-}" ]] && W2_FAIL=0
+  PASS=$((PASS + W2_PASS))
+  FAIL=$((FAIL + W2_FAIL))
+else
+  echo "WARN: $W2_BIN missing or not executable; Wave 2 block skipped"
+fi
+
 echo
 echo "----------------------------------------"
 echo "Combined total: $((PASS + FAIL))   Pass: $PASS   Fail: $FAIL"
 
-if [[ $FAIL -eq 0 && $MECH_RC -eq 0 ]]; then
+if [[ $FAIL -eq 0 && $MECH_RC -eq 0 && $W2_RC -eq 0 ]]; then
   exit 0
 else
   exit 1
