@@ -1,3 +1,11 @@
+---
+wave_number: 5
+slug: planning-loop-trim-regressions
+spec_path: docs/specs/2026-04-28-planning-loop-trim-remediation.md
+merge_sha: ec3f49b
+closed_at: 2026-04-28
+---
+
 # Wave 5 — planning-loop trim remediation summary
 
 **Date:** 2026-04-28

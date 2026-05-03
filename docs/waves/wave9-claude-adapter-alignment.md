@@ -1,3 +1,11 @@
+---
+wave_number: 9
+slug: claude-adapter-alignment
+spec_path: docs/specs/2026-05-01-claude-adapter-alignment.md
+merge_sha: a5c844b
+closed_at: 2026-05-01
+---
+
 # Wave 9 — Claude Code adapter alignment (v2 Wave 1) — orchestrator summary
 
 **Wave:** 9 (claude-harness — v2 protocol Wave 1)

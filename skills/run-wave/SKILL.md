@@ -157,9 +157,9 @@ Write to `/tmp/wave-<N>-<YYYYMMDD-HHMMSS>.md` with this shape:
 
 After all tasks commit and the Exit Gate runs, you MUST write a summary file to:
 
-**`docs/<YYYY-MM-DD>-<project>-wave<N>-summary.md`** (inside the worktree)
+**`docs/waves/wave<N>-<slug>.md`** (inside the worktree; per Wave 10 archive convention — legacy `docs/<YYYY-MM-DD>-<project>-wave<N>-summary.md` path retired)
 
-Where `<project>` is the repo basename (e.g. "gobot"). Example: `docs/2026-04-18-gobot-wave2-summary.md`.
+Where `<slug>` is the kebab-case spec-title slug (`[a-z0-9-]+`, ≤40 chars). Example: `docs/waves/wave10-plan-registry-maintenance.md`. Each summary file MUST start with a YAML frontmatter block containing `wave_number`, `slug`, `spec_path`, `merge_sha` (filled in by `/close-wave`), and `closed_at` (filled in by `/close-wave`).
 
 The summary file MUST contain these sections (downstream close/merge tooling parses them):
 
@@ -302,10 +302,12 @@ whether to merge.
 Human-only TODOs listed at the end of the synthetic spec are NOT tasks for
 you — surface them in the final summary as open items for the human.
 
-MANDATORY file output: write the summary to docs/<YYYY-MM-DD>-<project>-wave<N>-summary.md
-inside the worktree, with the sections specified in the synthetic spec's "Final
-Summary Requirements" block. Verbal-only reports break the handoff to downstream
-merge/close tooling.
+MANDATORY file output: write the summary to docs/waves/wave<N>-<slug>.md
+inside the worktree (Wave 10 archive convention — legacy `docs/<YYYY-MM-DD>-<project>-wave<N>-summary.md`
+path retired), with the sections specified in the synthetic spec's "Final
+Summary Requirements" block. The file MUST start with a YAML frontmatter block
+(`wave_number`, `slug`, `spec_path`, `merge_sha`, `closed_at`). Verbal-only
+reports break the handoff to downstream merge/close tooling.
 
 Cross-repo awareness: if any task touches a file that is a symlink reaching
 outside this repo (e.g. src/lib/*-constants.ts symlinked to a sibling-service
@@ -329,7 +331,7 @@ When the orchestrator returns, pass the result through to the user with a minima
 >
 > **Next:**
 > - Inspect: `cd <worktree-path>` and review the diff
-> - Verify the summary file exists at `<worktree>/docs/<YYYY-MM-DD>-<project>-wave<N>-summary.md` — if missing, ask the orchestrator to write it before closing (downstream tooling expects it)
+> - Verify the summary file exists at `<worktree>/docs/waves/wave<N>-<slug>.md` (Wave 10 archive convention) — if missing, ask the orchestrator to write it before closing (downstream tooling expects it)
 > - Close/merge: run the project's wave-closure skill if present (e.g. gobot's `/close-wave <N>`), or fall back to:
 >   ```
 >   cd <main-checkout>
@@ -364,7 +366,7 @@ If the orchestrator made no commits (worktree auto-cleaned), surface the reason:
 
 8. **Sub-bullets are authoritative scope, not headers.** When a wave item's header names a narrower scope than the sub-bullets enumerate (e.g. header "Phase 1" but sub-bullets list Phases 1+2+3), the sub-bullets win. The header is a short label; the sub-bullets are the contract. Surface the divergence in Step 9 confirmation so the user can eyeball it, but do not add a "header wins" override. See the memory file `feedback_plan_md_sub_bullets_win.md` in the harness memory store for the convention's provenance.
 
-9. **Mandate summary file output.** The orchestrator MUST write a summary to `docs/<YYYY-MM-DD>-<project>-wave<N>-summary.md` in the worktree — not just return verbally. Downstream close/merge tooling (e.g. gobot's `/close-wave`) expects this file with specific sections. Verbal-only breaks the handoff.
+9. **Mandate summary file output.** The orchestrator MUST write a summary to `docs/waves/wave<N>-<slug>.md` in the worktree (Wave 10 archive convention — legacy `docs/<YYYY-MM-DD>-<project>-wave<N>-summary.md` path retired) — not just return verbally. Downstream close/merge tooling (e.g. `/close-wave`) expects this file with the YAML frontmatter block + named sections. Verbal-only breaks the handoff.
 
 10. **Cross-repo symlink awareness.** If the repo has source files that are symlinks into sibling-project repos (`src/lib/*-constants.ts` → `/services/<sibling>/...` is a common pattern), the orchestrator must verify symlink targets are clean in their owning repo before marking dependent tasks "shipped". Standard in-repo checks don't catch this. Flag in the summary's §Deviations section if found.
 

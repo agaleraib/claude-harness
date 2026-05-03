@@ -1,3 +1,11 @@
+---
+wave_number: 2
+slug: orchestrator-effort-routing
+spec_path: docs/specs/2026-04-19-harness-model-pin-and-effort-routing.md
+merge_sha: 4753502
+closed_at: 2026-04-25
+---
+
 # Wave 2 — claude-harness — orchestrator effort routing + logging contract
 
 **Wave:** 2 (synthetic spec `/tmp/wave-2-20260425-142132.md`)

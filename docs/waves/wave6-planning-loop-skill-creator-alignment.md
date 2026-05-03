@@ -1,3 +1,11 @@
+---
+wave_number: 6
+slug: planning-loop-skill-creator-alignment
+spec_path: docs/specs/2026-04-28-planning-loop-trim-remediation.md
+merge_sha: b051ee8
+closed_at: 2026-04-28
+---
+
 # Wave 6 — claude-harness summary (2026-04-28)
 
 **Worktree:** `/Users/klorian/workspace/claude-harness/.claude/worktrees/agent-ab9d48bb177372154`
