@@ -208,6 +208,13 @@ If "show me the spec first", print the file and re-ask.
 
 Per `docs/specs/2026-05-01-claude-adapter-alignment.md` §3.1, `/run-wave` MUST emit a §4.2-conforming receipt under `.harness-state/run-wave-<wave_id>-<timestamp>.yml` using the shared helper at `skills/_shared/lib/emit-receipt.sh`. The lifecycle is **reserve-then-mutate**: write a `started` receipt BEFORE any worktree creation or branch checkout.
 
+> **CRITICAL: 3-bash-session lifecycle when invoked from Claude Code.** The helper's full lifecycle (init + preflight + started → orchestrator dispatch → terminal) naturally spans **three separate Bash tool invocations**: started-write happens in session 1, the orchestrator runs entirely outside any bash session via the Agent tool, and terminal-write happens in session 3. The helper installs an EXIT trap during `emit_receipt_started` that defaults to writing `aborted-on-ambiguity` if the bash session exits without a terminal-write — which would happen at the end of session 1 every time, defeating the audit chain. Two requirements:
+>
+> 1. **Always run `trap - EXIT` in session 1 immediately after `emit_receipt_started` returns.** Without it, session 1's exit rewrites the started receipt to aborted-on-ambiguity before the orchestrator even runs.
+> 2. **Persist all `EMIT_RECEIPT__*` helper variables to a sidecar file** (per `feedback_bash_subshell_var_loss_pattern` family). Bash variables don't survive across Bash tool calls. Session 3 re-sources the helper, then overrides `EMIT_RECEIPT__*` from the sidecar so `emit_receipt_terminal` rewrites the SAME on-disk path that session 1 reserved (preserving `started_at`, `operation_id`, `idempotency_key`, `retry_of`).
+>
+> See `feedback_run_wave_emit_receipt_session_boundary` (memory) for the validated template. Single-bash-session use of the helper (e.g. `/commit` noop emission) does NOT need this pattern; it only applies when the lifecycle spans an Agent dispatch or any other external trigger.
+
 **Source the helper:**
 
 ```bash
@@ -215,33 +222,64 @@ HARNESS_REPO="$(git rev-parse --show-toplevel)"
 source "$HARNESS_REPO/skills/_shared/lib/emit-receipt.sh"
 ```
 
-**Initialize and preflight** (before Step 10's dispatch):
+**Bash session 1 — initialize, preflight, reserve started, write sidecar** (before Step 10's dispatch). Wrap in `bash <<'EOF' ... EOF` because the helper requires bash (it has a top-of-file BASH_VERSION guard per `feedback_emit_receipt_zsh_incompat`):
 
 ```bash
+bash <<'EOF'
+set -e
+HARNESS_REPO="$(git rev-parse --show-toplevel)"
+source "$HARNESS_REPO/skills/_shared/lib/emit-receipt.sh"
 emit_receipt_init run-wave "$WAVE_NUMBER" docs/plan.md "$SPEC_PATH" $SUB_SPEC_PATHS
 emit_receipt_set_spec_path "$SPEC_PATH"
-PREFLIGHT="$(emit_receipt_preflight)"
-case "$PREFLIGHT" in
+case "$(emit_receipt_preflight)" in
   PROCEED)
-    emit_receipt_started
+    emit_receipt_started || exit 1
+    trap - EXIT  # CRITICAL: disable trap so session-1 exit doesn't rewrite to aborted
+    SIDECAR="$HARNESS_REPO/.harness-state/.run-wave-${WAVE_NUMBER}.dispatch-state"
+    {
+      printf 'RECEIPT_PATH=%s\n'         "$EMIT_RECEIPT__RECEIPT_PATH"
+      printf 'RECEIPT_ID=%s\n'           "$EMIT_RECEIPT__RECEIPT_ID"
+      printf 'OPERATION_ID=%s\n'         "$EMIT_RECEIPT__OPERATION_ID"
+      printf 'IDEMPOTENCY_KEY=%s\n'      "$EMIT_RECEIPT__IDEMPOTENCY_KEY"
+      printf 'INPUT_CONTENT_DIGEST=%s\n' "$EMIT_RECEIPT__INPUT_CONTENT_DIGEST"
+      printf 'STARTED_AT=%s\n'           "$EMIT_RECEIPT__STARTED_AT"
+      printf 'RETRY_OF=%s\n'             "$EMIT_RECEIPT__RETRY_OF"
+    } > "$SIDECAR"
     ;;
   NOOP*)
-    # Stage A success no-op — identical inputs already shipped this wave.
-    echo "$PREFLIGHT" >&2
-    echo "Wave $WAVE_NUMBER already dispatched with identical inputs; no-op via existing receipt." >&2
+    echo "Wave $WAVE_NUMBER already dispatched with identical inputs; Stage A no-op." >&2
     exit 0
     ;;
   *)
-    # Preflight aborted (.harness-state/ unwritable).
-    exit 2
+    exit 2  # preflight aborted (.harness-state/ unwritable, etc.)
     ;;
 esac
+EOF
 ```
 
-**At terminal exit** (after dispatch returns), set the cause and write the terminal receipt:
+**Bash session 3 — terminal-write** (after Step 10's Agent.dispatch returns). Re-source helper, load sidecar, override `EMIT_RECEIPT__*`, write terminal:
 
 ```bash
-# After orchestrator dispatch returns, populate verification.results and outputs.
+bash <<'EOF'
+set -e
+HARNESS_REPO="$(git rev-parse --show-toplevel)"
+SIDECAR="$HARNESS_REPO/.harness-state/.run-wave-${WAVE_NUMBER}.dispatch-state"
+[ -f "$SIDECAR" ] || { echo "✗ sidecar missing; cannot write terminal" >&2; exit 1; }
+source "$SIDECAR"
+source "$HARNESS_REPO/skills/_shared/lib/emit-receipt.sh"
+emit_receipt_init run-wave "$WAVE_NUMBER" docs/plan.md "$SPEC_PATH" $SUB_SPEC_PATHS
+emit_receipt_set_spec_path "$SPEC_PATH"
+# Override helper state from sidecar so terminal-write rewrites the SAME on-disk
+# path the session-1 started-write reserved:
+EMIT_RECEIPT__RECEIPT_PATH="$RECEIPT_PATH"
+EMIT_RECEIPT__RECEIPT_ID="$RECEIPT_ID"
+EMIT_RECEIPT__OPERATION_ID="$OPERATION_ID"
+EMIT_RECEIPT__IDEMPOTENCY_KEY="$IDEMPOTENCY_KEY"
+EMIT_RECEIPT__INPUT_CONTENT_DIGEST="$INPUT_CONTENT_DIGEST"
+EMIT_RECEIPT__STARTED_AT="$STARTED_AT"
+EMIT_RECEIPT__RETRY_OF="$RETRY_OF"
+trap - EXIT
+
 VERIFICATION_YAML="    - cmd: \"orchestrator dispatch\"
       exit_code: $ORCH_RC
       summary: \"$ORCH_SUMMARY\""
@@ -251,6 +289,8 @@ case "$ORCH_RC" in
   *) EMIT_RECEIPT__TRAP_CAUSE=failed
      emit_receipt_terminal failed "$VERIFICATION_YAML" ;;
 esac
+rm -f "$SIDECAR"
+EOF
 ```
 
 **Receipt fields per §3.1:**

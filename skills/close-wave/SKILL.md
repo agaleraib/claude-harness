@@ -26,8 +26,10 @@ A wave can fall out of the happy path in three ways, each observed in real sessi
 - `$wave_number`: The wave to close. Used to find `docs/waves/wave$wave_number-*.md` and the `### Wave $wave_number` section in `docs/plan.md`.
 
 ## Done-definition (checked by Step 11 — ALL must hold before the receipt is written)
-1. Every `- [ ]` under `### Wave $wave_number` in `docs/plan.md` is either `- [x]` (with commit hash) or explicitly `**Status: Deferred**`.
-2. A `**Wave $wave_number exit gate (PASS YYYY-MM-DD, merge \`<hash>\`):**` annotation exists in plan.md for this wave.
+1. Every `- [ ]` under `### Wave $wave_number` (legacy format) OR every task in the linked spec under the new four-section format is either `- [x]` (with commit hash) or explicitly `**Status: Deferred**`.
+2. **Closure annotation present** in one of two shapes:
+   - **New format (4-section plan.md):** a `- [x] Wave $wave_number - <title> -> docs/waves/wave$wave_number-<slug>.md (<merge SHA>)` line exists in `## Recently Shipped` AND `docs/waves/wave$wave_number-<slug>.md` frontmatter contains `merge_sha: <hash>` + `closed_at: <ISO date>`.
+   - **Legacy format (accreting log):** a `**Wave $wave_number exit gate (PASS YYYY-MM-DD, merge \`<hash>\`):**` annotation exists in plan.md.
 3. `git log origin/<main>..<main>` is empty (pushed) OR Step 9 captured an explicit defer reason.
 4. `$REPO/.harness-state/wave$wave_number-closed.md` receipt exists with the merge hash + any post-merge fix hashes.
 5. No `.claude/worktrees/agent-*` directory for this wave remains.
@@ -62,8 +64,20 @@ cd "$REPO"
 RECEIPT="$REPO/.harness-state/wave$wave_number-closed.md"
 test -f "$RECEIPT" && echo "RECEIPT_EXISTS" || echo "NO_RECEIPT"
 
-# 0b. Exit-gate PASS annotation present?
-rg "\*\*Wave $wave_number exit gate \(PASS" docs/plan.md 2>/dev/null | head -1
+# 0b. Closure annotation present? (new format primary; legacy fallback)
+#     New format: one-line `- [x] Wave N - … -> docs/waves/waveN-…md (<merge SHA>)` in ## Recently Shipped
+#                 + frontmatter `merge_sha: <hash>` in docs/waves/wave$wave_number-*.md
+#     Legacy: `**Wave N exit gate (PASS …):**` annotation in plan.md
+new_one_liner=$(grep -F -- "- [x] Wave $wave_number " docs/plan.md 2>/dev/null | grep -F -- "-> docs/waves/wave$wave_number-")
+new_frontmatter=$(grep -F -- "merge_sha:" docs/waves/wave$wave_number-*.md 2>/dev/null | grep -v -F -- "<pending>")
+legacy_annotation=$(grep -F -- "**Wave $wave_number exit gate (PASS" docs/plan.md 2>/dev/null | head -1)
+if [ -n "$new_one_liner" ] && [ -n "$new_frontmatter" ]; then
+  echo "CLOSED_NEW_FORMAT: $new_one_liner"
+elif [ -n "$legacy_annotation" ]; then
+  echo "CLOSED_LEGACY_FORMAT: $legacy_annotation"
+else
+  echo "NO_CLOSURE_ANNOTATION"
+fi
 
 # 0c. Any active tasks still unticked under this wave?
 awk "/^### Wave $wave_number/,/^### Wave /" docs/plan.md \
@@ -178,6 +192,13 @@ If "Show diff first", run `git diff $MAIN_BRANCH..HEAD --stat` + targeted `git d
 
 Per `docs/specs/2026-05-01-claude-adapter-alignment.md` §3.2, `/close-wave` MUST emit a §4.2-conforming receipt under `.harness-state/close-wave-<wave_id>-<timestamp>.yml` using the shared helper at `skills/_shared/lib/emit-receipt.sh`. The lifecycle is **reserve-then-mutate**: write a `started` receipt BEFORE `git merge --no-ff`.
 
+> **CRITICAL: 3-bash-session lifecycle when invoked from Claude Code.** The helper's full lifecycle (init + preflight + started → user-confirmed merge + cleanup + reconcile + push → terminal) naturally spans **multiple Bash tool invocations**: started-write happens in session 1, the merge/cleanup/reconcile/push steps run across sessions 2..N (interleaved with `AskUserQuestion` confirmations), and terminal-write happens in the final session. The helper installs an EXIT trap during `emit_receipt_started` that defaults to writing `aborted-on-ambiguity` if any bash session exits without a terminal-write — which would happen at the end of session 1 every time, defeating the audit chain. Two requirements:
+>
+> 1. **Always run `trap - EXIT` in session 1 immediately after `emit_receipt_started` returns.** Without it, session 1's exit rewrites the started receipt to aborted-on-ambiguity before the merge even runs.
+> 2. **Persist all `EMIT_RECEIPT__*` helper variables to a sidecar file** (per `feedback_bash_subshell_var_loss_pattern` family). Bash variables don't survive across Bash tool calls. The terminal-write session re-sources the helper, then overrides `EMIT_RECEIPT__*` from the sidecar so `emit_receipt_terminal` rewrites the SAME on-disk path that session 1 reserved (preserving `started_at`, `operation_id`, `idempotency_key`, `retry_of`).
+>
+> See `feedback_run_wave_emit_receipt_session_boundary` (memory) for the validated template (same family for `/run-wave`; symmetric here).
+
 **Source the helper:**
 
 ```bash
@@ -185,34 +206,67 @@ HARNESS_REPO="$(git rev-parse --show-toplevel)"
 source "$HARNESS_REPO/skills/_shared/lib/emit-receipt.sh"
 ```
 
-**Initialize and preflight** (before Step 4's merge):
+**Bash session 1 — initialize, preflight, reserve started, write sidecar** (before Step 4's merge). Wrap in `bash <<'EOF' ... EOF` because the helper requires bash:
 
 ```bash
+bash <<'EOF'
+set -e
+HARNESS_REPO="$(git rev-parse --show-toplevel)"
+source "$HARNESS_REPO/skills/_shared/lib/emit-receipt.sh"
 emit_receipt_init close-wave "$wave_number" docs/plan.md "$SPEC_PATH" "$SUMMARY_PATH"
 emit_receipt_set_spec_path "$SPEC_PATH"
-PREFLIGHT="$(emit_receipt_preflight)"
-case "$PREFLIGHT" in
+case "$(emit_receipt_preflight)" in
   PROCEED)
-    emit_receipt_started
+    emit_receipt_started || exit 1
+    trap - EXIT  # CRITICAL: disable trap so session-1 exit doesn't rewrite to aborted
+    SIDECAR="$HARNESS_REPO/.harness-state/.close-wave-${wave_number}.dispatch-state"
+    {
+      printf 'RECEIPT_PATH=%s\n'         "$EMIT_RECEIPT__RECEIPT_PATH"
+      printf 'RECEIPT_ID=%s\n'           "$EMIT_RECEIPT__RECEIPT_ID"
+      printf 'OPERATION_ID=%s\n'         "$EMIT_RECEIPT__OPERATION_ID"
+      printf 'IDEMPOTENCY_KEY=%s\n'      "$EMIT_RECEIPT__IDEMPOTENCY_KEY"
+      printf 'INPUT_CONTENT_DIGEST=%s\n' "$EMIT_RECEIPT__INPUT_CONTENT_DIGEST"
+      printf 'STARTED_AT=%s\n'           "$EMIT_RECEIPT__STARTED_AT"
+      printf 'RETRY_OF=%s\n'             "$EMIT_RECEIPT__RETRY_OF"
+    } > "$SIDECAR"
     ;;
   NOOP*)
-    # Stage A success no-op — wave already closed with identical inputs.
-    echo "$PREFLIGHT" >&2
-    echo "Wave $wave_number already closed with identical inputs; no-op via existing receipt." >&2
+    echo "Wave $wave_number already closed with identical inputs; Stage A no-op." >&2
     exit 0
     ;;
   *)
-    exit 2   # preflight abort
+    exit 2  # preflight aborted
     ;;
 esac
+EOF
 ```
 
-**At terminal exit** (after Step 11's blocking gate passes), write `success` with `merge_sha`:
+**Final bash session — terminal-write** (after Step 11's blocking gate passes). Re-source helper, load sidecar, override `EMIT_RECEIPT__*`, set `merge_sha`, write `success`:
 
 ```bash
-VERIFICATION_YAML="    - cmd: \"git log --oneline -1 docs/plan.md | grep -F 'Wave $wave_number'\"
+bash <<'EOF'
+set -e
+HARNESS_REPO="$(git rev-parse --show-toplevel)"
+SIDECAR="$HARNESS_REPO/.harness-state/.close-wave-${wave_number}.dispatch-state"
+[ -f "$SIDECAR" ] || { echo "✗ sidecar missing; cannot write terminal" >&2; exit 1; }
+source "$SIDECAR"
+source "$HARNESS_REPO/skills/_shared/lib/emit-receipt.sh"
+emit_receipt_init close-wave "$wave_number" docs/plan.md "$SPEC_PATH" "$SUMMARY_PATH"
+emit_receipt_set_spec_path "$SPEC_PATH"
+# Override helper state from sidecar so terminal-write rewrites the SAME on-disk
+# path the session-1 started-write reserved:
+EMIT_RECEIPT__RECEIPT_PATH="$RECEIPT_PATH"
+EMIT_RECEIPT__RECEIPT_ID="$RECEIPT_ID"
+EMIT_RECEIPT__OPERATION_ID="$OPERATION_ID"
+EMIT_RECEIPT__IDEMPOTENCY_KEY="$IDEMPOTENCY_KEY"
+EMIT_RECEIPT__INPUT_CONTENT_DIGEST="$INPUT_CONTENT_DIGEST"
+EMIT_RECEIPT__STARTED_AT="$STARTED_AT"
+EMIT_RECEIPT__RETRY_OF="$RETRY_OF"
+trap - EXIT
+
+VERIFICATION_YAML="    - cmd: \"git log --oneline -1 docs/plan.md\"
       exit_code: 0
-      summary: \"plan.md tick visible in history\""
+      summary: \"plan.md tick visible in history (reconcile commit \$RECONCILE_HASH)\""
 
 # Set merge_sha BEFORE emit_receipt_terminal so it lands in the SAME atomic
 # write as the rest of the YAML (per spec §3.0a step 3 — appending later
@@ -221,6 +275,8 @@ emit_receipt_set_merge_sha "$MERGE_HASH"
 
 # Step 12 receipt complements this — both files exist after a successful close.
 emit_receipt_terminal success "$VERIFICATION_YAML" docs/plan.md "$SUMMARY_PATH"
+rm -f "$SIDECAR"
+EOF
 ```
 
 The shared-helper terminal receipt sits next to the existing `wave$wave_number-closed.md` Step 12 receipt; they capture different shapes of audit information (the helper is §4.2-conformant; Step 12 is human-readable).
@@ -340,36 +396,78 @@ If the wave touched infrastructure, cron, MCP, integrations, data flows, archite
 
 **Success criteria:** facts upserted to the configured graph KB; OR `kb.skill` unset and step skipped; OR user explicitly deferred with upsert list captured for Step 10.
 
-## Step 8: Reconcile plan.md ticks, exit-gate annotation, OQs, Gated Milestones
+## Step 8: Reconcile plan.md ticks, closure annotation, OQs, Gated Milestones
 
-Every task under `### Wave $wave_number` in `docs/plan.md` must end this step either `- [x]` with commit hash(es) OR explicitly `**Status: Deferred**`. Mirror in each vertical spec's §Remediation Plan checklist.
+Every task under this wave must end this step either `- [x]` with commit hash(es) OR explicitly `**Status: Deferred**`. Mirror in each vertical spec's §Remediation Plan checklist.
 
-**Checkbox annotation pattern:**
+**Closure annotation — TWO shapes** depending on plan.md format:
+
+### New format (4-section active board — Wave 10+)
+
+Plan.md has `## Now` / `## Next` / `## Blocked` / `## Recently Shipped` sections. The Wave row currently sits in `## Now` as an H3-block:
+
+```markdown
+### Wave $wave_number - <title>
+- spec: docs/specs/...md
+- status: ready | running | review
+- exit gate: <one line>
 ```
+
+Reconcile = **move** the H3-block from `## Now` to `## Recently Shipped`, collapsing to one line:
+
+```markdown
+- [x] Wave $wave_number - <title> -> docs/waves/wave$wave_number-<slug>.md (<merge SHA>)
+```
+
+AND fill in the `docs/waves/wave$wave_number-<slug>.md` frontmatter `merge_sha: $MERGE_HASH` and `closed_at: YYYY-MM-DD` (the orchestrator wrote `<pending>` placeholders at /run-wave time per closure-asymmetry convention; close-wave fills them in).
+
+Detail (deviations, exit-gate proofs, OQ resolutions) lives in the `docs/waves/<file>.md` body — close-wave does NOT add per-row prose to plan.md under the new format.
+
+### Legacy format (accreting log — pre-Wave 10)
+
+Plan.md has `### Wave N` blocks with `- [ ]` task checkboxes. Reconcile = tick each task with commit hash(es) using:
+
+```markdown
 - [x] **<Task name>** (...) — **Size: X** — commits `abc1234` (1.1 <one-line what>), `def5678` (1.2 <one-line what>)[, `ghi9012` (post-merge fix — <one-line>)]. Merge `$MERGE_HASH`.
 ```
+
 If Step 6 captured `FIX_COMMITS`, append them with a `post-merge fix` tag on the appropriate task.
 
-**Exit-gate PASS annotation** — append to the `**Wave $wave_number exit gate:**` line:
+**Legacy exit-gate PASS annotation** — append to the `**Wave $wave_number exit gate:**` line:
 ```
 **Wave $wave_number exit gate (PASS YYYY-MM-DD, merge `$MERGE_HASH`):** <original checks with ✓ / DEFERRED tags inline> [+ spec-deviation notes if any]
 ```
 
+### Common to both formats
+
 From §Open Questions answered/deferred in the summary doc:
 - **Answered OQ** → resolve in the vertical spec's OQ table with decision + commit ref.
-- **Gated Milestone prerequisite answered** → update plan.md §Gated Milestones.
+- **Gated Milestone prerequisite answered** → update plan.md §Gated Milestones (legacy format only — new format has no Gated Milestones section).
 - **Deferred OQ** → leave open; add one-line pointer to the wave summary.
 
-Commit as `docs(plan): close wave $wave_number + reconcile OQs` (stage edited files explicitly). Capture `RECONCILE_HASH`.
+Commit as `docs(plan): close wave $wave_number + reconcile OQs` (stage edited files explicitly). Under the new format, also stage `docs/waves/wave$wave_number-<slug>.md` for the frontmatter fill-in. Capture `RECONCILE_HASH`.
 
-**In-step machine check — BLOCKING** (this is the check that was missing when Wave 3c slipped):
+**In-step machine check — BLOCKING** (this is the check that was missing when Wave 3c slipped). Format-aware:
+
 ```bash
-# Must return empty
+# Common — no unticked tasks under this wave (legacy format only — new format never has unticked items in plan.md)
 awk "/^### Wave $wave_number/,/^### Wave /" docs/plan.md | grep "^- \[ \]" | grep -v "Deferred"
-# Must return exactly one line
-rg "\*\*Wave $wave_number exit gate \(PASS" docs/plan.md
-# Every FIX_COMMITS hash must appear in plan.md
-for sha in $FIX_COMMITS; do rg "\`$sha\`" docs/plan.md > /dev/null || echo "MISSING: $sha"; done
+
+# Closure annotation present in one of two shapes (new format primary; legacy fallback)
+new_ok=0; legacy_ok=0
+new_one_liner=$(grep -F -- "- [x] Wave $wave_number " docs/plan.md 2>/dev/null | grep -F -- "-> docs/waves/wave$wave_number-")
+new_frontmatter=$(grep -F -- "merge_sha:" docs/waves/wave$wave_number-*.md 2>/dev/null | grep -v -F -- "<pending>")
+[ -n "$new_one_liner" ] && [ -n "$new_frontmatter" ] && new_ok=1
+grep -F -- "**Wave $wave_number exit gate (PASS" docs/plan.md > /dev/null 2>&1 && legacy_ok=1
+[ "$new_ok" = "1" ] || [ "$legacy_ok" = "1" ] || { echo "FAIL: no closure annotation in either format"; exit 1; }
+
+# Every FIX_COMMITS hash must appear in plan.md OR in the wave summary file (new format puts post-merge fixes in docs/waves/ body)
+for sha in $FIX_COMMITS; do
+  found=0
+  grep -F -- "\`$sha\`" docs/plan.md > /dev/null 2>&1 && found=1
+  grep -F -- "\`$sha\`" docs/waves/wave$wave_number-*.md > /dev/null 2>&1 && found=1
+  [ "$found" = "1" ] || echo "MISSING: $sha"
+done
 ```
 If any check fails → do not proceed. Surface the failing check + offending lines and loop back within this step.
 
@@ -424,16 +522,30 @@ If the session was already closed, write to `$REPO/.harness-state/post_merge_wav
 
 This is the step that prevents "did we actually close this wave?" questions later. Run every check; all must pass. On any hard failure, surface the failure and loop back to the responsible step — do NOT write the receipt.
 
+**Portability note:** on systems where `grep` is `ugrep` (e.g. macOS via Homebrew), patterns starting with `-` are interpreted as command-line options. Always use `--` separator: `grep -F -- "- [x] Wave …"`. Skill-body greps below already include `--`.
+
 ```bash
 cd "$REPO"
 
-# 11a. Every Wave N task ticked or explicitly deferred — HARD
+# 11a. Every Wave N task ticked or explicitly deferred — HARD (legacy-format only;
+#      new format never has unticked items in plan.md because all per-task detail
+#      lives in the linked spec / wave summary, not in plan.md itself)
 unticked=$(awk "/^### Wave $wave_number/,/^### Wave /" docs/plan.md | grep "^- \[ \]" | grep -v "Deferred")
 [ -z "$unticked" ] || { echo "FAIL 11a"; echo "$unticked"; exit 1; }
 
-# 11b. Exit-gate PASS annotation exists — HARD
-rg "\*\*Wave $wave_number exit gate \(PASS" docs/plan.md > /dev/null \
-  || { echo "FAIL 11b: no exit-gate PASS annotation"; exit 1; }
+# 11b. Closure annotation in one of two shapes — HARD
+#      New: ## Recently Shipped one-liner + frontmatter merge_sha (no <pending>)
+#      Legacy: **Wave N exit gate (PASS …):** annotation
+new_one_liner=$(grep -F -- "- [x] Wave $wave_number " docs/plan.md 2>/dev/null | grep -F -- "-> docs/waves/wave$wave_number-")
+new_frontmatter=$(grep -F -- "merge_sha:" docs/waves/wave$wave_number-*.md 2>/dev/null | grep -v -F -- "<pending>")
+legacy_annotation=$(grep -F -- "**Wave $wave_number exit gate (PASS" docs/plan.md 2>/dev/null)
+if [ -n "$new_one_liner" ] && [ -n "$new_frontmatter" ]; then
+  echo "PASS 11b (new format: ## Recently Shipped one-liner + frontmatter merge_sha)"
+elif [ -n "$legacy_annotation" ]; then
+  echo "PASS 11b (legacy format: exit-gate PASS annotation)"
+else
+  echo "FAIL 11b: no closure annotation in either format"; exit 1
+fi
 
 # 11c. Local main pushed (or Step 9 explicitly deferred) — WARN if deferred
 ahead=$(git log --oneline "origin/$MAIN_BRANCH..$MAIN_BRANCH" | wc -l | tr -d ' ')
@@ -445,10 +557,13 @@ fi
 # 11d. No stale worktree for THIS wave — SOFT (multiple waves in flight is legal)
 git worktree list | grep "agent-" && echo "WARN 11d: agent worktree still present — confirm it's for a different wave"
 
-# 11e. Every FIX_COMMITS hash referenced in plan.md — HARD
+# 11e. Every FIX_COMMITS hash referenced in plan.md OR docs/waves/<file>.md — HARD
+#      (new format puts post-merge fixes in docs/waves/ body; legacy puts them in plan.md)
 for sha in $FIX_COMMITS; do
-  rg "\`$sha\`" docs/plan.md > /dev/null \
-    || { echo "FAIL 11e: fix commit $sha not in plan.md"; exit 1; }
+  found=0
+  grep -F -- "\`$sha\`" docs/plan.md > /dev/null 2>&1 && found=1
+  grep -F -- "\`$sha\`" docs/waves/wave$wave_number-*.md > /dev/null 2>&1 && found=1
+  [ "$found" = "1" ] || { echo "FAIL 11e: fix commit $sha not in plan.md or wave summary"; exit 1; }
 done
 
 # 11f. Quality-gate still clean (no regression from reconcile commit)
