@@ -54,8 +54,14 @@ Research and production experience show that heavy instruction systems degrade O
 │   ├── deploy-check/               # Pre-deploy validation
 │   ├── api-smoke-test/             # End-to-end API testing
 │   ├── migration-check/            # DB migration safety review
-│   └── a11y-check/                 # Accessibility audit
+│   ├── a11y-check/                 # Accessibility audit
+│   ├── archive-plan/               # Compact ## Recently Shipped in docs/plan.md
+│   └── harness-status/             # Read-only cross-repo state scanner
 │
+~/.config/harness/                  # Per-user, per-machine (NOT in any repo)
+└── projects.yml                    # Path-only registry consumed by /harness-status
+                                    #   Allowed fields: id, path, optional group
+                                    #   Override via HARNESS_REGISTRY_PATH env var
 your-project/                       # Project-level (specific projects)
 ├── .claude/
 │   └── agents/
@@ -88,8 +94,28 @@ your-project/                       # Project-level (specific projects)
 | **ui-evaluator** | `<project>/.claude/agents/` | That project only |
 | **generator** | `<project>/.claude/agents/` | That project only |
 | **All skills** | `~/.claude/skills/` | Every project, always |
+| **`~/.config/harness/projects.yml`** | `~/.config/harness/` (per-user) | All registered repos via `/harness-status` |
 
 Criteria files live per-project because quality dimensions differ (a cron job doesn't need UI design rubrics).
+
+### Plan and archive layout
+
+`docs/plan.md` follows a **four-section active-board format** (Wave 10+):
+
+```
+## Now              # H3-block per active wave: spec / status / exit gate
+## Next             # queued waves not yet started
+## Blocked          # `- [!] Wave N - <title> - blocked on <reason>`
+## Recently Shipped # `- [x] Wave N - <title> -> docs/waves/wave<N>-<slug>.md (<merge SHA>)`
+```
+
+`/spec-planner` auto-appends new waves to `## Now`; `/close-wave` migrates them to `## Recently Shipped` as one-liners; `/archive-plan` removes rows older than `keep_last` (default 3).
+
+`docs/waves/` is the **canonical shipped-wave archive** — one Markdown file per closed wave at `docs/waves/wave<N>-<slug>.md`. Each file carries a YAML frontmatter block (`wave_number`, `slug`, `spec_path`, `merge_sha`, `closed_at`) plus the orchestrator summary body (Shipped table, exit-gate proofs, deviations, OQs). When `/archive-plan` removes a row from `## Recently Shipped`, the wave file becomes the sole durable record.
+
+Pre-Wave-10 repos (legacy accreting-log plan.md) keep working — `/close-wave` accepts both formats. Conversion is opt-in per-repo, not required to use the new skills.
+
+`.harness-state/` holds protocol receipts (per `docs/protocol/receipt-schema.md`): `run-wave-<N>-<ts>.yml`, `close-wave-<N>-<ts>.yml`, `archive-plan-noop-<ts>.yml`, `harness-status-<ts>.{md,json,yml}`, plus the human-readable `wave<N>-closed.md`. All §4.2-conformant; cross-adapter `idempotency_key` equality is mechanically verified by `.harness-state/examples/wave2/recompute-wave2-keys.sh`.
 
 ---
 
@@ -261,7 +287,32 @@ Closes a fully-shipped wave from an orchestrator's worktree onto master. Idempot
 /close-wave 4
 ```
 
-Default is push to origin; "close-doesn't-push" is the most common cause of live targets silently reverting to pre-wave state. Reads optional `.harness-profile` keys for project-specific bits: `quality_gate.command`, `protected_paths`, `deploy.command`, `kb.skill`. Falls through to safe defaults when fields are absent (e.g. claude-harness has none configured — no quality-gate run, no KB upsert, no deploy hook).
+Default is push to origin; "close-doesn't-push" is the most common cause of live targets silently reverting to pre-wave state. Reads optional `.harness-profile` keys for project-specific bits: `quality_gate.command`, `protected_paths`, `deploy.command`, `kb.skill`. Falls through to safe defaults when fields are absent (e.g. claude-harness has none configured — no quality-gate run, no KB upsert, no deploy hook). Step 0b/8/11b accept both the legacy `**Wave N exit gate (PASS …):**` annotation and the new four-section closure shape (`## Recently Shipped` one-liner + `docs/waves/<file>.md` frontmatter `merge_sha`) — see "Plan and archive layout" below.
+
+#### `archive-plan`
+
+Compacts `## Recently Shipped` in `docs/plan.md` once it grows past `keep_last` rows (default: 3). Mutating-but-idempotent — re-running on an already-compacted plan.md hits Stage A no-op via the `idempotency_key`. Sources `skills/_shared/lib/emit-receipt.sh` and follows the §3.0a reserve-then-mutate lifecycle (atomic temp+rename for `docs/plan.md`). Emits `.harness-state/archive-plan-noop-<ts>.yml`.
+
+```
+/archive-plan                 # default keep_last=3
+/archive-plan --dry-run       # preview unified diff; no mutation; status=partial
+ARCHIVE_PLAN_DRY_RUN=1 /archive-plan
+```
+
+Aborts with `aborted-on-ambiguity` (no plan.md write) if any row marked for removal links to a `docs/waves/wave<N>-<slug>.md` file that doesn't exist on disk. The wave file is canonical — once a row leaves `## Recently Shipped`, the archive file becomes the sole record.
+
+#### `harness-status`
+
+Read-only cross-repo scanner. Reads `~/.config/harness/projects.yml`, runs `git --no-optional-locks status --porcelain` and `git --no-optional-locks worktree list --porcelain` per registered repo, parses each repo's `docs/plan.md` `## Now` / `## Blocked` sections (best-effort), and writes a single Markdown summary plus sibling JSON snapshot under the **invoking** repo's `.harness-state/`. Writes nothing in any other repo it scans.
+
+```
+/harness-status                            # scan all registered repos
+/harness-status --group harness            # filter by group
+/harness-status --id wordwideAI            # filter by id
+HARNESS_REGISTRY_PATH=/path/to/test.yml /harness-status   # override registry path (fixtures/CI)
+```
+
+Tolerates pre-conversion repos (`(pre-v2 plan format; skipped)`) without failing the whole scan. Hard read-only invariant verified by fixture: `git rev-parse HEAD`, `.git/index` SHA-256, `.git/HEAD` SHA-256, and `git status --porcelain` output all byte-identical pre/post on every scanned repo. Exempt from §3.0a Stage A no-op reuse — every invocation rescans live state, so two consecutive runs produce different `idempotency_key.value` strings (the receipt records `idempotency_key.trace.stage_a_exempt: true`; documented in `docs/protocol/receipt-schema.md`).
 
 ### Safety Check Skills
 
@@ -562,10 +613,16 @@ cp .claude/agents/project-tracker.md ~/.claude/agents/
 
 # Copy all skills
 for skill in session-start session-end micro park commit project-init \
-             setup-harness deploy-check api-smoke-test migration-check a11y-check; do
+             setup-harness deploy-check api-smoke-test migration-check a11y-check \
+             run-wave close-wave archive-plan harness-status planning-loop; do
   mkdir -p ~/.claude/skills/$skill
   cp skills/$skill/SKILL.md ~/.claude/skills/$skill/
 done
+
+# Copy the shared receipt-emission helper (sourced by run-wave, close-wave,
+# archive-plan, harness-status, commit)
+mkdir -p ~/.claude/skills/_shared/lib
+cp skills/_shared/lib/emit-receipt.sh ~/.claude/skills/_shared/lib/
 ```
 
 That's it. These agents and skills are now available in every Claude Code session across all your projects.
@@ -576,6 +633,29 @@ Or use the skill to automate setup for a specific project:
 /setup-harness fullstack
 /project-init
 ```
+
+#### Optional: Bootstrap the cross-repo registry (for `/harness-status`)
+
+`/harness-status` reads `~/.config/harness/projects.yml` — a per-user, per-machine, **path-only** registry of harness-managed repos. Missing registry is a friendly no-op (the skill prints "no projects registered" and exits 0); bootstrap once per machine when you want cross-repo visibility:
+
+```bash
+mkdir -p ~/.config/harness
+$EDITOR ~/.config/harness/projects.yml
+```
+
+Use the example fixture as a template:
+
+```yaml
+projects:
+  - id: claude-harness
+    path: /Users/you/workspace/claude-harness
+    group: harness
+  - id: my-product
+    path: /Users/you/workspace/my-product
+    group: product
+```
+
+Allowed fields: `id` (kebab-case, unique), `path` (absolute), optional `group`. The parser refuses unknown top-level fields (no `quality_gate`, `protected_paths`, `tracker_team`, etc. — those belong in per-repo `.harness-profile`). Override the registry path with `HARNESS_REGISTRY_PATH=/some/test.yml /harness-status` for fixtures or CI without touching home.
 
 ### 2. Set Up a New Project
 
