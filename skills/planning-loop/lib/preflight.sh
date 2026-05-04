@@ -121,7 +121,7 @@ if [[ -n "$PORCELAIN_OTHER" ]]; then
 
   git stash push -u -m "$STASH_MSG" -- "${EXCLUSIONS[@]}"
 
-  if ! git stash list --format='%gd %s' | grep -qF " $STASH_MSG"; then
+  if ! git stash list --format='%gd %s' | grep -F " $STASH_MSG" >/dev/null; then
     echo "✗ git stash push reported success but no matching stash found." >&2
     echo "  Aborting before writing state journal. Working tree may be partially modified." >&2
     exit 1

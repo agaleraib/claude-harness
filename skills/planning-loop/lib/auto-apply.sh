@@ -296,21 +296,71 @@ for fid in "${EXPECTED[@]}"; do
   fi
 done
 
-# Mixed-routing-aware completeness.
+# Mixed-routing-aware completeness — per-finding parse with aggregated fallback.
+#
+# Per SKILL.md §"Mixed-routing-aware completeness": only findings tagged `mixed`
+# in the routing line need BOTH arbiters; detail-only or scope-only findings
+# require only their routed arbiter. The previous implementation grepped the
+# whole routing line for "mixed" and applied has_mixed=1 to every Fi, which
+# false-aborted any future round with a per-finding routing like
+# `F1 (detail) | F2 (mixed)` because F1 has only a CR ruling (correct per
+# spec) but the parser demanded a Plan ruling for F1 too.
+#
+# Routing-line shapes observed across real loop runs (2026-04-26..2026-05-02):
+#   1. "F1 (mixed) → both arbiters | F2 (detail) → code-reviewer"
+#   2. "F1 → mixed (code-reviewer + Plan); F2 → detail (code-reviewer only)"
+#   3. "F1 (detail) + F2 (detail) → code-reviewer"  (same routing, no mixed)
+#   4. "1 detail bullet → code-reviewer (no scope bullets)"  (aggregated, no per-ID)
+#   5. "1 mixed bullet → both code-reviewer (detail) + Plan (scope)"  (aggregated mixed)
+#
+# Strategy: try to parse per-ID routing first (shapes 1/2/3). If at least one
+# Fi gets a routing tag, trust the per-ID parse. Otherwise fall back to the
+# aggregated check (shape 5 → conservative has_mixed=1 for all expected IDs).
 routing_line="$(grep -E '^\*\*Routing:\*\*' "$LOG" | head -1 || true)"
-has_mixed=0
-if printf '%s' "$routing_line" | grep -qiE 'mixed'; then
-  has_mixed=1
+
+for fid in "${EXPECTED[@]}"; do
+  eval "ROUTE_${fid}=''"
+done
+
+# Per-ID parse: look for "Fi" followed by up to ~40 chars containing the
+# route token. Captures both "Fi (mixed)" and "Fi → mixed" shapes.
+for fid in "${EXPECTED[@]}"; do
+  match="$(printf '%s' "$routing_line" | grep -oiE "${fid}[^A-Za-z0-9]{1,40}(mixed|detail|scope)" | head -1 || true)"
+  if [[ -n "$match" ]]; then
+    if   printf '%s' "$match" | grep -qiE '\bmixed\b';  then eval "ROUTE_${fid}=mixed"
+    elif printf '%s' "$match" | grep -qiE '\bdetail\b'; then eval "ROUTE_${fid}=detail"
+    elif printf '%s' "$match" | grep -qiE '\bscope\b';  then eval "ROUTE_${fid}=scope"
+    fi
+  fi
+done
+
+# Aggregated-line fallback: if NO per-ID routing was parsed AND the line
+# mentions "mixed", treat every expected finding as mixed (preserves the
+# pre-fix conservative behavior for shape 5).
+have_per_id=0
+for fid in "${EXPECTED[@]}"; do
+  v="$(eval "echo \$ROUTE_${fid}")"
+  [[ -n "$v" ]] && { have_per_id=1; break; }
+done
+if [[ $have_per_id -eq 0 ]]; then
+  if printf '%s' "$routing_line" | grep -qiE 'mixed'; then
+    for fid in "${EXPECTED[@]}"; do
+      eval "ROUTE_${fid}=mixed"
+    done
+  fi
 fi
-if [[ $has_mixed -eq 1 ]]; then
-  for fid in "${EXPECTED[@]}"; do
+
+# Per-finding completeness: mixed → both arbiters required.
+for fid in "${EXPECTED[@]}"; do
+  route="$(eval "echo \$ROUTE_${fid}")"
+  if [[ "$route" == "mixed" ]]; then
     if [[ -z "$(get_v_cr "$fid")" || -z "$(get_v_plan "$fid")" ]]; then
       append_abort "mixed-routing-incomplete" "$fid" "mixed-routed $fid lacks one arbiter ruling"
       emit_outcome "menu-validation-failure"
       exit 1
     fi
-  done
-fi
+  fi
+done
 
 # Per-finding agreement.
 for fid in "${EXPECTED[@]}"; do

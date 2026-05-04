@@ -359,6 +359,14 @@ run_one V7 crash-recovery                        success
 run_one W1 missing-workflow-delta                preflight-abort
 run_one W2 preflight-abort-readonly-state        preflight-abort
 
+# 2026-05-04 fix — per-ID mixed-routing parser. Pre-fix the parser globally
+# set has_mixed=1 whenever the routing line mentioned "mixed" and required
+# BOTH arbiter rulings for every Fi, false-aborting any line shaped
+# `F1 (detail) | F2 (mixed)` because F1 had only a CR ruling. Post-fix
+# extracts per-finding routing and only requires both rulings for the
+# Fi tagged mixed.
+run_one X per-id-mixed-routing                   success
+
 read -r PASS FAIL < "$COUNTER_FILE"
 rm -f "$COUNTER_FILE"
 
