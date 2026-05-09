@@ -200,7 +200,7 @@ while IFS= read -r line; do
   if [[ $in_round3 -eq 1 ]]; then
     if [[ "$line" =~ ^\`\`\`text$ ]]; then in_text=1; continue; fi
     if [[ $in_text -eq 1 && "$line" =~ ^\`\`\`$ ]]; then in_text=0; continue; fi
-    if [[ $in_text -eq 1 && "$line" =~ ^-[[:space:]]\[(low|medium|high)\][[:space:]](.*)$ ]]; then
+    if [[ $in_text -eq 1 && "$line" =~ ^-[[:space:]]\[(low|medium|high|critical)\][[:space:]](.*)$ ]]; then
       _title="${BASH_REMATCH[2]}"
       # Strip any pre-stamped `F<n>:[ ]*` prefix (back-compat with fixtures
       # A-O which encode the prefix manually).
