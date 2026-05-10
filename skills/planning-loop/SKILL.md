@@ -617,7 +617,18 @@ Review the diff and `/commit` when ready. Spec is uncommitted; restore-helper ha
 
 Skill exits 0 after printing. `lib/restore.sh` is invoked before exit (Rule #10 unchanged).
 
-#### 4-option menu (existing — preserved character-for-character)
+#### Recommendation logic (computed before menu print, per Rule 12)
+
+The skill computes which option to mark `(Recommended)` based on arbiter verdicts and round-3 findings shape. Rule order — first match wins:
+
+1. **Any arbiter returned `wrong-premise`** → Recommended = **option 4**. Reason: "Drop wrong-premise findings, log to Open Questions; arbiter judged design sound."
+2. **Round-3 findings are all 1-line implementation tweaks** (defect size 1-line, "where to put this code" framing, or arbiter explicitly said "tests will catch the rest" — per `feedback_planning_loop_stop_signal.md`) → Recommended = **option 1**. Reason: "Crossed into implementation territory; per-commit `code-reviewer` + spec test matrix takes over past this point."
+3. **Same area of spec regenerated findings across rounds 1, 2, AND 3** → Recommended = **option 3**. Reason: "3 rounds touching the same concern means the design has a real fault, not a wording gap."
+4. **Default** → Recommended = **option 1**. Reason: "Findings are concrete and actionable — apply manually and re-invoke `/codex:adversarial-review` directly if more passes wanted."
+
+Detection MUST run before printing the menu; the chosen option number + reason are injected as a single `Recommended:` line above the numbered list (see menu shape below). Arbiter prompts (`references/codex-prompts.md` §3, §4) include a `Recommendation:` output field that this logic can override or defer to — when an arbiter's recommendation conflicts with a higher-priority rule above, the rule wins (e.g. unanimous wrong-premise always routes to option 4 regardless of arbiter's free-form suggestion).
+
+#### 4-option menu
 
 Printed on any 6e or 6f abort, OR when the auto-apply branch was never eligible to run.
 
@@ -636,6 +647,8 @@ Final findings (round 3):
 Arbiter verdicts (advisory):
 
 <one-line summary per finding: "<finding-tag>: <verdict> — <one-sentence rationale>">
+
+Recommended: option <N> — <one-line reason from Recommendation logic above>
 
 The skill does NOT auto-ship the spec when the cap is reached. Decide:
   1. Address findings manually and re-invoke `/codex:adversarial-review` directly
@@ -662,6 +675,7 @@ Full rationale lives in `references/rules.md`. Load that file when you need the 
 9. **Arbiters are advisory, never authoritative.**
 10. **Auto-park is a lifecycle, not a step.**
 11. **Auto-apply preconditions are conjunctive.**
+12. **Every user-facing menu surfaces a Recommended option.** Any choice menu printed during `/planning-loop` execution (cap-reached escalation menu, auto-apply abort menus, dynamic mid-loop menus surfaced by arbiter or sub-agents) MUST mark exactly one option `(Recommended)` with a one-line reason citing the verdict mix or stop signal that drove the pick. Arbiter prompt templates (`references/codex-prompts.md` §3, §4) require a `Recommendation:` output field. Cold-picking from an unrecommended menu wastes user attention on a decision the skill already has signal to make.
 
 ## Review criteria surfaced to Codex
 

@@ -91,6 +91,13 @@ Do NOT propose a redesign. Do NOT widen scope. Read the spec file directly to ve
 
 For each load-bearing finding, emit your recommendation as a fenced ```json block with `section` (the H2 heading body the edit belongs to) plus either `{old_string, new_string}` or `{insert_after, new_string}` per the contract in `### 6e.`
 
+After processing all findings, append a single line of shape `Recommendation: option <N> — <one-sentence reason>`. <N> is one of:
+  1 = address findings manually, re-invoke /codex:adversarial-review directly
+  2 = override and ship anyway (Codex disagreement is a design dispute, not a defect)
+  3 = rethink the design (3 rounds didn't converge → real fault)
+  4 = drop wrong-premise findings into Open Questions (only valid if you returned ≥1 wrong-premise verdict)
+This drives the menu's `(Recommended)` tag per Rule 12. The skill's static recommendation logic may override your suggestion when a higher-priority rule matches (e.g. unanimous wrong-premise always picks 4); your line is advisory, but always required.
+
 # Findings to rule on
 
 <list of detail-classified bullets, verbatim from round 3>
@@ -115,6 +122,13 @@ For EACH finding below, return one of four verdicts plus one paragraph (≤4 sen
 - **defer** — fair concern but for a follow-up spec, not this one
 
 Do NOT auto-ship; do NOT commit. The user decides; you are advisory.
+
+After processing all findings, append a single line of shape `Recommendation: option <N> — <one-sentence reason>`. <N> is one of:
+  1 = address findings manually, re-invoke /codex:adversarial-review directly
+  2 = override and ship anyway (Codex disagreement is a design dispute, not a defect)
+  3 = rethink the design (3 rounds didn't converge → real fault)
+  4 = drop wrong-premise findings into Open Questions (only valid if you returned ≥1 wrong-premise verdict)
+This drives the menu's `(Recommended)` tag per Rule 12. The skill's static recommendation logic may override your suggestion when a higher-priority rule matches; your line is advisory, but always required.
 
 # Findings to rule on
 
