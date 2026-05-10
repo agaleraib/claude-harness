@@ -29,6 +29,7 @@ Research and production experience show that heavy instruction systems degrade O
 - **Negative ROI on process skills**: AGENTbench research (arXiv:2602.11988) found LLM-generated context files *decreased* success rates
 - **System-prompt regressions are subtle and slow to detect**: Anthropic's own [April 23 postmortem](https://www.anthropic.com/engineering/a-postmortem-of-three-recent-issues) traced a month-long Claude Code quality drop to three harness-layer changes — including a 25-word verbosity cap that knocked 3% off internal coding evals. Confirms first-party that adding instructions to the harness can degrade behavior.
 - **Anthropic's own conclusion**: Their harness research removed sprint decomposition, reduced evaluator rounds, and simplified the generator — scaffolding that was essential for earlier models became counterproductive
+- **Vendor primitives keep absorbing harness territory**: Claude Code now ships a built-in `/security-review` slash command, and Anthropic launched [Claude Security in public beta on 2026-04-30](https://claude.com/blog/claude-security-public-beta) with full-codebase vulnerability scanning + patch generation on Opus 4.7. A custom security-review skill would have been a reasonable addition to this harness six months ago; today it's redundant with first-party tooling. The pattern repeats — keep the harness lean so vendor releases don't deprecate it.
 
 **This harness keeps context overhead under 500 tokens at session start** (agent descriptions only). Full agent/skill content loads only when invoked.
 
@@ -395,6 +396,10 @@ Use the code-reviewer to review src/lib/scheduler/ — I refactored the job runn
 
 **What it does NOT do:** Fix code. It reports problems with enough specificity that fixes are obvious.
 
+#### How this complements Anthropic's cloud reviewers
+
+The harness's `code-reviewer` runs **locally, pre-push, against project `criteria/`**, and is invoked synchronously by `/commit`. As of [Code w/ Claude 2026](https://claude.com/blog/code-review), Anthropic also ships two cloud reviewers that operate at different layers: **Code Review** (Team/Enterprise; auto-runs on every PR; fan-out parallel agents + verification step) and **`/ultrareview`** (Pro/Max; user-triggered; 10–20 min cloud run on the current branch or a PR). Both are billed by token usage — see the linked post for current pricing. Use the local `code-reviewer` for the build/review loop before commit (cheap, rubric-anchored, blocks at `/commit`); use Anthropic's cloud reviewers for the post-push pass on substantive PRs that are about to merge (PR-context-aware, multi-agent fan-out). They are complementary, not redundant — different layers, different costs, different recall/precision.
+
 ---
 
 ### spec-planner (Universal)
@@ -730,6 +735,7 @@ After changes: `bun run build && bun test`
 - Only include what Claude would get wrong without the instruction
 - If Claude already does it correctly, delete the rule
 - Treat it like code: prune regularly
+- **Layer separation**: CLAUDE.md is the *lay of the land* (build commands, where docs live, non-obvious project conventions). Project-specific *expertise* belongs in skills, not here. If a rule starts to read like a tutorial, it's a skill — extract it. ([source](https://claude.com/blog/onboarding-claude-code-like-a-new-developer-lessons-from-17-years-of-development))
 
 ---
 

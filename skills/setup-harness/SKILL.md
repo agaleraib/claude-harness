@@ -136,6 +136,18 @@ done
 
 Never overwrite existing user-level skills — the user may have customized them.
 
+### Permission model — Auto Mode + hooks layering
+
+Claude Code's Auto Mode (GA on Pro/Max/Team/Enterprise/API as of May 2026) runs a Sonnet 4.6 classifier that auto-approves safe tool calls and surfaces only the risky ones. **Hooks run before the classifier**, so anything this harness allow/deny-lists in `.claude/settings.json` (and anything `fewer-permission-prompts` adds for you) is honored as a hard rule; the classifier only sees the residual.
+
+Recommended setup for solo users:
+
+1. Run `/fewer-permission-prompts` once in a project to seed an allowlist for the read-only Bash + MCP calls you actually use.
+2. Keep `.claude/settings.json` `hooks` block populated with your policy checks (lint, secret scan, etc.); Auto Mode will not bypass them.
+3. Toggle Auto Mode interactively via Shift+Tab. (As of writing, `permissions.defaultMode: "auto"` is parsed but doesn't reliably auto-engage on session start — manual toggle is the safer default. Re-check before relying on a config-only bootstrap.)
+
+If you work in an isolated container, prefer Auto Mode over `bypassPermissions` — Auto Mode keeps the classifier's prompt-injection mitigations active.
+
 ## Step 4: Generate CLAUDE.md
 
 If `CLAUDE.md` doesn't exist (or user chose to overwrite), generate a lean one based on detected stack.

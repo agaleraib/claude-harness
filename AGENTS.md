@@ -31,6 +31,7 @@ Tool-neutral protocol contract for any agent (LLM or human) operating on this re
 - Don't write durable state outside the protocol artifacts above (no `~/.tmp_state`, no untracked sidecars).
 - Don't invent state when inputs are missing — stop and surface.
 - Don't bypass the receipt schema. Adapter divergence on receipt shape breaks cross-tool replay.
+- Don't bake dynamic content (timestamps, build IDs, absolute paths, per-session counters) into static prompt files (`CLAUDE.md`, `AGENTS.md`, any `SKILL.md`). Per [Anthropic's prompt-caching guidance](https://claude.com/blog/lessons-from-building-claude-code-prompt-caching-is-everything), prefix-instability invalidates the conversation-wide cache. Use runtime injection (Claude Code's `system-reminder`, hook output, or a fresh-read of `.harness-state/`) for anything that changes session-to-session.
 
 ## How to discover next action
 
