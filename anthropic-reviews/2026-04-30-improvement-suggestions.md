@@ -51,7 +51,7 @@ The existing rules describe *what to remove* from CLAUDE.md. They do not describ
 2. `grep -nA8 "Rules for CLAUDE.md" README.md` should show the existing four bullets without a layer-separation entry.
 
 **Recommended verdict:** apply — three-line README edit, sharpens an existing rule with first-party language, no design risk.
-**Status:** APPLY — adopt MacLean's lay-of-the-land/skills-expertise framing; ~3-line README addition · 2026-05-10
+**Status:** APPLIED in commit 8b5b12a · 2026-05-10
 
 ---
 

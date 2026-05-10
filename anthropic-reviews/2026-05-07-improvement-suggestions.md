@@ -70,7 +70,7 @@ One-line concrete data point in the existing evidence list. Sharpens the "Why No
 **Verify before applying:** `grep -n "vendor primitives\|Claude Security" README.md` — if it already cites Claude Security, skip. Also re-check `~/.claude/skills/` to confirm we still don't ship a project-level security-review skill (project audit on 2026-05-07 confirmed `skills/` has no such entry; `security-review` listed in the Claude Code skills list is a built-in).
 
 **Recommended verdict:** apply — small, low-risk README edit; reinforces the existing thesis with the freshest publicly available example.
-**Status:** APPLY — one-bullet README "Why Not Superpowers" addition; reinforces vendor-primitives-absorbing-harness-territory thesis with Claude Security beta · 2026-05-10
+**Status:** APPLIED in commit 8b5b12a · 2026-05-10
 
 ---
 

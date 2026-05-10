@@ -73,7 +73,7 @@ The README's "Why Not Superpowers" and references already cite **harness-design*
 3. Confirm Anthropic's hosted Code Review is still in research preview (not GA with different pricing) before quoting the `$15–25` / `$5–20` numbers — if pricing has shifted by the time this is applied, drop the dollar figures and say "billed by token usage; see the linked post for current pricing."
 
 **Recommended verdict:** apply — pure documentation edit, ~1 paragraph + 1 reference bullet, fixes a gap that *will* otherwise be asked aloud. The pricing footnote in the verify step keeps the edit honest if numbers move.
-**Status:** APPLY — README paragraph positioning hosted Code Review/ultrareview vs local code-reviewer (with edit at apply-time: strip specific dollar figures per pricing-volatility risk) · 2026-05-10
+**Status:** APPLIED in commit 8b5b12a (with edit: stripped specific dollar figures per pricing-volatility risk) · 2026-05-10
 
 ---
 

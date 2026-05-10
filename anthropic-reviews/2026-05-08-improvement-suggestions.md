@@ -67,7 +67,7 @@ A solo maintainer who ran `/setup-harness` six months ago and hasn't kept up wit
 **Verify before applying:** `grep -rn "Auto Mode\|defaultMode\|classifier" skills/setup-harness/SKILL.md` should return nothing today; `cat .claude/settings.json` should still show `{"hooks": {}}`. If either changes (someone added a permission-model section, or the settings file gained a `permissions` block), re-read both before editing — at minimum, this § needs a delta against the new state.
 
 **Recommended verdict:** apply — concrete value, single-skill touch, zero blast radius, citation to a fresh primary source.
-**Status:** APPLY — ~15-line Permission-model subsection in setup-harness/SKILL.md; documents Auto Mode + hooks layering · 2026-05-10
+**Status:** APPLIED in commit 8b5b12a · 2026-05-10
 
 ---
 
