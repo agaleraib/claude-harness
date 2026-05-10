@@ -168,6 +168,32 @@ done
 
 **Success criteria:** verification table printed; zero red flags OR user explicitly overrides each.
 
+## Step 2.5: Meta-tooling reminder (soft, non-blocking)
+
+Detect whether this wave touches meta-tooling paths — files whose behavior cascades across every consumer repo (claude-harness skills, agent definitions, hooks, the protocol contract docs). On meta-tooling waves, an Opus-only review (`/commit`'s code-reviewer per commit) can miss BLOCKERs that a cross-model review at wave-diff scope catches.
+
+```bash
+META_PATHS=$(git diff --name-only "$MAIN_BRANCH..HEAD" \
+  | grep -E '^(skills/|\.claude/agents/|\.claude/commands/|hooks/|AGENTS\.md|WORKFLOW\.md)' \
+  || true)
+```
+
+If `META_PATHS` is non-empty, print to the user before Step 3:
+
+> ⚠️ This wave touches meta-tooling paths:
+> ```
+> <META_PATHS contents>
+> ```
+> If you haven't already run `/codex:review` on the wave diff, consider doing so before merging — these paths affect every consumer repo, and Wave 9 (claude-harness, 2026-05-01) caught 3 BLOCKERs this way that grep+fixture exit gates missed.
+>
+> **This is a soft reminder, not a gate.** Continue when ready.
+
+If `META_PATHS` is empty: skip silently. No output.
+
+**Why soft, not hard:** the data supporting an automated gate is currently N=1 (Wave 9). A non-blocking reminder preserves the discipline without locking in a hard gate based on one data point. Track over the next 3-5 meta-tooling waves: how often does the reminder fire, how often does Codex find something material. If the hit rate justifies it, upgrade to a hard gate (require a `codex-review-receipt.md` under `.harness-state/wave<N>/` before Step 3 proceeds).
+
+**Success criteria:** reminder printed when applicable; user has seen it before the Step 3 merge-approval prompt.
+
 ## Step 3: Human checkpoint — approve the merge
 
 Show the user:
