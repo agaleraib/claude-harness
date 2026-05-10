@@ -281,7 +281,9 @@ Stops rather than guesses on missing specs, untracked task IDs, or scope ambigui
 
 #### `close-wave`
 
-Closes a fully-shipped wave from an orchestrator's worktree onto master. Idempotent — re-invocation is safe and resumes at the correct step (state-probe at Step 0 detects the resumption point). Verifies the worktree branch (commits, quality-gate from `.harness-profile`, secret scan, cross-repo symlinks), checkpoints with you before merging, runs the `--no-ff` merge with the standard `docs/plan.md` conflict resolution, processes human-only TODOs, ticks off plan.md with commit hashes, runs the BLOCKING final gate (Step 11), and writes a closure receipt to `.harness-state/wave<N>-closed.md`.
+Closes a fully-shipped wave from an orchestrator's worktree onto master. Idempotent — re-invocation is safe and resumes at the correct step (state-probe at Step 0 detects the resumption point). Verifies the worktree branch (commits, quality-gate from `.harness-profile`, secret scan, cross-repo symlinks, meta-tooling reminder), checkpoints with you before merging, runs the `--no-ff` merge with the standard `docs/plan.md` conflict resolution, processes human-only TODOs, ticks off plan.md with commit hashes, runs the BLOCKING final gate (Step 11), and writes a closure receipt to `.harness-state/wave<N>-closed.md`.
+
+If any commit in the wave touches meta-tooling paths (`skills/`, `.claude/agents/`, `.claude/commands/`, `hooks/`, `AGENTS.md`, `WORKFLOW.md`), Step 2.5 prints a soft reminder to run `/codex:review` on the wave diff before merging — a cross-model spot-check that complements the Opus-only `code-reviewer` running per-commit in `/commit`. Non-blocking; the reminder fires once at wave-diff scope and is silent on non-meta-tooling waves.
 
 ```
 /close-wave 4
