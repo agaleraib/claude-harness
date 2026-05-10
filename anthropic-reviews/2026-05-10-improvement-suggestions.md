@@ -73,7 +73,7 @@ The README's "Why Not Superpowers" and references already cite **harness-design*
 3. Confirm Anthropic's hosted Code Review is still in research preview (not GA with different pricing) before quoting the `$15–25` / `$5–20` numbers — if pricing has shifted by the time this is applied, drop the dollar figures and say "billed by token usage; see the linked post for current pricing."
 
 **Recommended verdict:** apply — pure documentation edit, ~1 paragraph + 1 reference bullet, fixes a gap that *will* otherwise be asked aloud. The pricing footnote in the verify step keeps the edit honest if numbers move.
-**Status:** PENDING — awaiting triage in PR review
+**Status:** APPLY — README paragraph positioning hosted Code Review/ultrareview vs local code-reviewer (with edit at apply-time: strip specific dollar figures per pricing-volatility risk) · 2026-05-10
 
 ---
 
@@ -121,7 +121,7 @@ Routine fires every Monday without the maintainer remembering to trigger it; the
 3. Confirm the routine's `subscribe_pr_activity`-style polling isn't already filling the gap — the harness has PR-event subscriptions wired in CLAUDE.md; that's adjacent to but not the same as a scheduled prompt.
 
 **Recommended verdict:** defer until pricing / scheduling pain warrants — speculative for solo tooling; works manually today; recurring cost without recurring value yet. Flag for the maintainer's awareness.
-**Status:** PENDING — awaiting triage in PR review
+**Status:** DEFERRED until pricing/scheduling pain warrants — manual trigger works today; Cloud Routines billable; speculative for solo tooling · 2026-05-10
 
 ---
 
@@ -158,7 +158,7 @@ Decision-trail integrity. Without this entry, a reader of the 2026-04-19 file in
 3. `grep -rn "dreaming\|patterns.md" /home/user/claude-harness` — if the maintainer takes the **promotion path** above, this would no longer return zero. Today (2026-05-10) it returns zero.
 
 **Recommended verdict:** defer until Managed Agents adoption — bookkeeping note only; no concrete change requested in §3 itself; the linked 2026-04-19 §2 and 2026-04-25 row remain DEFERRED/SKIPPED. The promotion-path idea (Step 4 extension to capture daily patterns) is flagged for explicit maintainer review if interest is there.
-**Status:** PENDING — awaiting triage in PR review
+**Status:** DEFERRED until Managed Agents adoption — bookkeeping; Anthropic's dreaming feature stacks corroborating evidence on existing 2026-04-19 §2 + 2026-04-25 deferrals · 2026-05-10
 
 ---
 

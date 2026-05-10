@@ -55,7 +55,7 @@ The harness itself never uses `--dangerously-skip-permissions`, so there is no l
 3. `grep -n "claude_version" skills/session-start/SKILL.md` should still return the breadcrumb capture (the diff above assumes it exists; if it has been removed, fix that first).
 
 **Recommended verdict:** defer until consumer-project automation uses `--dangerously-skip-permissions` — preventive documentation; the harness itself doesn't trigger the new behavior, but the breadcrumb infrastructure is already in place to make this triage step real the moment it does.
-**Status:** PENDING — awaiting triage in PR review
+**Status:** DEFERRED until consumer-project automation invokes the flag — preventive note; harness itself never invokes --dangerously-skip-permissions · 2026-05-10
 
 ---
 
@@ -81,7 +81,7 @@ None. This § exists in the durable record so a future review doesn't re-surface
 **Verify before applying:** Not applicable — recommended verdict is `reject`. If the maintainer wants to revisit (e.g. `setup-harness` grows an uninstall path), the entry to read is the §1 of the eventual install-uninstall design, not this one.
 
 **Recommended verdict:** reject — premature (no uninstall path exists in `setup-harness`) and conceptually misleading (Claude Code project state ≠ harness durable state).
-**Status:** PENDING — awaiting triage in PR review
+**Status:** REJECTED — claude project purge ≠ .harness-state/; documenting the relationship would imply one that doesn't exist · 2026-05-10
 
 ---
 

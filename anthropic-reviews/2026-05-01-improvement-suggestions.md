@@ -59,7 +59,7 @@ The harness's One Rule (*"Context is your most precious resource"*) stays. The n
 2. `grep -n "API-billing caveat" README.md` should return nothing; if it does, the nuance line has already been added.
 
 **Recommended verdict:** apply — pure documentation, backs an existing thesis with a fresh primary source, resolves a real ambiguity for API users in one line.
-**Status:** PENDING — awaiting triage in PR review
+**Status:** REJECTED — marginal value for solo Pro/Max audience; cross-PR source overlap with PR #13 §1 prefix-stability guardrail (same prompt-caching post, different sub-rule); pricing figures stale-prone · 2026-05-10
 
 ---
 
@@ -86,7 +86,7 @@ Decision-trail integrity. Future-you (or a future contributor) considering "woul
 2. `grep -n "Lock tools at session start\|tools-as-cached-prefix" /home/user/claude-harness/skills/setup-harness/SKILL.md` should return nothing — confirms the guardrail isn't already present.
 
 **Recommended verdict:** defer until the harness adds dynamic MCP swapping — speculative documentation for a non-existent feature; revisit on first sign of an MCP-toggle proposal.
-**Status:** PENDING — awaiting triage in PR review
+**Status:** DEFERRED until harness adds dynamic MCP swapping — preventive doc for a non-existent feature · 2026-05-10
 
 ---
 
@@ -114,7 +114,7 @@ None. Documenting the reject so a future "wait, can't we just batch these?" thou
 2. Check whether any consumer project has flipped `model_routing: off` and is using the orchestrator as a guided-spec executor — that mode already runs in the calling session (no subagent spawn) so cache reuse is automatic there. No change needed.
 
 **Recommended verdict:** reject — premature optimization; cache cost is Anthropic's on subscription billing, and the per-task isolation contract is load-bearing for retries / parallel safety.
-**Status:** PENDING — awaiting triage in PR review
+**Status:** REJECTED — premature optimization; per-task isolation contract is load-bearing for retries/parallel safety; cache cost invisible on Pro/Max · 2026-05-10
 
 ---
 

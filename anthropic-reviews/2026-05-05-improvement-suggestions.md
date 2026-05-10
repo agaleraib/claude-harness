@@ -64,7 +64,7 @@ Cheap durable hygiene. Costs one bullet today; pays off the first time a contrib
 2. `grep -rn "currentDate\|todays.date\|build.id" CLAUDE.md AGENTS.md skills/*/SKILL.md` should still return only test-fixture / example matches; if a real prompt file has acquired a hard-coded date since this § was written, the suggestion is now a *fix*, not a guardrail, and §1 should be re-scoped to remove that content.
 
 **Recommended verdict:** apply — one-bullet guardrail with a primary-source citation; no design risk, no code changes, durable as documentation.
-**Status:** PENDING — awaiting triage in PR review
+**Status:** APPLY — one-bullet AGENTS.md prefix-stability guardrail with primary-source citation · 2026-05-10
 
 ---
 

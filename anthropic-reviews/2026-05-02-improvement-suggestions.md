@@ -84,7 +84,7 @@ vs. without the skill, where Claude might just edit deploy.sh, fail, edit deploy
 3. Re-read `README.md:10` — if it has been edited to drop the "debugs effectively" claim (e.g. after a future Opus regression), the contradiction shrinks and the verdict is more comfortable as `spec` even without an in-house incident.
 
 **Recommended verdict:** defer until a maintainer-side "guess and test" incident is captured in `parking_lot.md` or `.harness-state/` — pattern is real and concrete, but introducing process scaffolding ahead of in-house evidence violates the harness's own anti-pattern rule, and contradicts the stated thesis at `README.md:10`.
-**Status:** PENDING — awaiting triage in PR review
+**Status:** DEFERRED until a maintainer-side guess-and-test failure surfaces; promotion trigger documented in §1 · 2026-05-10
 
 ---
 

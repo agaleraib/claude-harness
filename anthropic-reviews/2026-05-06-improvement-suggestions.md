@@ -55,7 +55,7 @@ Zero, by my reading. The recommendations are runtime API-client patterns; the ha
 3. Re-check whether `setup-harness` has started bundling a fork of the user-level `claude-api` skill (it currently doesn't, per `grep -n "claude-api" skills/setup-harness/SKILL.md` returning nothing); if so, those bundled lessons may need a refresh to match this post.
 
 **Recommended verdict:** reject — the harness has no Claude API client surface; the post's lessons are runtime request-construction patterns. Captured here so a future reader sees the analysis was done and four indirect angles were considered.
-**Status:** PENDING — awaiting triage in PR review
+**Status:** REJECTED — harness ships markdown skills/agents loaded by Claude Code; doesn't construct Claude API requests, so prompt-caching prefix-stability lessons have no surface to act on · 2026-05-10
 
 ---
 

@@ -51,7 +51,7 @@ The existing rules describe *what to remove* from CLAUDE.md. They do not describ
 2. `grep -nA8 "Rules for CLAUDE.md" README.md` should show the existing four bullets without a layer-separation entry.
 
 **Recommended verdict:** apply — three-line README edit, sharpens an existing rule with first-party language, no design risk.
-**Status:** PENDING — awaiting triage in PR review
+**Status:** APPLY — adopt MacLean's lay-of-the-land/skills-expertise framing; ~3-line README addition · 2026-05-10
 
 ---
 
@@ -87,7 +87,7 @@ scope: speculative
 3. `grep -n "guess.and.test\|guess-and-test" skills/` should return nothing — confirms the framing isn't in any existing skill.
 
 **Recommended verdict:** defer until a consumer project surfaces a "fixes-symptom-not-cause" failure that the existing `docs/prompts.md` prompt didn't prevent. The lean-over-heavy thesis carries the burden of proof, and right now there's no failure case demanding more skill surface.
-**Status:** PENDING — awaiting triage in PR review
+**Status:** DEFERRED until a consumer-project surfaces fixes-symptom-not-cause failure that the existing prompts.md entry didn't prevent · 2026-05-10
 
 ---
 

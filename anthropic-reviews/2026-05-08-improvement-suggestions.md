@@ -67,7 +67,7 @@ A solo maintainer who ran `/setup-harness` six months ago and hasn't kept up wit
 **Verify before applying:** `grep -rn "Auto Mode\|defaultMode\|classifier" skills/setup-harness/SKILL.md` should return nothing today; `cat .claude/settings.json` should still show `{"hooks": {}}`. If either changes (someone added a permission-model section, or the settings file gained a `permissions` block), re-read both before editing — at minimum, this § needs a delta against the new state.
 
 **Recommended verdict:** apply — concrete value, single-skill touch, zero blast radius, citation to a fresh primary source.
-**Status:** PENDING — awaiting triage in PR review
+**Status:** APPLY — ~15-line Permission-model subsection in setup-harness/SKILL.md; documents Auto Mode + hooks layering · 2026-05-10
 
 ---
 
@@ -130,4 +130,4 @@ The generator stops being asked to *interpret* prose to decide whether to iterat
 3. Search for any spec under `docs/specs/2026-05-*` mentioning "outcome", "rubric verdict", or "generator iteration cap" before opening a new one.
 
 **Recommended verdict:** defer until the existing prose-verdict loop has demonstrably misfired (e.g. one wave where generator shipped despite a `not ready` evaluator verdict). The pattern is sound; the value is conditional on a real failure.
-**Status:** PENDING — awaiting triage in PR review
+**Status:** DEFERRED until prose-verdict loop demonstrably misfires; 3 open design questions block direct application (per-criterion threshold, max_iterations contract, run-wave/close-wave overlap) · 2026-05-10

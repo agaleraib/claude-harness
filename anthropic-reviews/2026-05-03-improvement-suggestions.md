@@ -55,7 +55,7 @@ Decision-trail integrity — same shape as 2026-04-28 §3. Zero cost today; save
 2. `ls criteria/agent-evals/ 2>/dev/null` — should not exist yet. If it does, the fixture set has been scaffolded and this § is stale; check whether the floor/ceiling split is already in use.
 
 **Recommended verdict:** defer until consumer-project rubric suite exists — no concrete change requested; this entry exists so the durable record carries forward a methodology insight that informs the still-deferred 2026-04-19 §5.
-**Status:** PENDING — awaiting triage in PR review
+**Status:** DEFERRED — bookkeeping; tier split only matters once 2026-04-19 §5 (agent-evals) unblocks · 2026-05-10
 
 ---
 

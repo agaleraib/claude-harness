@@ -44,7 +44,7 @@ Keeps the deferred §s honest — when a future reader skims them, they see that
 **Verify before applying:** `grep "DEFERRED until Managed Agents" anthropic-reviews/2026-04-19-improvement-suggestions.md` should still match the §2 Status line; if the maintainer has already adopted Managed Agents (check `.harness-profile` for a `managed_agents:` block) the whole § becomes obsolete.
 
 **Recommended verdict:** defer until Managed Agents adoption — the underlying defer rationale is unchanged; this is a documentation hygiene update, not a fresh proposal.
-**Status:** PENDING — awaiting triage in PR review
+**Status:** DEFERRED until Managed Agents adoption — documentation hygiene; reaffirms 2026-04-19 §2 + §5 deferrals · 2026-05-10
 
 ---
 
@@ -70,7 +70,7 @@ One-line concrete data point in the existing evidence list. Sharpens the "Why No
 **Verify before applying:** `grep -n "vendor primitives\|Claude Security" README.md` — if it already cites Claude Security, skip. Also re-check `~/.claude/skills/` to confirm we still don't ship a project-level security-review skill (project audit on 2026-05-07 confirmed `skills/` has no such entry; `security-review` listed in the Claude Code skills list is a built-in).
 
 **Recommended verdict:** apply — small, low-risk README edit; reinforces the existing thesis with the freshest publicly available example.
-**Status:** PENDING — awaiting triage in PR review
+**Status:** APPLY — one-bullet README "Why Not Superpowers" addition; reinforces vendor-primitives-absorbing-harness-territory thesis with Claude Security beta · 2026-05-10
 
 ---
 
@@ -101,7 +101,7 @@ Tool-result compression can recover meaningful context budget on long sessions p
 **Verify before applying:** `cat .claude/settings.json` — if `hooks` is no longer `{}`, the maintainer has started using hooks for something else and the design space is no longer empty; rethink the suggestion. Also check `parking_lot.md` for an existing token-budget item before adding a duplicate.
 
 **Recommended verdict:** defer until token-budget pain is real — capability is genuinely new, but premature to wire up; park in `parking_lot.md` for traceability.
-**Status:** PENDING — awaiting triage in PR review
+**Status:** DEFERRED until token-budget pain is real — speculative hook fights the lean-over-heavy thesis; capability captured for future use · 2026-05-10
 
 ---
 
