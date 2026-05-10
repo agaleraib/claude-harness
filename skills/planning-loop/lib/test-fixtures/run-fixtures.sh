@@ -7,6 +7,8 @@
 #   - Auto-apply U     (1  — Codex bullet-shape parser regression)
 #   - Auto-apply V1–V7 (7  — v2 Wave 1 §4.1/§4.5/§4.6/§4.7 documentation)
 #   - Auto-apply W1–W2 (2  — v2 Wave 1 §4.3/§4.8 preflight-abort gate)
+#   - Auto-apply X     (1  — 2026-05-04 per-ID mixed-routing parser regression)
+#   - Auto-apply Y     (1  — 2026-05-09 [critical] severity parser regression)
 #   - emit-receipt-mechanical.sh — §4.5/§4.7/§4.8 mechanical assertions on
 #                                  skills/_shared/lib/emit-receipt.sh
 #
@@ -366,6 +368,14 @@ run_one W2 preflight-abort-readonly-state        preflight-abort
 # extracts per-finding routing and only requires both rulings for the
 # Fi tagged mixed.
 run_one X per-id-mixed-routing                   success
+
+# 2026-05-09 fix — [critical] severity captured by round-3 finding parser.
+# Pre-fix the regex `(low|medium|high)` silently dropped [critical] bullets
+# from EXPECTED_FINDING_IDS, causing verdict-id-mismatch abort on unanimous
+# rulings (reproduced in gobot agent-workflows-runner round 3 2026-05-08).
+# Fixture Y exercises [critical] as a load-bearing Shape A edit; pre-fix
+# would have aborted with verdict-id-mismatch, post-fix runs to success.
+run_one Y critical-severity                      success
 
 read -r PASS FAIL < "$COUNTER_FILE"
 rm -f "$COUNTER_FILE"
