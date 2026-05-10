@@ -9,6 +9,7 @@
 #   - Auto-apply W1–W2 (2  — v2 Wave 1 §4.3/§4.8 preflight-abort gate)
 #   - Auto-apply X     (1  — 2026-05-04 per-ID mixed-routing parser regression)
 #   - Auto-apply Y     (1  — 2026-05-09 [critical] severity parser regression)
+#   - Auto-apply Z     (1  — 2026-05-10 awk metachar section-name regression)
 #   - emit-receipt-mechanical.sh — §4.5/§4.7/§4.8 mechanical assertions on
 #                                  skills/_shared/lib/emit-receipt.sh
 #
@@ -376,6 +377,19 @@ run_one X per-id-mixed-routing                   success
 # Fixture Y exercises [critical] as a load-bearing Shape A edit; pre-fix
 # would have aborted with verdict-id-mismatch, post-fix runs to success.
 run_one Y critical-severity                      success
+
+# 2026-05-10 fix — H2 section-uniqueness probe matches metachar section names.
+# Pre-fix lib/auto-apply.sh:462,469 used `$0 ~ "^## "s"$"` (awk regex),
+# so a section named e.g. `Notes (advanced)` was parsed as the regex
+# `^## Notes (advanced)$` where `(advanced)` is a group — matching
+# "## Notes advanced" (no parens) but NOT "## Notes (advanced)".
+# section_count=0 → abort with validation-failure even though the section
+# exists verbatim in the spec. The Python re-validation path already used
+# `re.escape(section)`; the awk path was the asymmetric gap. Post-fix uses
+# literal-string equality (`$0 == "## " s`). Fixture Z exercises a section
+# named `Notes (advanced)` (parens as ERE group metachars); pre-fix would
+# have aborted, post-fix runs to success.
+run_one Z metachar-section                       success
 
 read -r PASS FAIL < "$COUNTER_FILE"
 rm -f "$COUNTER_FILE"

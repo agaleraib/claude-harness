@@ -458,15 +458,19 @@ for fid in "${EXPECTED[@]}"; do
     exit 1
   fi
 
-  # Resolve H2 section uniqueness.
-  section_count="$(awk -v s="$section" 'BEGIN{c=0} $0 ~ "^## "s"$" {c++} END{print c}' "$SPEC")"
+  # Resolve H2 section uniqueness. Use literal-string equality (`==`) instead
+  # of regex match (`~`) so section names containing regex metacharacters
+  # (e.g. `Open Questions (deferred)`, `Step 1.5: Plan`) are matched verbatim.
+  # The Python re-validation path already does `re.escape(section)`; this
+  # asymmetry was a latent gap surfaced 2026-05-10.
+  section_count="$(awk -v s="$section" 'BEGIN{c=0} $0 == "## " s {c++} END{print c}' "$SPEC")"
   if [[ "$section_count" != "1" ]]; then
     append_abort "validation-failure" "$fid" "$fid section \"$section\" matches $section_count times in spec"
     emit_outcome "menu-validation-failure"
     exit 1
   fi
   # Compute section body line range.
-  sec_start="$(awk -v s="$section" '$0 ~ "^## "s"$" {print NR; exit}' "$SPEC")"
+  sec_start="$(awk -v s="$section" '$0 == "## " s {print NR; exit}' "$SPEC")"
   sec_end="$(awk -v start="$sec_start" 'NR > start && /^## / {print NR-1; exit}' "$SPEC")"
   if [[ -z "$sec_end" ]]; then
     sec_end="$(wc -l < "$SPEC")"

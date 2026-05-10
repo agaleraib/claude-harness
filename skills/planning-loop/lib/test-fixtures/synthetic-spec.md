@@ -17,3 +17,7 @@ exactly once in the Constraints section.
 ## Open Questions
 
 - [Existing question] What happens on cold start?
+
+## Notes (advanced)
+
+- The DELTA-MARKER bullet is the unique anchor for fixture-Z metachar-section edits.
