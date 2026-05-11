@@ -78,6 +78,7 @@ case "$(printf '%s' "$ARGUMENTS" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]
     # Print usage block and exit.
     exit 0
     ;;
+  # No default arm: empty or non-help $ARGUMENTS must fall through to mode detection.
 esac
 
 # Pseudo-parse:

@@ -10,7 +10,40 @@ Execute a single wave of work from `docs/plan.md` by dispatching the orchestrato
 
 `plan.md` is a navigator-style index: each Wave block lists bullets, each bullet points at a vertical spec in `docs/specs/`, and bullets may cherry-pick only a subset of a spec's tasks (e.g. "V11 Task 1 + Task 2" while Tasks 3–4 belong to a later wave). This skill traverses that structure, builds a synthetic "wave spec" combining only the cherry-picked tasks, and hands it to the orchestrator inside a worktree — so the whole wave is one rollback-safe batch.
 
-The skill **ends at dispatch**. Running the wave's exit gate on master, merging, and branch cleanup belong to `/merge-wave` (or a manual sequence). This separation exists because exit-gate failure is a human judgment call — the skill should not auto-merge.
+The skill **ends at dispatch**. Running the wave's exit gate on master, merging, and branch cleanup belong to `/close-wave` (or a manual sequence). This separation exists because exit-gate failure is a human judgment call — the skill should not auto-merge.
+
+**First — handle `--help` / `-h` / `help`** before any other parsing or side effects. If `$ARGUMENTS` is exactly one of those tokens (whitespace-trimmed, case-insensitive), print the usage block below and **exit immediately**. Do NOT read `docs/plan.md`, do NOT create a worktree, do NOT dispatch the orchestrator, do NOT touch the working tree.
+
+```
+/run-wave — dispatch the orchestrator to execute a single wave from docs/plan.md in an isolated worktree.
+
+Usage:
+  /run-wave <N>          # dispatch Wave N
+  /run-wave              # prompts for the wave number
+  /run-wave --help       # print this and exit
+
+Behavior:
+  - Reads docs/plan.md and extracts the `### Wave N` block.
+  - Follows each bullet's spec link in docs/specs/, builds a synthetic
+    wave spec from only the cherry-picked sub-tasks, and pulls each
+    task's Verify block.
+  - Creates an isolated worktree at .claude/worktrees/agent-<id>/ and
+    dispatches the orchestrator with the wave's exit gate quoted verbatim.
+  - Ends at dispatch. Merging, exit-gate verification on master, and
+    branch cleanup are /close-wave's job.
+```
+
+```bash
+case "$(printf '%s' "$ARGUMENTS" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')" in
+  --help|-h|help)
+    # Print usage block and exit.
+    exit 0
+    ;;
+  # No default arm: empty or non-help $ARGUMENTS must fall through to the skill body.
+esac
+```
+
+After printing, return without further action.
 
 ## Step 1: Resolve the wave number
 

@@ -25,6 +25,37 @@ A wave can fall out of the happy path in three ways, each observed in real sessi
 ## Inputs
 - `$wave_number`: The wave to close. Used to find `docs/waves/wave$wave_number-*.md` and the `### Wave $wave_number` section in `docs/plan.md`.
 
+**First — handle `--help` / `-h` / `help`** before any other parsing or side effects. If `$ARGUMENTS` is exactly one of those tokens (whitespace-trimmed, case-insensitive), print the usage block below and **exit immediately**. Do NOT probe state, do NOT run a quality gate, do NOT merge, do NOT push, do NOT touch `docs/plan.md` or `docs/waves/`, do NOT write `.harness-state/`.
+
+```
+/close-wave — close a fully-shipped wave from an orchestrator worktree onto the current branch.
+
+Usage:
+  /close-wave <N>        # close Wave N
+  /close-wave --help     # print this and exit
+
+Behavior:
+  - State-probe → verify worktree → --no-ff merge → human TODOs → KB
+    upsert → tick docs/plan.md → push → final gate → receipt.
+  - Idempotent: re-invoking on a wave that's partially or fully closed
+    is safe; the skill probes current phase and skips done steps.
+  - Reads .harness-profile (optional): quality_gate.command,
+    protected_paths, deploy.command, deploy.live_path, kb.skill.
+  - Writes a receipt at .harness-state/wave<N>-closed.md.
+```
+
+```bash
+case "$(printf '%s' "$ARGUMENTS" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')" in
+  --help|-h|help)
+    # Print usage block and exit.
+    exit 0
+    ;;
+  # No default arm: empty or non-help $ARGUMENTS must fall through to the skill body.
+esac
+```
+
+After printing, return without further action.
+
 ## Done-definition (checked by Step 11 — ALL must hold before the receipt is written)
 1. Every `- [ ]` under `### Wave $wave_number` (legacy format) OR every task in the linked spec under the new four-section format is either `- [x]` (with commit hash) or explicitly `**Status: Deferred**`.
 2. **Closure annotation present** in one of two shapes:

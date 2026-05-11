@@ -11,6 +11,44 @@ Sweep `parking_lot.md`: classify each open item, archive stale ones, queue modes
 
 **Never auto-merges.** PRs are always `--draft`. Merging is a human decision.
 
+**First — handle `--help` / `-h` / `help`** before any other parsing or side effects. If `$ARGUMENTS` is exactly one of those tokens (whitespace-trimmed, case-insensitive), print the usage block below and **exit immediately**. Do NOT run pre-flight gates, do NOT read `parking_lot.md`, do NOT write `.harness-state/triage-log.md`, do NOT touch the working tree, do NOT open a PR.
+
+```
+/triage-parking — classify open parking_lot.md items; optionally open one draft PR for [auto-ok] items.
+
+Usage:
+  /triage-parking           # run the triage workflow
+  /triage-parking --help    # print this and exit
+
+Behavior:
+  - Reads parking_lot.md, classifies each open item (skip / archive /
+    substantive / modest / trivial-auto-ok).
+  - Archives stale items to ## Archived; appends [queued] markers to
+    modest items so future runs skip them.
+  - Opens at most ONE draft PR bundling items the user has tagged
+    [auto-ok]. Never auto-merges.
+  - Always appends a one-line entry to .harness-state/triage-log.md
+    (gate failures get a log line too).
+
+Pre-flight gates (all must pass or the skill exits 0 with a log line):
+  1. parking_lot.md exists at repo root.
+  2. .harness-profile has `triage_parking.enabled: true`.
+  3. Working tree is clean.
+  4. Current branch is the main branch.
+```
+
+```bash
+case "$(printf '%s' "$ARGUMENTS" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')" in
+  --help|-h|help)
+    # Print usage block and exit.
+    exit 0
+    ;;
+  # No default arm: empty or non-help $ARGUMENTS must fall through to the skill body.
+esac
+```
+
+After printing, return without further action.
+
 ## Step 0: Pre-flight gates (all must pass or exit cleanly)
 
 Run all four checks. If **any** gate fails, print the reason, append a single line to `.harness-state/triage-log.md` recording the no-op (see Step 5), and **exit 0**. Do not write anywhere else. Do not error.
