@@ -1,0 +1,23 @@
+# Wave 11 — CLOSED
+
+- **Closed:** 2026-05-13
+- **Merge commit:** `69dc82d`
+- **Reconcile commit:** `2852ec7`
+- **Post-merge fixes:** none
+- **Pushed to origin:** yes (origin/master = 2852ec7; bundled 2 pre-existing unrelated commits: df21691 + 4bbafc1)
+- **Deploy:** no deploy hook configured (claude-harness ships skills, not infra)
+- **Summary doc:** `docs/waves/wave11-memory-system-redesign-shared-root.md`
+- **Canonical receipts (in-repo):**
+  - `.harness-state/run-wave-11-2026-05-13T093022Z.yml` (status=success, op_id `59d08bc4…`)
+  - `.harness-state/close-wave-11-2026-05-13T095521Z.yml` (status=success, op_id `21e1f0b2…`)
+  - `.harness-state/shared-root-init-2026-05-13-memory-system-redesign-20260513T093431Z.yml` (status=success, op_id of the shared-root-init operation)
+  - `.harness-state/shared-root-init-2026-05-13-memory-system-redesign-20260513T093440Z.yml` (status=partial — kill-after-staging interruption-test audit, sandboxed HOME)
+- **Pre-trim MEMORY.md blob pinned:** `refs/blobs/wave11-memory-pretrim` → `049ea6936536ee030f036b4887c21cb23953ef7e` (29562 bytes; gc-immune via ref)
+- **Next wave opening:** Wave 12 — Memory system redesign — migration + `/memory-prune` skill (`docs/specs/2026-05-13-memory-system-redesign.md` Phase 2)
+- **Open items carried forward:**
+  - Open Q #10 from spec — protocol-extension question for command-subject `operation_id` in `docs/protocol/receipt-schema.md`; decide before `/new-cowork` ships in Wave 13.
+  - `feedback_gitignore_blocks_in_repo_receipts.md` written this session — future specs mandating in-repo `.harness-state/*.yml` artifacts should bake the gitignore allowlist Task into the spec itself.
+- **Deviations from spec (recorded in summary §Deviations):**
+  - `.gitignore` allowlist extension (3 patterns) was orchestrator scope creep — not in original spec Tasks. Spec text said "in-repo" but had no Task touching `.gitignore`.
+  - Two `shared-root-init-*` receipts present (success + partial) — both required by interruption-resistance acceptance criterion; kept both.
+  - MEMORY.md trim cut 82.7% (29562 → 5106 bytes); pre-trim copy at `~/.claude/memory/archive/index-2026-05-13.md`.

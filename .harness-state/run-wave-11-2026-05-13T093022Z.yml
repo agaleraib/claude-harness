@@ -1,0 +1,30 @@
+receipt_id: run-wave-11-2026-05-13T093022Z
+command: run-wave
+adapter: claude-code
+wave_id: "11"
+spec_path: docs/specs/2026-05-13-memory-system-redesign.md
+inputs:
+  - docs/plan.md
+  - docs/specs/2026-05-13-memory-system-redesign.md
+outputs:
+  - /Users/klorian/workspace/claude-harness/.claude/worktrees/agent-aa0c06eb4c817dcff
+  - .harness-state/orchestrator.log
+verification:
+  commands: []
+  results:
+    - cmd: "orchestrator dispatch"
+      exit_code: 0
+      summary: "Wave 11 dispatched; 2 commits on worktree-agent-aa0c06eb4c817dcff; 8/8 exit-gate checks PASS"
+started_at: "2026-05-13T093022Z"
+completed_at: "2026-05-13T094557Z"
+status: success
+operation_id: 59d08bc482fde220b51b1af0824849dd8e3f77e341ac16ff854d95f6350226db
+idempotency_key:
+  value: d702ba288a83625ef8b8d235b7ce5b9c1712432cf394f523d14acbb14cf8e8ad
+  trace:
+    command: run-wave
+    wave_id_or_spec_path: "11"
+    sorted_inputs:
+      - "docs/plan.md:ef7ce2b9015e96210ac195fbee35c6a3d17daa4b44f1f0525408a74fe223a257"
+      - "docs/specs/2026-05-13-memory-system-redesign.md:74a6b36e984464f736709ae2a3da93bcdb2cf5f19f72684eb62857916996615e"
+    input_content_digest: b0667b267c45fd302fe8eacd07fe1b8a88f01963def006be5c7237860ed5d2e9

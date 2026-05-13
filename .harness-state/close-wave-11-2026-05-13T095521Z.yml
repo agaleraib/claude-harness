@@ -1,0 +1,36 @@
+receipt_id: close-wave-11-2026-05-13T095521Z
+command: close-wave
+adapter: claude-code
+wave_id: "11"
+spec_path: docs/specs/2026-05-13-memory-system-redesign.md
+inputs:
+  - docs/plan.md
+  - docs/specs/2026-05-13-memory-system-redesign.md
+  - docs/waves/wave11-memory-system-redesign-shared-root.md
+outputs:
+  - docs/plan.md
+  - docs/waves/wave11-memory-system-redesign-shared-root.md
+verification:
+  commands: []
+  results:
+    - cmd: "git log --oneline -1 docs/plan.md"
+      exit_code: 0
+      summary: "plan.md tick visible in history (reconcile commit 2852ec7)"
+    - cmd: "git log --oneline origin/master..master"
+      exit_code: 0
+      summary: "pushed to origin (0 commits ahead)"
+started_at: "2026-05-13T095521Z"
+completed_at: "2026-05-13T095902Z"
+status: success
+merge_sha: 69dc82d
+operation_id: 21e1f0b24fa3cf2727027d389f2db4a692a9267f109c4ae4302cac8c01996ba3
+idempotency_key:
+  value: 16211bb2ea0d68de8382ed94e4ce775e6189b73f81c5ef349e5c0e964dd2b6fc
+  trace:
+    command: close-wave
+    wave_id_or_spec_path: "11"
+    sorted_inputs:
+      - "docs/plan.md:7d76a4153d75a5309da15d2e12811ef548bf2d15df4aeb9202eb42091b2ea5c8"
+      - "docs/specs/2026-05-13-memory-system-redesign.md:74a6b36e984464f736709ae2a3da93bcdb2cf5f19f72684eb62857916996615e"
+      - "docs/waves/wave11-memory-system-redesign-shared-root.md:e7e6395444c3e9d96cbb25b66ab372b573db4d700b87a15524e47bebab64121e"
+    input_content_digest: 5406611b35aca3ccc3f28de90b94e1a15a6f80e339a94e9bde031eaeca295467

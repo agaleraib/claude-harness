@@ -19,6 +19,15 @@
 # Wave-11 memory-trim journal — source_blob_sha for byte-exact rollback
 # per receipt-schema.md §"Recovery semantics" clause (b).
 !.harness-state/wave11-memory-trim.jsonl
+# /run-wave + /close-wave canonical §4.2-conformant receipts (Wave 1
+# Claude-adapter alignment) — required in-repo for cross-adapter
+# idempotency_key equality + audit-chain durability across machines.
+!.harness-state/run-wave-*.yml
+!.harness-state/close-wave-*.yml
+# /close-wave Step 12 human-readable closure receipt — pairs with the
+# §4.2 close-wave receipt; surfaced to future /close-wave invocations
+# via Step 0 RECEIPT_EXISTS probe (idempotency).
+!.harness-state/wave*-closed.md
 
 # /planning-loop side-path copy — ephemeral, written/deleted by the skill.
 # Pattern protects against accidental commit if a run is interrupted before
