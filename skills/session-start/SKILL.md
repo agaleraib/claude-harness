@@ -101,6 +101,23 @@ If >5: warn:
 
 > You have [N] open parking-lot items. Consider triaging before starting new work — either resolve them, promote one to today's goal, or accept and move on.
 
+## Step 6b: Memory-prune warning (non-blocking)
+
+Probe `~/.claude/memory/*.md` for over-cap files (5KB default; 1KB for `USER.md`). If any are over cap, print a one-line nudge — does NOT block, does NOT run `/memory-prune` for the user.
+
+```bash
+wc -c ~/.claude/memory/*.md 2>/dev/null | awk '$1 > 5120 || ($1 > 1024 && $2 ~ /USER\.md/) {print "  ⚠ " $2 " over cap (" $1 " bytes) — run /memory-prune"}'
+```
+
+If the command produces any output, print under `### Memory-prune`:
+
+```
+### Memory-prune
+  ⚠ /Users/.../FEEDBACK.md over cap (5238 bytes) — run /memory-prune
+```
+
+Skip silently if there's no output (all files under cap) or `~/.claude/memory/` doesn't exist (Wave 11 not run on this machine yet). Per spec `docs/specs/2026-05-13-memory-system-redesign.md` Phase 2 Task 5: the warning is informational, not gating — never refuses session-start.
+
 ## Step 7: Anthropic-reviews PRs awaiting triage (optional)
 
 Only runs if BOTH conditions hold:

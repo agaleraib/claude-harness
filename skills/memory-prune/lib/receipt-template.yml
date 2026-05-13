@@ -1,0 +1,31 @@
+# memory-prune canonical receipt template
+# Reference shape — the actual receipt is emitted by skills/_shared/lib/emit-receipt.sh,
+# which fills in `receipt_id`, `inputs`, `outputs`, `verification.results`,
+# `started_at`, `completed_at`, `status`, `operation_id`, and `idempotency_key`.
+#
+# Per docs/protocol/receipt-schema.md and docs/specs/2026-05-13-memory-system-redesign.md Phase 2.
+#
+# operation_id MUST be sha256_hex("memory-prune\n-") — pure-command form (no
+# command-subject extension; Q#10 parked).
+#
+# idempotency_key MUST be content-derived from sorted-inputs digest. NO timestamp.
+
+receipt_id: "memory-prune-<utc-iso>"
+command: "memory-prune"
+adapter: "claude-code"
+inputs: []
+outputs: []
+verification:
+  commands: []
+  results: []
+started_at: "<utc-iso>"
+completed_at: "<utc-iso>"
+status: "success"
+operation_id: "<sha256(memory-prune\\n-)>"
+idempotency_key:
+  value: "<sha256(memory-prune\\n-\\n<input-content-digest>)>"
+  trace:
+    command: "memory-prune"
+    wave_id_or_spec_path: "-"
+    sorted_inputs: []
+    input_content_digest: "<sha256-of-sorted-inputs-joined>"
