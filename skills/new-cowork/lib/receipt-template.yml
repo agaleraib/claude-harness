@@ -1,0 +1,99 @@
+# receipt-template.yml — canonical receipt shape for /new-cowork.
+#
+# Reference only. The actual receipt is written by skills/_shared/lib/emit-receipt.sh
+# (which populates every NORMATIVE field from docs/protocol/receipt-schema.md) plus a
+# small per-command appendix (11-step manifest + projects_md_blob_sha_before) written
+# by new-cowork.sh after the helper returns.
+#
+# Every field below is REQUIRED unless commented "optional".
+
+receipt_id: new-cowork-<area>-<project>-<utc-iso-filesafe>
+command: new-cowork
+adapter: claude-code
+# wave_id: null  # omitted — /new-cowork is not wave-scoped (Q9 in spec)
+# spec_path: docs/specs/2026-05-13-memory-system-redesign.md  # optional cross-reference
+inputs:
+  - <memory-root>/USER.md
+  - <memory-root>/FEEDBACK.md
+  - <memory-root>/PROJECTS.md
+  - skills/new-cowork/templates/CLAUDE.md.tmpl
+  - skills/new-cowork/templates/_charter.md.tmpl
+  - skills/new-cowork/templates/_automations.md.tmpl
+  - skills/new-cowork/templates/desktop-knowledge-README.md.tmpl
+  - skills/new-cowork/templates/mcp-config-snippet.json.tmpl
+outputs:
+  - <root>/<area>/<project>/CLAUDE.md
+  - <root>/<area>/<project>/_charter.md
+  - <root>/<area>/<project>/_automations.md
+  - <root>/<area>/<project>/.claude/desktop-knowledge/README.md
+  - <root>/<area>/<project>/.claude/desktop-knowledge/USER.md
+  - <root>/<area>/<project>/.claude/desktop-knowledge/FEEDBACK.md
+  - <root>/<area>/<project>/.claude/desktop-knowledge/workspace-CLAUDE.md
+  - <root>/<area>/<project>/.claude/desktop-knowledge/mcp-config-snippet.json
+  - <memory-root>/PROJECTS.md           # row appended; pre-edit bytes captured via git hash-object -w
+  - <receipt-root>/new-cowork.jsonl     # journal — append-only
+verification:
+  commands: []
+  results:
+    - cmd: "new-cowork <area> <project>"
+      exit_code: 0
+      summary: "scaffolded <area>/<project>; bundle written; PROJECTS.md row appended"
+started_at: "<iso-utc>"
+completed_at: "<iso-utc>"
+status: success
+operation_id: <sha256_hex("new-cowork\n<area>/<project>")>
+idempotency_key:
+  value: <sha256_hex("new-cowork\n<area>/<project>\n<input-content-digest>")>
+  trace:
+    command: new-cowork
+    wave_id_or_spec_path: "<area>/<project>"
+    sorted_inputs:
+      - "<path>:<sha256-of-bytes>"   # repeated, lex-sorted
+    input_content_digest: <sha256_hex>
+    # stage_a_exempt: MUST be absent or false — /new-cowork mutates state.
+
+# Per-command appendix (post-emit-receipt-write, appended by new-cowork.sh):
+scaffold_path: <root>/<area>/<project>
+projects_md_blob_sha_before: <40-hex-git-blob-sha>
+manifest:
+  - step: 1
+    action: "refuse-on-existing check"
+    target: <root>/<area>/<project>
+  - step: 2
+    action: "mkdir -p"
+    target: <root>/<area>/<project>/.claude/desktop-knowledge/
+  - step: 3
+    action: "render template"
+    source: skills/new-cowork/templates/CLAUDE.md.tmpl
+    target: <root>/<area>/<project>/CLAUDE.md
+  - step: 4
+    action: "render template"
+    source: skills/new-cowork/templates/_charter.md.tmpl
+    target: <root>/<area>/<project>/_charter.md
+  - step: 5
+    action: "render template"
+    source: skills/new-cowork/templates/_automations.md.tmpl
+    target: <root>/<area>/<project>/_automations.md
+  - step: 6
+    action: "render template"
+    source: skills/new-cowork/templates/desktop-knowledge-README.md.tmpl
+    target: <root>/<area>/<project>/.claude/desktop-knowledge/README.md
+  - step: 7
+    action: "symlink"
+    source: <memory-root>/USER.md
+    target: <root>/<area>/<project>/.claude/desktop-knowledge/USER.md
+  - step: 8
+    action: "symlink"
+    source: <memory-root>/FEEDBACK.md
+    target: <root>/<area>/<project>/.claude/desktop-knowledge/FEEDBACK.md
+  - step: 9
+    action: "copy"
+    source: <root>/<area>/<project>/CLAUDE.md
+    target: <root>/<area>/<project>/.claude/desktop-knowledge/workspace-CLAUDE.md
+  - step: 10
+    action: "render template"
+    source: skills/new-cowork/templates/mcp-config-snippet.json.tmpl
+    target: <root>/<area>/<project>/.claude/desktop-knowledge/mcp-config-snippet.json
+  - step: 11
+    action: "PROJECTS.md row append + journal line write + canonical receipt write"
+    target: <memory-root>/PROJECTS.md, <receipt-root>/new-cowork.jsonl, <receipt-root>/new-cowork-<area>-<project>-<utc-iso>.yml

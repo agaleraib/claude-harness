@@ -1,0 +1,31 @@
+# CLAUDE.md — {{PROJECT}} ({{AREA}})
+
+> Cowork project scaffolded by `/new-cowork {{AREA}} {{PROJECT}}` on {{TODAY}}.
+> The shared user-global memory at `~/.claude/memory/` is the cross-surface source of truth.
+
+## Persona
+
+You are an operator working on `{{PROJECT}}` in the `{{AREA}}` area. The scope of this folder is bounded — see `_charter.md` for `kind` (project / domain / engagement), open date, and target close date.
+
+## Scope
+
+- Files under `~/cowork/{{AREA}}/{{PROJECT}}/` are in-scope.
+- The shared memory root at `~/.claude/memory/` is read-only from this session (mutation is the operator's job, via `/memory-prune` or hand-edit).
+- Anything outside this project root and outside `~/.claude/memory/` is out-of-scope unless the operator explicitly references it.
+
+## Permissions
+
+- **No `bun test` / `npm test` / `pytest` etc.** This is not a code project (yet). If it grows into one, the operator updates this file.
+- **No deploy permissions.** This folder is not wired to any production system.
+- **No automated commits.** Operator commits manually when they want a checkpoint.
+
+## Conventions
+
+- `_charter.md` carries lifecycle state (`kind`, `opened_at`, `closes_at`, open questions). Operator-owned.
+- `_automations.md` registers any crons / workflows / watches the operator sets up against this project (owned by gobot Phase 2+ when shipped).
+- Numbered phase folders (`00-inbox/`, `01-research/`, …) are **NOT** scaffolded by `/new-cowork`. They earn their way in per gobot pivot §2 "Phase 0 reality".
+- Domain glossary (if the project develops opinionated vocabulary): `CONTEXT.md` at the project root, format per `mattpocock-skills-verdict`.
+
+## Cross-surface
+
+The `.claude/desktop-knowledge/` bundle inside this project exposes a 5-file shape (README, USER.md symlink, FEEDBACK.md symlink, workspace-CLAUDE.md copy, mcp-config-snippet.json) for one-time drag into Claude Desktop / claude.ai Project Knowledge. See `.claude/desktop-knowledge/README.md` for the operator drag instructions.

@@ -52,6 +52,14 @@ Promotion from per-tool auto-memory into the shared root is **move + frontmatter
 
 Domain glossaries that a project develops live in `<project-root>/CONTEXT.md`. The format conventions (one-sentence definitions, `_Avoid_:` alias list, relationship lines, flagged ambiguities, ≤5KB before splitting into `CONTEXT-MAP.md`) are documented in the `mattpocock-skills-verdict` memory; AGENTS.md is not the format spec.
 
+## Cross-surface consumption
+
+The **data layer** is portable markdown. Anything with filesystem access — Claude Code, Claude Desktop with the Filesystem MCP wired, claude.ai web with a remote-MCP bridge, plain `cat` from a terminal — reads the shared user-global root at `~/.claude/memory/*` and each project's `CLAUDE.md` directly. No format is tool-specific; no piece of state is gated behind a runtime API. The 5-question portability test from spec §2.3 of `docs/specs/2026-04-30-universal-harness-protocol-v2.md` holds because the answers live in files on disk, not in a session's working memory.
+
+The **auto-load layer** is Claude-Code-specific and stays Claude-Code-specific. Claude Code session-start injection reads per-cwd `MEMORY.md`, project `CLAUDE.md`, and the shared root via a hook the other surfaces do not run. Claude Desktop and claude.ai reach the same data layer through one of two paths: (a) the Filesystem MCP exposing `~/.claude/memory/` + the project root as Project Knowledge sources (Desktop only — requires manual MCP config); or (b) a one-time UI drag of the project's `.claude/desktop-knowledge/` bundle into Project Knowledge (Desktop and web). Both paths produce read access to the same bytes Claude Code sees; neither replaces Claude Code's auto-load hook.
+
+The `.claude/desktop-knowledge/` bundle scaffolded by `/new-cowork` inside each cowork project is the explicit cross-surface bridge. It contains exactly 5 files: `README.md` (operator drag instructions + caveats), `USER.md` (symlink → `~/.claude/memory/USER.md`), `FEEDBACK.md` (symlink → `~/.claude/memory/FEEDBACK.md`), `workspace-CLAUDE.md` (copy of the project's own `CLAUDE.md` — Desktop symlink-following is unreliable for the persona file), and `mcp-config-snippet.json` (filesystem-MCP allowlist scoping Desktop to the project + memory root). There is **no programmatic Project-creation API** for Claude Desktop or claude.ai as of 2026-05-13, so initial Project setup is irreducibly a one-time operator UI drag. Refresh cadence varies by surface: live via MCP for Filesystem-wired Desktop; re-drag-after-edit for upload-only flows. See `skills/new-cowork/templates/desktop-knowledge-README.md.tmpl` for the operator instructions that ship in each scaffolded project.
+
 ## How to discover next action
 
 Use the 5-question portability test from spec §2.3 of `docs/specs/2026-04-30-universal-harness-protocol-v2.md`:
