@@ -1,0 +1,42 @@
+receipt_id: wave-migrate-2026-05-13-memory-system-redesign-2026-05-13T104637Z
+command: wave-migrate
+adapter: claude-code
+spec_path: docs/specs/2026-05-13-memory-system-redesign.md
+inputs:
+  - docs/specs/2026-05-13-memory-system-redesign-migration.md
+  - .harness-state/wave12-migration.jsonl
+outputs:
+  - ~/.claude/memory/feedback/
+  - ~/.claude/memory/archive/
+  - .harness-state/wave12-migration.jsonl
+verification:
+  commands: []
+  results:
+    - cmd: "promote-row-dest-exists"
+      exit_code: 0
+      summary: "all 54 promote dest_paths exist with originCwd frontmatter"
+    - cmd: "archive-row-dest-exists"
+      exit_code: 0
+      summary: "all 3 archive dest_paths exist; sources removed"
+    - cmd: "keep-row-source-preserved"
+      exit_code: 0
+      summary: "all 205 keep-row source_paths still exist"
+    - cmd: "journal-length"
+      exit_code: 0
+      summary: "262 lines in .harness-state/wave12-migration.jsonl (54 promote + 3 archive + 205 keep)"
+    - cmd: "blob-roundtrip"
+      exit_code: 0
+      summary: "git cat-file -e succeeded for all 57 non-keep source_blob_sha values"
+started_at: "2026-05-13T104637Z"
+completed_at: "2026-05-13T104637Z"
+status: success
+operation_id: ddf52e25549c8246ed8684dc7cb1f495b0bb97e2061643a20904744817e1c14f
+idempotency_key:
+  value: 7e0e452a3c24f3da7c5d22d8c019afc35a9cb9e0b65ae7a07cb4d89684d0a593
+  trace:
+    command: wave-migrate
+    wave_id_or_spec_path: "2026-05-13-memory-system-redesign"
+    sorted_inputs:
+      - ".harness-state/wave12-migration.jsonl:b796b0273e10cf240be0a505de19165b7ec50ea71706a7f181a58996caebc68c"
+      - "docs/specs/2026-05-13-memory-system-redesign-migration.md:c8118e8e83f75b8706d247989cecc1310b1fcc5ee94f01dae0cbaa52eb1af665"
+    input_content_digest: f35a928f49ee19e771cd19a494cd3c3a61b636bfcfe8457cf5742d332a2c314d

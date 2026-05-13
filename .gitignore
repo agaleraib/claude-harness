@@ -19,6 +19,14 @@
 # Wave-11 memory-trim journal — source_blob_sha for byte-exact rollback
 # per receipt-schema.md §"Recovery semantics" clause (b).
 !.harness-state/wave11-memory-trim.jsonl
+# Wave-12 migration: canonical receipt + journal (per-file source_blob_sha
+# for 2-week pruneExpire-window rollback per spec Task 2).
+!.harness-state/wave-migrate-*.yml
+!.harness-state/wave12-migration.jsonl
+# /memory-prune ongoing cap-management receipts + journal — same audit-trail
+# discipline as wave-migrate (per spec Task 4).
+!.harness-state/memory-prune-*.yml
+!.harness-state/memory-prune.jsonl
 # /run-wave + /close-wave canonical §4.2-conformant receipts (Wave 1
 # Claude-adapter alignment) — required in-repo for cross-adapter
 # idempotency_key equality + audit-chain durability across machines.
