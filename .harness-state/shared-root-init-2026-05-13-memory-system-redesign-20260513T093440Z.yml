@@ -1,0 +1,41 @@
+# Canonical receipt — per docs/protocol/receipt-schema.md.
+# Written BEFORE the atomic rename per Codex round-2 finding [medium]
+# (atomic-root guarantee) — durable on disk regardless of any kill -9 after this point.
+
+receipt_id: "shared-root-init-2026-05-13-memory-system-redesign-20260513T093440Z"
+command: "shared-root-init"
+adapter: "claude-code"
+wave_id: null
+spec_path: "docs/specs/2026-05-13-memory-system-redesign.md"
+inputs:
+  - "skills/shared-root-init/lib/init.sh"
+outputs:
+  - "~/.claude/memory/USER.md"
+  - "~/.claude/memory/FEEDBACK.md"
+  - "~/.claude/memory/REFERENCES.md"
+  - "~/.claude/memory/PROJECTS.md"
+  - "~/.claude/memory/archive/"
+  - "~/.claude/memory/feedback/"
+verification:
+  commands:
+    - "test -d ~/.claude/memory && test -d ~/.claude/memory/archive && test -d ~/.claude/memory/feedback"
+    - "test -f ~/.claude/memory/USER.md && test -f ~/.claude/memory/FEEDBACK.md"
+    - "test -f ~/.claude/memory/REFERENCES.md && test -f ~/.claude/memory/PROJECTS.md"
+    - "awk 'length > 150 {print FILENAME\":\"NR; exit 1}' ~/.claude/memory/*.md"
+  results: []
+started_at: "2026-05-13T09:34:40Z"
+completed_at: null
+status: partial
+idempotency_key:
+  value: "9651304741c6a48cbfb2c713bca7851431e33f5c8936d1306d3696cf5fc6c6fd"
+  trace:
+    command: "shared-root-init"
+    wave_id_or_spec_path: "2026-05-13-memory-system-redesign"
+    sorted_inputs:
+      - "staging/FEEDBACK.md"
+      - "staging/PROJECTS.md"
+      - "staging/REFERENCES.md"
+      - "staging/USER.md"
+    input_content_digest: "3380e4b16dc9a98db07b156e8095515f51221f4964248a651af115023ed4d190"
+operation_id: "7d0759b7f23adb5a9814cf52d6eef234eecfaa0843f70932831c352f8371d184"
+notes: "Atomic-root staging dir: /var/folders/vw/2xcjdg4x61v46cpm4x4lgqz80000gp/T/tmp.eLDEJAYSOQ/.claude/.staging-shared-root-20260513T093440Z; rename pending."

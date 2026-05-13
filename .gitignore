@@ -10,6 +10,15 @@
 !.harness-state/examples/
 !.harness-state/examples/**
 !.harness-state/wave*-verification.md
+# Wave-11 shared-root-init: canonical receipts + journal must persist in-repo
+# (spec docs/specs/2026-05-13-memory-system-redesign.md Task 1 — receipt is
+# the durable audit trail BEFORE the atomic rename, journal records every
+# rename attempt including refusals).
+!.harness-state/shared-root-init-*.yml
+!.harness-state/shared-root-init.jsonl
+# Wave-11 memory-trim journal — source_blob_sha for byte-exact rollback
+# per receipt-schema.md §"Recovery semantics" clause (b).
+!.harness-state/wave11-memory-trim.jsonl
 
 # /planning-loop side-path copy — ephemeral, written/deleted by the skill.
 # Pattern protects against accidental commit if a run is interrupted before
