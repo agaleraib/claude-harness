@@ -14,7 +14,25 @@ Navigator-style active board. Per v2 §6, the file has exactly four sections —
 
 ## Now
 
-(none active)
+### Wave 11 - Memory system redesign — shared root + AGENTS.md + CLAUDE.md
+- spec: docs/specs/2026-05-13-memory-system-redesign.md
+- status: ready
+- exit gate: `~/.claude/memory/` exists with USER.md/FEEDBACK.md/REFERENCES.md/PROJECTS.md/archive/**/feedback/** (NEW-3: feedback/ subdir is mandatory — Wave 12 promotion writes into it); canonical receipt at `.harness-state/shared-root-init-<utc-iso>.yml` present BEFORE the atomic staging-rename (per Codex round-2 finding [medium] on atomic-root guarantee); journal `.harness-state/shared-root-init.jsonl` records the staging-dir → target rename; refuse-on-partial-existing target verified (rerun with existing partial target aborts with `diff -r` output, no mutation); AGENTS.md `## Memory` section present; CLAUDE.md per-cwd override present; current per-cwd `MEMORY.md` ≤5KB; no line in `~/.claude/memory/*.md` exceeds 150 chars
+
+### Wave 12 - Memory system redesign — migration + /memory-prune skill
+- spec: docs/specs/2026-05-13-memory-system-redesign.md
+- status: ready
+- exit gate: Migration manifest committed at `docs/specs/2026-05-13-memory-system-redesign-migration.md`; promoted feedback files exist at `~/.claude/memory/feedback/<slug>.md` with `originCwd:` frontmatter; archived files at `~/.claude/memory/archive/`; `skills/memory-prune/SKILL.md` + `lib/prune.sh` exist; dry-run and `--apply` both verified against fixture
+
+### Wave 13 - Memory system redesign — /new-cowork skill + Cross-surface section
+- spec: docs/specs/2026-05-13-memory-system-redesign.md
+- status: ready
+- exit gate: `skills/new-cowork/SKILL.md` + `lib/new-cowork.sh` + templates exist; sandbox invocation produces folder with `CLAUDE.md` + `_charter.md` + `_automations.md` + `.claude/desktop-knowledge/{README.md,USER.md→symlink,FEEDBACK.md→symlink,workspace-CLAUDE.md,mcp-config-snippet.json}`; AGENTS.md `## Cross-surface consumption` section present; WORKFLOW.md has rows for `/memory-prune` and `/new-cowork` with no `<deferred>` placeholders
+
+### Wave 14 - Memory system redesign — gobot pivot cascade
+- spec: docs/specs/2026-05-13-memory-system-redesign.md
+- status: ready
+- exit gate: `gobot/docs/specs/2026-05-11-pivot-to-workspace-as-context.md` edited per Task 14; `grep -rn 'gobot-workspaces' gobot/docs/` returns zero hits; `grep -rn 'state_json\.workspace\|workspace_scope\|writeWorkspaceArtifact\|/new-workspace' gobot/docs/specs/2026-05-11*` returns zero hits; `grep -rn '_charter\.md\.kind' gobot/docs/specs/2026-05-11*` returns ≥1 hit (retained); single atomic commit
 
 ## Next
 
