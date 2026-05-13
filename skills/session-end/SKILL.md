@@ -126,6 +126,23 @@ rm -f .harness-state/session_start_commit
 # Keep: last_exit.md (read by next session-start)
 ```
 
+## Step 9b: Memory-prune nudge (non-blocking)
+
+Same probe as `/session-start` Step 6b — surfaces over-cap files at session close so the operator can run `/memory-prune` between sessions if desired. Informational only; never blocks close.
+
+```bash
+wc -c ~/.claude/memory/*.md 2>/dev/null | awk '$1 > 5120 || ($1 > 1024 && $2 ~ /USER\.md/) {print "  ⚠ " $2 " over cap (" $1 " bytes) — run /memory-prune"}'
+```
+
+If the command produces any output, print under `### Memory-prune`:
+
+```
+### Memory-prune
+  ⚠ /Users/.../FEEDBACK.md over cap (5238 bytes) — run /memory-prune
+```
+
+Skip silently if there's no output. Per spec `docs/specs/2026-05-13-memory-system-redesign.md` Phase 2 Task 5: surfaced at session-end is a soft nudge to fold pruning into the close ritual — never gates.
+
 ## Step 10: Close
 
 ```
