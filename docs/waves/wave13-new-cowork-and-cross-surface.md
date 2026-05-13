@@ -17,10 +17,26 @@ Maps 1:1 to Phase 3 of `docs/specs/2026-05-13-memory-system-redesign.md` and con
 |---|---|---|---|
 | 1 | `d9a0b9d` | feat(new-cowork): ship /new-cowork skill (Wave 13 Task 1 / spec Task 11) | `skills/new-cowork/SKILL.md`, `skills/new-cowork/lib/new-cowork.sh`, `skills/new-cowork/lib/receipt-template.yml`, `skills/new-cowork/templates/CLAUDE.md.tmpl`, `skills/new-cowork/templates/_charter.md.tmpl`, `skills/new-cowork/templates/_automations.md.tmpl`, `skills/new-cowork/templates/desktop-knowledge-README.md.tmpl`, `skills/new-cowork/templates/mcp-config-snippet.json.tmpl` (8 files, +762) |
 | 2 | `c8ef6aa` | docs(agents): add ## Cross-surface consumption section (Wave 13 Task 2 / spec Task 12) | `AGENTS.md` (+8 lines, 3 new paragraphs) |
-| 3 | (this commit) | feat(workflow): add /memory-prune + /new-cowork rows to WORKFLOW.md + wave 13 summary | `WORKFLOW.md`, `docs/waves/wave13-new-cowork-and-cross-surface.md` |
+| 3 | `92108c8` | feat(workflow): add /memory-prune + /new-cowork rows to WORKFLOW.md + wave 13 summary | `WORKFLOW.md`, `docs/waves/wave13-new-cowork-and-cross-surface.md` |
+| 4 | `95f02e7` | fix(new-cowork): close 4 Codex review findings on lib/new-cowork.sh (P1 path-escape + 3 P2s) | `skills/new-cowork/lib/new-cowork.sh` (+100/-23) |
 
 Worktree: `/Users/klorian/workspace/claude-harness/.claude/worktrees/agent-a8d11c30c397b8aa3`
 Branch: `worktree-agent-a8d11c30c397b8aa3`
+
+## §Codex Review (close-wave 3rd gate, 2026-05-13)
+
+Ran `/codex:review --base master --scope branch` between `/run-wave 13` and `/close-wave 13` per `feedback_codex_review_between_run_and_close` (meta-tooling wave: touches `AGENTS.md`, `WORKFLOW.md`, `skills/new-cowork/`). Codex BG job `ba1ke7khj` returned 1 P1 blocker + 3 P2s, all on `lib/new-cowork.sh`. Operator chose "fix in worktree before merging"; all 4 closed in commit `95f02e7`.
+
+| # | Severity | Site (pre-fix) | Issue | Resolution |
+|---|---|---|---|---|
+| 1 | **P1** | `lib/new-cowork.sh:140-144` | Scaffold path escape via intermediate symlinks: when `<root>/<area>` was a symlink to outside the cowork root, the prefix check passed but `mkdir -p` followed the symlink and wrote the scaffold outside root. Two root causes: (a) the area component was never canonicalized; (b) bare `pwd` is logical (`-L`) and preserves symlink names. | Canonicalize both `$ROOT` and `$ROOT/$AREA` via `pwd -P` (physical); prefix-check `AREA_REAL/` against `ROOT_REAL/`; build `SCAFFOLD_PATH` from the resolved area. Regression test: symlink-escape now exits 2 with verbatim spec message before any mutation. |
+| 2 | P2 | `lib/new-cowork.sh:315-318` | Outside-repo rollback handle unusable: when invoked from a non-git directory, the fallback stored a plain SHA-256 in `projects_md_blob_sha_before`, but receipt template + workflow + rollback all required a git blob ref usable with `git cat-file -p`. | Split into two distinct journal/receipt fields: `projects_md_blob_sha_before` (in-repo git blob) vs `projects_md_backup_path` (outside-repo file copy under `<receipt-root>/blobs/<sha>`). Consumers select rollback strategy by which field is present. |
+| 3 | P2 | `lib/new-cowork.sh:222` | `emit_receipt_started` return code ignored: if reservation failed (atomic-write loss, disk full), the script proceeded to mutate state without a reserved audit record or installed EXIT trap, breaking reserve-before-mutate. | Check return; abort with exit 2 before any mutation if reservation fails. |
+| 4 | P2 | `lib/new-cowork.sh:371` | `emit_receipt_terminal` return code ignored: on terminal-write failure the script printed success and exited 0 even though the trap was about to mark the receipt aborted-on-ambiguity, leaving scaffold + PROJECTS.md mutated with no success receipt. | Check return; on failure, roll back PROJECTS.md (via whichever backup branch applied) + `rm -rf` the scaffold, then exit 2. The EXIT trap takes care of marking the receipt aborted. |
+
+**Sandbox verify after fix:** 23/23 exit gate still passes (re-ran in worktree post-commit). New regression case (symlink-escape fixture) now refuses before any mutation; within-root symlink (allowed pattern) still scaffolds at the resolved real path. See `lib/new-cowork.sh` commit `95f02e7` for the inlined regression rationale.
+
+**Pattern reinforced:** `feedback_codex_review_between_run_and_close` says meta-tooling waves benefit from a Codex pass between `/run-wave` and `/close-wave`. Wave 9 caught 3 BLOCKERs; Wave 13 caught 1 P1 + 3 P2. This is now N=2 for the pattern. If a hard gate is added later, it should trigger on the same META_PATHS set defined in `skills/close-wave/SKILL.md` Step 2.5.
 
 ## §Wave 13 Exit Gate Results
 
