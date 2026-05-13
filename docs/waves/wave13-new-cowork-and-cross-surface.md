@@ -2,8 +2,8 @@
 wave_number: 13
 slug: new-cowork-and-cross-surface
 spec_path: docs/specs/2026-05-13-memory-system-redesign.md
-merge_sha: ""
-closed_at: ""
+merge_sha: cd59e10
+closed_at: 2026-05-13
 ---
 
 # Wave 13 — Memory system redesign: /new-cowork skill + Cross-surface section

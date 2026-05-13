@@ -14,11 +14,6 @@ Navigator-style active board. Per v2 §6, the file has exactly four sections —
 
 ## Now
 
-### Wave 13 - Memory system redesign — /new-cowork skill + Cross-surface section
-- spec: docs/specs/2026-05-13-memory-system-redesign.md
-- status: ready
-- exit gate: `skills/new-cowork/SKILL.md` + `lib/new-cowork.sh` + templates exist; sandbox invocation produces folder with `CLAUDE.md` + `_charter.md` + `_automations.md` + `.claude/desktop-knowledge/{README.md,USER.md→symlink,FEEDBACK.md→symlink,workspace-CLAUDE.md,mcp-config-snippet.json}`; AGENTS.md `## Cross-surface consumption` section present; WORKFLOW.md has rows for `/memory-prune` and `/new-cowork` with no `<deferred>` placeholders
-
 ### Wave 14 - Memory system redesign — gobot pivot cascade
 - spec: docs/specs/2026-05-13-memory-system-redesign.md
 - status: ready
@@ -34,6 +29,7 @@ Navigator-style active board. Per v2 §6, the file has exactly four sections —
 
 ## Recently Shipped
 
+- [x] Wave 13 - Memory system redesign — /new-cowork skill + Cross-surface section + WORKFLOW rows -> docs/waves/wave13-new-cowork-and-cross-surface.md (cd59e10)
 - [x] Wave 12 - Memory system redesign — migration + /memory-prune skill (54 promote / 3 archive / 205 keep) -> docs/waves/wave12-memory-system-migration-and-prune.md (be8a393)
 - [x] Wave 11 - Memory system redesign — shared root + AGENTS/CLAUDE memory section + MEMORY.md trim -> docs/waves/wave11-memory-system-redesign-shared-root.md (69dc82d)
 - [x] Wave 10 - Plan maintenance, docs/waves/ archive, registry, and /harness-status (v2 Wave 2) -> docs/waves/wave10-plan-registry-maintenance.md (a113829)
