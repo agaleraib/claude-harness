@@ -133,19 +133,43 @@ SKILL_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 TEMPLATES_DIR="$SKILL_DIR/templates"
 
 # ---------- resolve scaffold path + escape check ----------
-SCAFFOLD_PATH="$ROOT/$AREA/$PROJECT"
-
-# Realpath check — ensure resolved path stays under ROOT.
-# macOS lacks `realpath -m` (no --canonicalize-missing); use python for portability.
-ROOT_REAL="$(cd "$ROOT" 2>/dev/null && pwd || echo "$ROOT")"
+# Defense against intermediate-symlink escape: if <root>/<area> already exists
+# as a symlink (or any path), canonicalize it via `pwd -P` (physical, follows
+# symlinks) and ensure the resolved location is still prefix-matched by the
+# physical ROOT_REAL. Bash's default `pwd` is logical (`-L`) and preserves the
+# symlink name — using bare `pwd` here would let `mkdir -p` later follow the
+# symlink and write the scaffold outside the configured cowork root.
 mkdir -p "$ROOT" 2>/dev/null
-ROOT_REAL="$(cd "$ROOT" && pwd)"
-# For the scaffold path (which doesn't exist yet), build it from ROOT_REAL + components.
-SCAFFOLD_REAL="$ROOT_REAL/$AREA/$PROJECT"
-case "$SCAFFOLD_REAL" in
+ROOT_REAL="$(cd "$ROOT" && pwd -P)"
+
+AREA_PATH="$ROOT_REAL/$AREA"
+if [ -e "$AREA_PATH" ] || [ -L "$AREA_PATH" ]; then
+  # `pwd -P` returns the physical path with all symlinks resolved.
+  AREA_REAL="$(cd "$AREA_PATH" 2>/dev/null && pwd -P || echo "")"
+  if [ -z "$AREA_REAL" ]; then
+    echo "✗ area path $AREA_PATH exists but cannot be canonicalized" >&2
+    exit 2
+  fi
+  case "$AREA_REAL/" in
+    "$ROOT_REAL"/*) : ;;
+    *)
+      echo "✗ scaffold path escapes cowork root: area '$AREA' resolves to $AREA_REAL which is not under $ROOT_REAL" >&2
+      exit 2
+      ;;
+  esac
+  # Build SCAFFOLD from the physical area path so subsequent mkdir operations
+  # stay inside ROOT_REAL even if AREA_PATH itself is a within-root symlink.
+  SCAFFOLD_PATH="$AREA_REAL/$PROJECT"
+else
+  # Area doesn't exist yet — construct under ROOT_REAL.
+  SCAFFOLD_PATH="$ROOT_REAL/$AREA/$PROJECT"
+fi
+
+# Final belt-and-braces prefix check.
+case "$SCAFFOLD_PATH/" in
   "$ROOT_REAL"/*) : ;;
   *)
-    echo "✗ scaffold path escapes cowork root: $SCAFFOLD_REAL not under $ROOT_REAL" >&2
+    echo "✗ scaffold path escapes cowork root: $SCAFFOLD_PATH not under $ROOT_REAL" >&2
     exit 2
     ;;
 esac
@@ -219,7 +243,16 @@ if [ -e "$SCAFFOLD_PATH" ]; then
   exit 1
 fi
 
-emit_receipt_started
+# Reserve-before-mutate guarantee: if the started receipt cannot be written
+# (atomic-write loss, disk full, ENOSPC, EROFS, etc.) we MUST stop before any
+# filesystem mutation. The helper installs an EXIT trap during a successful
+# `emit_receipt_started`; if the call fails, no trap is in place and no
+# audit record exists for an in-progress run — proceeding would mutate state
+# silently.
+emit_receipt_started || {
+  echo "✗ failed to reserve started receipt; refusing to mutate state" >&2
+  exit 2
+}
 
 # Set TRAP_CAUSE default; on success path we replace it before exit.
 export EMIT_RECEIPT__TRAP_CAUSE="aborted-on-ambiguity"
@@ -305,18 +338,28 @@ if grep -q "^| $PROJECT " "$PROJECTS_MD"; then
   rollback_scaffold; exit 2
 fi
 
-# Capture pre-edit bytes via git hash-object -w. This writes into the local git
-# object store (current cwd's repo). If we're outside a repo, fall back to
-# RECEIPT_ROOT/blobs/<sha> for the byte-exact backup.
+# Capture pre-edit bytes for byte-exact rollback. Two distinct strategies:
+#  (a) In-repo invocation: `git hash-object -w` writes the bytes into the
+#      calling repo's local git object store; rollback is
+#      `git cat-file -p <sha> > PROJECTS.md`. Recorded as
+#      `projects_md_blob_sha_before` (the spec's documented field name).
+#  (b) Outside-repo invocation (e.g. cwd=~): no git object store available.
+#      Fall back to a plain file copy under `<receipt-root>/blobs/<sha256>`.
+#      Recorded under a DIFFERENT field name (`projects_md_backup_path`) so
+#      consumers don't try `git cat-file -p` on a non-blob SHA — the previous
+#      shape silently emitted a hash that looked like a git blob ref but
+#      wasn't usable as one (caught by Codex P2 review).
 BLOB_SHA=""
+BACKUP_PATH=""
 if git rev-parse --show-toplevel >/dev/null 2>&1; then
   BLOB_SHA="$(git hash-object -w "$PROJECTS_MD" 2>/dev/null || true)"
 fi
 if [ -z "$BLOB_SHA" ]; then
   mkdir -p "$RECEIPT_ROOT/blobs" 2>/dev/null
-  BLOB_SHA="$(sha256_file "$PROJECTS_MD")"
-  cp "$PROJECTS_MD" "$RECEIPT_ROOT/blobs/$BLOB_SHA" || {
-    echo "✗ blob backup failed for PROJECTS.md" >&2
+  BACKUP_SHA="$(sha256_file "$PROJECTS_MD")"
+  BACKUP_PATH="$RECEIPT_ROOT/blobs/$BACKUP_SHA"
+  cp "$PROJECTS_MD" "$BACKUP_PATH" || {
+    echo "✗ file backup failed for PROJECTS.md (outside-repo fallback)" >&2
     rollback_scaffold
     # write aborted-on-ambiguity receipt via trap
     export EMIT_RECEIPT__TRAP_CAUSE="aborted-on-ambiguity"
@@ -350,13 +393,25 @@ FILES_CREATED_JSON+="\"$SCAFFOLD_PATH/.claude/desktop-knowledge/workspace-CLAUDE
 FILES_CREATED_JSON+="\"$SCAFFOLD_PATH/.claude/desktop-knowledge/mcp-config-snippet.json\""
 FILES_CREATED_JSON+=']'
 
-printf '{"op_id":"%s","area":"%s","project":"%s","scaffold_path":"%s","files_created":%s,"projects_md_row_added":true,"projects_md_blob_sha_before":"%s","ts":"%s"}\n' \
-  "$OP_ID_VAL" "$AREA" "$PROJECT" "$SCAFFOLD_PATH" "$FILES_CREATED_JSON" "$BLOB_SHA" "$TS_NOW" \
-  >> "$JOURNAL" || {
+# Journal-line field selection: in-repo runs record the git-blob SHA under the
+# spec's `projects_md_blob_sha_before` field; outside-repo runs record the
+# fallback file-copy path under `projects_md_backup_path`. The two are
+# mutually exclusive — consumers detect which strategy applied by which key is
+# present, then dispatch rollback accordingly.
+if [ -n "$BLOB_SHA" ]; then
+  JOURNAL_LINE="$(printf '{"op_id":"%s","area":"%s","project":"%s","scaffold_path":"%s","files_created":%s,"projects_md_row_added":true,"projects_md_blob_sha_before":"%s","ts":"%s"}' \
+    "$OP_ID_VAL" "$AREA" "$PROJECT" "$SCAFFOLD_PATH" "$FILES_CREATED_JSON" "$BLOB_SHA" "$TS_NOW")"
+else
+  JOURNAL_LINE="$(printf '{"op_id":"%s","area":"%s","project":"%s","scaffold_path":"%s","files_created":%s,"projects_md_row_added":true,"projects_md_backup_path":"%s","ts":"%s"}' \
+    "$OP_ID_VAL" "$AREA" "$PROJECT" "$SCAFFOLD_PATH" "$FILES_CREATED_JSON" "$BACKUP_PATH" "$TS_NOW")"
+fi
+printf '%s\n' "$JOURNAL_LINE" >> "$JOURNAL" || {
   echo "✗ journal append failed" >&2
-  # Roll back PROJECTS.md via the blob we just captured.
+  # Best-effort PROJECTS.md rollback via the appropriate backup strategy.
   if [ -n "$BLOB_SHA" ] && git cat-file -e "$BLOB_SHA" >/dev/null 2>&1; then
     git cat-file -p "$BLOB_SHA" > "$PROJECTS_MD" 2>/dev/null || true
+  elif [ -n "$BACKUP_PATH" ] && [ -f "$BACKUP_PATH" ]; then
+    cp "$BACKUP_PATH" "$PROJECTS_MD" 2>/dev/null || true
   fi
   rollback_scaffold
   exit 2
@@ -368,6 +423,11 @@ VERIF_YAML="    - cmd: \"new-cowork $AREA $PROJECT\"
       summary: \"scaffolded $AREA/$PROJECT; bundle written; PROJECTS.md row appended\""
 
 # Build outputs list for the receipt (the 8 files + PROJECTS.md + journal).
+# If terminal-write fails (disk full, rename failure, etc.), we have already
+# mutated the scaffold + PROJECTS.md. Roll those back so the on-disk state
+# matches the trap-installed aborted-on-ambiguity receipt the helper will
+# write at EXIT, rather than leaving partial mutations with no success
+# receipt.
 emit_receipt_terminal success "$VERIF_YAML" \
   "$SCAFFOLD_PATH/CLAUDE.md" \
   "$SCAFFOLD_PATH/_charter.md" \
@@ -378,7 +438,17 @@ emit_receipt_terminal success "$VERIF_YAML" \
   "$SCAFFOLD_PATH/.claude/desktop-knowledge/workspace-CLAUDE.md" \
   "$SCAFFOLD_PATH/.claude/desktop-knowledge/mcp-config-snippet.json" \
   "$PROJECTS_MD" \
-  "$JOURNAL"
+  "$JOURNAL" || {
+  echo "✗ terminal receipt write failed; rolling back scaffold + PROJECTS.md" >&2
+  if [ -n "$BLOB_SHA" ] && git cat-file -e "$BLOB_SHA" >/dev/null 2>&1; then
+    git cat-file -p "$BLOB_SHA" > "$PROJECTS_MD" 2>/dev/null || true
+  elif [ -n "$BACKUP_PATH" ] && [ -f "$BACKUP_PATH" ]; then
+    cp "$BACKUP_PATH" "$PROJECTS_MD" 2>/dev/null || true
+  fi
+  rollback_scaffold
+  # Trap will overwrite the started receipt to aborted-on-ambiguity at EXIT.
+  exit 2
+}
 
 RECEIPT_PATH="$(emit_receipt_get_path)"
 
@@ -390,7 +460,14 @@ RECEIPT_PATH="$(emit_receipt_get_path)"
   printf '\n'
   printf '# per-command appendix (new-cowork)\n'
   printf 'scaffold_path: %s\n' "$SCAFFOLD_PATH"
-  printf 'projects_md_blob_sha_before: %s\n' "$BLOB_SHA"
+  # Backup-handle field is exclusive: git-blob SHA in-repo, file-copy path
+  # outside repo. Consumers select the matching rollback strategy by which
+  # field is present.
+  if [ -n "$BLOB_SHA" ]; then
+    printf 'projects_md_blob_sha_before: %s\n' "$BLOB_SHA"
+  else
+    printf 'projects_md_backup_path: %s\n' "$BACKUP_PATH"
+  fi
   printf 'manifest:\n'
   printf '  - {step: 1, action: "refuse-on-existing check", target: "%s"}\n' "$SCAFFOLD_PATH"
   printf '  - {step: 2, action: "mkdir -p", target: "%s/.claude/desktop-knowledge"}\n' "$SCAFFOLD_PATH"
