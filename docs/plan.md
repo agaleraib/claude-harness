@@ -14,11 +14,6 @@ Navigator-style active board. Per v2 §6, the file has exactly four sections —
 
 ## Now
 
-### Wave 11 - Memory system redesign — shared root + AGENTS.md + CLAUDE.md
-- spec: docs/specs/2026-05-13-memory-system-redesign.md
-- status: ready
-- exit gate: `~/.claude/memory/` exists with USER.md/FEEDBACK.md/REFERENCES.md/PROJECTS.md/archive/**/feedback/** (NEW-3: feedback/ subdir is mandatory — Wave 12 promotion writes into it); canonical receipt at `.harness-state/shared-root-init-<utc-iso>.yml` present BEFORE the atomic staging-rename (per Codex round-2 finding [medium] on atomic-root guarantee); journal `.harness-state/shared-root-init.jsonl` records the staging-dir → target rename; refuse-on-partial-existing target verified (rerun with existing partial target aborts with `diff -r` output, no mutation); AGENTS.md `## Memory` section present; CLAUDE.md per-cwd override present; current per-cwd `MEMORY.md` ≤5KB; no line in `~/.claude/memory/*.md` exceeds 150 chars
-
 ### Wave 12 - Memory system redesign — migration + /memory-prune skill
 - spec: docs/specs/2026-05-13-memory-system-redesign.md
 - status: ready
@@ -44,6 +39,7 @@ Navigator-style active board. Per v2 §6, the file has exactly four sections —
 
 ## Recently Shipped
 
+- [x] Wave 11 - Memory system redesign — shared root + AGENTS/CLAUDE memory section + MEMORY.md trim -> docs/waves/wave11-memory-system-redesign-shared-root.md (69dc82d)
 - [x] Wave 10 - Plan maintenance, docs/waves/ archive, registry, and /harness-status (v2 Wave 2) -> docs/waves/wave10-plan-registry-maintenance.md (a113829)
 - [x] Wave 9 - Universal Harness Protocol — spec Wave 1 (Claude adapter alignment) -> docs/waves/wave9-claude-adapter-alignment.md (a5c844b)
 - [x] Wave 8 - Universal Harness Protocol — spec Wave 0 -> docs/waves/wave8-universal-protocol-core.md (1d7cee0)

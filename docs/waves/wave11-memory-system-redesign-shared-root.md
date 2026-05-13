@@ -2,8 +2,8 @@
 wave_number: 11
 slug: memory-system-redesign-shared-root
 spec_path: docs/specs/2026-05-13-memory-system-redesign.md
-merge_sha:
-closed_at:
+merge_sha: 69dc82d
+closed_at: 2026-05-13
 ---
 
 # Wave 11 — Memory system redesign (shared root + AGENTS.md + CLAUDE.md + MEMORY.md trim)
