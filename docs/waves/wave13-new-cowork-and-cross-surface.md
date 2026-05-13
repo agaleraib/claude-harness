@@ -19,6 +19,7 @@ Maps 1:1 to Phase 3 of `docs/specs/2026-05-13-memory-system-redesign.md` and con
 | 2 | `c8ef6aa` | docs(agents): add ## Cross-surface consumption section (Wave 13 Task 2 / spec Task 12) | `AGENTS.md` (+8 lines, 3 new paragraphs) |
 | 3 | `92108c8` | feat(workflow): add /memory-prune + /new-cowork rows to WORKFLOW.md + wave 13 summary | `WORKFLOW.md`, `docs/waves/wave13-new-cowork-and-cross-surface.md` |
 | 4 | `95f02e7` | fix(new-cowork): close 4 Codex review findings on lib/new-cowork.sh (P1 path-escape + 3 P2s) | `skills/new-cowork/lib/new-cowork.sh` (+100/-23) |
+| 5 | `01fab42` | docs(wave-13): record fix(new-cowork) commit + Codex review section | `docs/waves/wave13-new-cowork-and-cross-surface.md` (+17/-1) |
 
 Worktree: `/Users/klorian/workspace/claude-harness/.claude/worktrees/agent-a8d11c30c397b8aa3`
 Branch: `worktree-agent-a8d11c30c397b8aa3`
