@@ -14,10 +14,7 @@ Navigator-style active board. Per v2 §6, the file has exactly four sections —
 
 ## Now
 
-### Wave 14 - Memory system redesign — gobot pivot cascade
-- spec: docs/specs/2026-05-13-memory-system-redesign.md
-- status: ready
-- exit gate: `gobot/docs/specs/2026-05-11-pivot-to-workspace-as-context.md` edited per Task 14; `grep -rn 'gobot-workspaces' gobot/docs/` returns zero hits; `grep -rn 'state_json\.workspace\|workspace_scope\|writeWorkspaceArtifact\|/new-workspace' gobot/docs/specs/2026-05-11*` returns zero hits; `grep -rn '_charter\.md\.kind' gobot/docs/specs/2026-05-11*` returns ≥1 hit (retained); single atomic commit
+(none queued)
 
 ## Next
 
@@ -29,6 +26,7 @@ Navigator-style active board. Per v2 §6, the file has exactly four sections —
 
 ## Recently Shipped
 
+- [x] Wave 14 - Memory system redesign — gobot pivot cascade (cross-repo) -> ../gobot/docs/waves/wave14-cowork-rename-cascade.md (gobot:970f790)
 - [x] Wave 13 - Memory system redesign — /new-cowork skill + Cross-surface section + WORKFLOW rows -> docs/waves/wave13-new-cowork-and-cross-surface.md (cd59e10)
 - [x] Wave 12 - Memory system redesign — migration + /memory-prune skill (54 promote / 3 archive / 205 keep) -> docs/waves/wave12-memory-system-migration-and-prune.md (be8a393)
 - [x] Wave 11 - Memory system redesign — shared root + AGENTS/CLAUDE memory section + MEMORY.md trim -> docs/waves/wave11-memory-system-redesign-shared-root.md (69dc82d)
