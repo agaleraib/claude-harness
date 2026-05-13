@@ -14,11 +14,6 @@ Navigator-style active board. Per v2 §6, the file has exactly four sections —
 
 ## Now
 
-### Wave 12 - Memory system redesign — migration + /memory-prune skill
-- spec: docs/specs/2026-05-13-memory-system-redesign.md
-- status: ready
-- exit gate: Migration manifest committed at `docs/specs/2026-05-13-memory-system-redesign-migration.md`; promoted feedback files exist at `~/.claude/memory/feedback/<slug>.md` with `originCwd:` frontmatter; archived files at `~/.claude/memory/archive/`; `skills/memory-prune/SKILL.md` + `lib/prune.sh` exist; dry-run and `--apply` both verified against fixture
-
 ### Wave 13 - Memory system redesign — /new-cowork skill + Cross-surface section
 - spec: docs/specs/2026-05-13-memory-system-redesign.md
 - status: ready
@@ -39,6 +34,7 @@ Navigator-style active board. Per v2 §6, the file has exactly four sections —
 
 ## Recently Shipped
 
+- [x] Wave 12 - Memory system redesign — migration + /memory-prune skill (54 promote / 3 archive / 205 keep) -> docs/waves/wave12-memory-system-migration-and-prune.md (be8a393)
 - [x] Wave 11 - Memory system redesign — shared root + AGENTS/CLAUDE memory section + MEMORY.md trim -> docs/waves/wave11-memory-system-redesign-shared-root.md (69dc82d)
 - [x] Wave 10 - Plan maintenance, docs/waves/ archive, registry, and /harness-status (v2 Wave 2) -> docs/waves/wave10-plan-registry-maintenance.md (a113829)
 - [x] Wave 9 - Universal Harness Protocol — spec Wave 1 (Claude adapter alignment) -> docs/waves/wave9-claude-adapter-alignment.md (a5c844b)

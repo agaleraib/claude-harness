@@ -1,0 +1,28 @@
+receipt_id: close-wave-12-2026-05-13T123811Z
+command: close-wave
+adapter: claude-code
+wave_id: "12"
+spec_path: docs/specs/2026-05-13-memory-system-redesign.md
+inputs:
+  - docs/plan.md
+  - docs/specs/2026-05-13-memory-system-redesign.md
+  - .claude/worktrees/agent-aba308fc3ccaacf0b/docs/waves/wave12-memory-system-migration-and-prune.md
+outputs:
+  []
+verification:
+  commands: []
+  results:
+    []
+started_at: "2026-05-13T123811Z"
+status: started
+operation_id: a26e0e22c92810f3a277631f0536df7b1b7c0f2dbe1b761e28d1a1f3d0829ebb
+idempotency_key:
+  value: c731ccb1678866bd5e85778954ac70dde65442606371f720c0af048464a9c3ee
+  trace:
+    command: close-wave
+    wave_id_or_spec_path: "12"
+    sorted_inputs:
+      - ".claude/worktrees/agent-aba308fc3ccaacf0b/docs/waves/wave12-memory-system-migration-and-prune.md:2b0f72c99c8143e72fda7b3b77b65fde63fbfa7a9cba2caf8c718516636227da"
+      - "docs/plan.md:7d76a4153d75a5309da15d2e12811ef548bf2d15df4aeb9202eb42091b2ea5c8"
+      - "docs/specs/2026-05-13-memory-system-redesign.md:74a6b36e984464f736709ae2a3da93bcdb2cf5f19f72684eb62857916996615e"
+    input_content_digest: d30e91fc5d6e919fe837cc77a8980ace14bedb2be2b25ca5421d91b92629116b

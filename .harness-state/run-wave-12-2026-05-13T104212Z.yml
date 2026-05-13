@@ -1,0 +1,26 @@
+receipt_id: run-wave-12-2026-05-13T104212Z
+command: run-wave
+adapter: claude-code
+wave_id: "12"
+spec_path: docs/specs/2026-05-13-memory-system-redesign.md
+inputs:
+  - docs/plan.md
+  - docs/specs/2026-05-13-memory-system-redesign.md
+outputs:
+  []
+verification:
+  commands: []
+  results:
+    []
+started_at: "2026-05-13T104212Z"
+status: started
+operation_id: f27c01860226e3eaa7931caa505993ccbe664c34e815ceaf297fc9e2e644796a
+idempotency_key:
+  value: adce5078882e927352f54a9199cb25e6f4b915a67908eb71f05bd1f654c571ea
+  trace:
+    command: run-wave
+    wave_id_or_spec_path: "12"
+    sorted_inputs:
+      - "docs/plan.md:7d76a4153d75a5309da15d2e12811ef548bf2d15df4aeb9202eb42091b2ea5c8"
+      - "docs/specs/2026-05-13-memory-system-redesign.md:74a6b36e984464f736709ae2a3da93bcdb2cf5f19f72684eb62857916996615e"
+    input_content_digest: 78386be7b61fa6bf277d2b816eea72450fabf9c4869520282ba3f1dc276fcf79

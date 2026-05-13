@@ -2,8 +2,8 @@
 wave_number: 12
 slug: memory-system-migration-and-prune
 spec_path: docs/specs/2026-05-13-memory-system-redesign.md
-merge_sha:
-closed_at:
+merge_sha: be8a393
+closed_at: 2026-05-13
 ---
 
 # Wave 12 — Memory system redesign: migration + /memory-prune skill
