@@ -6,15 +6,26 @@ spec_path: docs/specs/2026-05-13-memory-system-redesign.md
 inputs:
   - docs/plan.md
   - docs/specs/2026-05-13-memory-system-redesign.md
-  - .claude/worktrees/agent-aba308fc3ccaacf0b/docs/waves/wave12-memory-system-migration-and-prune.md
+  - docs/waves/wave12-memory-system-migration-and-prune.md
 outputs:
-  []
+  - docs/plan.md
+  - docs/waves/wave12-memory-system-migration-and-prune.md
 verification:
   commands: []
   results:
-    []
+    - cmd: "git log --oneline -1 docs/plan.md"
+      exit_code: 0
+      summary: "plan.md tick visible in history (reconcile commit efbe944)"
+    - cmd: "git log --oneline origin/master..master"
+      exit_code: 0
+      summary: "pushed to origin"
+    - cmd: "test -L ~/.claude/skills/memory-prune && test -f ~/.claude/skills/memory-prune/SKILL.md"
+      exit_code: 0
+      summary: "Step 5b symlink re-point verified: ~/.claude/skills/memory-prune resolves post worktree-remove"
 started_at: "2026-05-13T123811Z"
-status: started
+completed_at: "2026-05-13T124030Z"
+status: success
+merge_sha: be8a393
 operation_id: a26e0e22c92810f3a277631f0536df7b1b7c0f2dbe1b761e28d1a1f3d0829ebb
 idempotency_key:
   value: c731ccb1678866bd5e85778954ac70dde65442606371f720c0af048464a9c3ee
@@ -22,7 +33,7 @@ idempotency_key:
     command: close-wave
     wave_id_or_spec_path: "12"
     sorted_inputs:
-      - ".claude/worktrees/agent-aba308fc3ccaacf0b/docs/waves/wave12-memory-system-migration-and-prune.md:2b0f72c99c8143e72fda7b3b77b65fde63fbfa7a9cba2caf8c718516636227da"
-      - "docs/plan.md:7d76a4153d75a5309da15d2e12811ef548bf2d15df4aeb9202eb42091b2ea5c8"
+      - "docs/plan.md:63e54f70df8ff66c98c9d0bb7506778dc2f0c81fcc997dcfea4fa95847766234"
       - "docs/specs/2026-05-13-memory-system-redesign.md:74a6b36e984464f736709ae2a3da93bcdb2cf5f19f72684eb62857916996615e"
+      - "docs/waves/wave12-memory-system-migration-and-prune.md:545c2acc9737cd0b20cd9fb419efa51fc0da572149bfed8950da2555db59d518"
     input_content_digest: d30e91fc5d6e919fe837cc77a8980ace14bedb2be2b25ca5421d91b92629116b

@@ -1,0 +1,25 @@
+# Wave 12 — CLOSED
+
+- **Closed:** 2026-05-13
+- **Merge commit:** `be8a393`
+- **Reconcile commit:** `efbe944`
+- **Post-merge fixes:** none
+- **Pushed to origin:** yes (origin/master = efbe944)
+- **Deploy:** no deploy hook configured (claude-harness ships skills, not infra)
+- **Summary doc:** `docs/waves/wave12-memory-system-migration-and-prune.md`
+- **Canonical §4.2 receipts (in-repo):**
+  - `.harness-state/run-wave-12-2026-05-13T104212Z.yml` (status=success, op_id `f27c0186…`)
+  - `.harness-state/close-wave-12-2026-05-13T123811Z.yml` (status will be `success` after terminal-write follow-up, op_id `a26e0e22…`)
+  - `.harness-state/wave-migrate-2026-05-13-memory-system-redesign-2026-05-13T104637Z.yml` (Task 2 migration receipt; status=success)
+- **Migration tallies:** 54 promote / 3 archive / 205 keep (262 total — 2 more than the 260 preflight estimate; runtime `find` is the source of truth per spec)
+- **Step 5b inline (per `feedback_worktree_symlink_dangles_on_close`):** `~/.claude/skills/memory-prune` re-pointed from worktree path to main checkout (`~/workspace/claude-harness/skills/memory-prune`) BEFORE worktree removal. Symlink integrity verified post-cleanup; `/memory-prune` invokes correctly from the global skills index.
+- **Bonus live smoke:** `bash skills/memory-prune/lib/prune.sh --root ~/.claude/memory` (dry-run) reports 0 over-cap files — system is healthy.
+- **Next wave opening:** Wave 13 — Memory system redesign — `/new-cowork` skill + Cross-surface section (`docs/specs/2026-05-13-memory-system-redesign.md` Phase 3). Blocked on Open Q #10 decision (protocol-extension question for command-subject `operation_id`).
+- **Open items carried forward:**
+  - **Open Q #10** — decide before `/new-cowork` ships (it uses command-subject form for `<area>/<project>` operation_id).
+  - **Blob retention** — 57 source_blob_sha values in `.harness-state/wave12-migration.jsonl` are NOT pinned to `refs/blobs/` (operator declined upfront). 2-week `gc.pruneExpire` window applies. If permanent retention is wanted, one-liner: `jq -r 'select(.source_blob_sha != null and .source_blob_sha != "") | .source_blob_sha' .harness-state/wave12-migration.jsonl | sort -u | while read sha; do git update-ref refs/blobs/wave12-src-$(echo $sha | head -c 7) $sha; done`.
+- **Deviations recorded in summary §Deviations:**
+  - 262 vs 260 file count (runtime truth).
+  - FEEDBACK.md cap forced 33-of-54 pointers; 21 overflow entries archived to `~/.claude/memory/archive/feedback-index-overflow-2026-05-13.md`.
+  - `.gitignore` allowlist for `wave-migrate-*.yml`, `wave12-migration.jsonl`, `memory-prune-*.yml`, `memory-prune.jsonl` added BEFORE Task 2 per `feedback_gitignore_blocks_in_repo_receipts`.
+  - One stray `memory-prune-noop-*.yml` test artifact removed pre-commit (bound to defunct tmp dir).
