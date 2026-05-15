@@ -1,0 +1,32 @@
+receipt_id: run-wave-14-2026-05-13T150246Z
+command: run-wave
+adapter: claude-code
+wave_id: "14"
+spec_path: docs/specs/2026-05-13-memory-system-redesign.md
+inputs:
+  - docs/plan.md
+  - docs/specs/2026-05-13-memory-system-redesign.md
+  - ../gobot/docs/specs/2026-05-11-pivot-to-workspace-as-context.md
+outputs:
+  - gobot:cowork-rename-cascade@ba44a290adc1c0ff032571be72a083fedb74a674
+  - .harness-state/orchestrator.log
+verification:
+  commands: []
+  results:
+    - cmd: "orchestrator dispatch (Wave 14 cross-repo gobot cascade)"
+      exit_code: 0
+      summary: "9/9 verify-greps PASS on gobot/cowork-rename-cascade@ba44a29 + wave summary written; no push, no PR (operator steps)"
+started_at: "2026-05-13T150246Z"
+completed_at: "2026-05-13T151352Z"
+status: success
+operation_id: df119333c35f88f438e8fd19ac4ddb4ad873d6e3e6c8d98ac96ff011ccecdff8
+idempotency_key:
+  value: 75c7dafb8c17698faa527b1343bf4707c658087341955fc4039d86d756101964
+  trace:
+    command: run-wave
+    wave_id_or_spec_path: "14"
+    sorted_inputs:
+      - "../gobot/docs/specs/2026-05-11-pivot-to-workspace-as-context.md:fb4418fda9ffc569b9f9e2f95299f34cddf8a3de277dcc9551d0c5395dbc678b"
+      - "docs/plan.md:c10009a3077c8ad4641d290c273c69381f64d881e28c6c818d6fd14d52ce03c8"
+      - "docs/specs/2026-05-13-memory-system-redesign.md:74a6b36e984464f736709ae2a3da93bcdb2cf5f19f72684eb62857916996615e"
+    input_content_digest: e35ddc2af26ade18f60315c9102384b8da8371a7791c4577ea6d618b26669dae

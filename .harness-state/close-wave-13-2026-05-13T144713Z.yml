@@ -1,0 +1,33 @@
+receipt_id: close-wave-13-2026-05-13T144713Z
+command: close-wave
+adapter: claude-code
+wave_id: "13"
+spec_path: docs/specs/2026-05-13-memory-system-redesign.md
+inputs:
+  - docs/plan.md
+  - docs/specs/2026-05-13-memory-system-redesign.md
+  - docs/waves/wave13-new-cowork-and-cross-surface.md
+outputs:
+  - docs/plan.md
+  - docs/waves/wave13-new-cowork-and-cross-surface.md
+verification:
+  commands: []
+  results:
+    - cmd: "git log --oneline -1 docs/plan.md"
+      exit_code: 0
+      summary: "plan.md tick visible in history (reconcile commit 0922530)"
+started_at: "2026-05-13T144713Z"
+completed_at: "2026-05-13T145021Z"
+status: success
+merge_sha: cd59e10
+operation_id: 55dbfcda29d5d04fbeee22b442589dc1a79d68c648cafab2a17c4a99cff35410
+idempotency_key:
+  value: abfaaf3365a1b28a8236d4bf0b5f6e9f4c4e4ea9774e9a2acfb5b80f80474a2b
+  trace:
+    command: close-wave
+    wave_id_or_spec_path: "13"
+    sorted_inputs:
+      - "docs/plan.md:c10009a3077c8ad4641d290c273c69381f64d881e28c6c818d6fd14d52ce03c8"
+      - "docs/specs/2026-05-13-memory-system-redesign.md:74a6b36e984464f736709ae2a3da93bcdb2cf5f19f72684eb62857916996615e"
+      - "docs/waves/wave13-new-cowork-and-cross-surface.md:f20c9e17b3ad4283440260cec9b1461019b3c0f50a50415fd1a2df9ba7b32bc1"
+    input_content_digest: 89a1eee54b6039bbde57ef461f72330273dfaef8436316264f5f7caebf96761b

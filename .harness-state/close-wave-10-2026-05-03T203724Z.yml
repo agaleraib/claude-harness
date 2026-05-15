@@ -1,0 +1,39 @@
+receipt_id: close-wave-10-2026-05-03T203724Z
+command: close-wave
+adapter: claude-code
+wave_id: "10"
+spec_path: docs/specs/2026-05-02-plan-registry-maintenance.md
+inputs:
+  - docs/plan.md
+  - docs/specs/2026-05-02-plan-registry-maintenance.md
+  - docs/waves/wave10-plan-registry-maintenance.md
+outputs:
+  - docs/plan.md
+  - docs/waves/wave10-plan-registry-maintenance.md
+verification:
+  commands: []
+  results:
+    - cmd: "git log --oneline -1 docs/plan.md"
+      exit_code: 0
+      summary: "reconcile commit cfb5558 ticked Wave 10 in ## Recently Shipped + filled summary frontmatter"
+    - cmd: "bash skills/planning-loop/lib/test-fixtures/run-fixtures.sh"
+      exit_code: 0
+      summary: "56/56 fixtures green post-merge"
+    - cmd: "git log origin/master..master"
+      exit_code: 0
+      summary: "empty (314d360..cfb5558 master -> master pushed)"
+started_at: "2026-05-03T203724Z"
+completed_at: "2026-05-03T204652Z"
+status: success
+merge_sha: a113829
+operation_id: 4c5564dcad1edd13231e431657456de489adc187641e92a96d241a2af1d9e6e9
+idempotency_key:
+  value: af7fe999fd7cdfbad49a1cddf5af6c2640e89b8f6c53e1c0bca84ec0e1543708
+  trace:
+    command: close-wave
+    wave_id_or_spec_path: "10"
+    sorted_inputs:
+      - "docs/plan.md:8f810d516c8b69c203211dfd0824db0c8de8ff48402ee657d02886d862a4b8dd"
+      - "docs/specs/2026-05-02-plan-registry-maintenance.md:642722a5895c8d5f7913c03c43c94d70315125581f1b092714fbd7e22c8b3890"
+      - "docs/waves/wave10-plan-registry-maintenance.md:826ca2ab6752afa19c84a7bc3df91785cd5c68d98f2f0e989cbd86f626907a26"
+    input_content_digest: 6afa783ec6e0f9426b01a53e1e681a1a39cd349aea23441404fe289f0c9c2a72

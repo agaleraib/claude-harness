@@ -1,0 +1,28 @@
+receipt_id: run-wave-10-2026-05-02T154206Z
+command: run-wave
+adapter: claude-code
+wave_id: "10"
+spec_path: docs/specs/2026-05-02-plan-registry-maintenance.md
+inputs:
+  - docs/plan.md
+  - docs/specs/2026-05-02-plan-registry-maintenance.md
+outputs:
+  []
+verification:
+  commands: []
+  results:
+  - cmd: "trap-handler"
+    exit_code: 0
+    summary: "caught aborted-on-ambiguity via EXIT trap"
+started_at: "2026-05-02T154206Z"
+status: aborted-on-ambiguity
+operation_id: 3b06234222eaed866ab56f12e4168603f792604409cce7727d35be7b99a78bba
+idempotency_key:
+  value: 0c4bc9fd46038b105c7d03a1b6c966e160ba7425762e1a7ff934f087ba65905f
+  trace:
+    command: run-wave
+    wave_id_or_spec_path: "10"
+    sorted_inputs:
+      - "docs/plan.md:50c6942697d7e7d9d33ff549202cbbcbf16a3d28e222dc11d71f56d007d111a5"
+      - "docs/specs/2026-05-02-plan-registry-maintenance.md:642722a5895c8d5f7913c03c43c94d70315125581f1b092714fbd7e22c8b3890"
+    input_content_digest: adabf42178aa23ab9d35e00ab620eaf63e7fbfa12429d451c49887e88f142aaf

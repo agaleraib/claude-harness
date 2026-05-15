@@ -1,0 +1,30 @@
+receipt_id: run-wave-13-2026-05-13T124622Z
+command: run-wave
+adapter: claude-code
+wave_id: "13"
+spec_path: docs/specs/2026-05-13-memory-system-redesign.md
+inputs:
+  - docs/plan.md
+  - docs/specs/2026-05-13-memory-system-redesign.md
+outputs:
+  - /Users/klorian/workspace/claude-harness/.claude/worktrees/agent-a8d11c30c397b8aa3
+  - .harness-state/orchestrator.log
+verification:
+  commands: []
+  results:
+    - cmd: "orchestrator dispatch"
+      exit_code: 0
+      summary: "Wave 13 dispatched: 3 tasks committed in worktree-agent-a8d11c30c397b8aa3 (d9a0b9d, c8ef6aa, 92108c8); exit gate 23/23 pass; wave summary at docs/waves/wave13-new-cowork-and-cross-surface.md"
+started_at: "2026-05-13T124622Z"
+completed_at: "2026-05-13T130034Z"
+status: success
+operation_id: afd22c406aec230d63b5c8b8c1699163440f92169b43eb0cadd0c5fed371adc1
+idempotency_key:
+  value: 96e452c9afef71d74b33426d41cf6aae83a6224a88f7d140b08225d0a983052f
+  trace:
+    command: run-wave
+    wave_id_or_spec_path: "13"
+    sorted_inputs:
+      - "docs/plan.md:63e54f70df8ff66c98c9d0bb7506778dc2f0c81fcc997dcfea4fa95847766234"
+      - "docs/specs/2026-05-13-memory-system-redesign.md:74a6b36e984464f736709ae2a3da93bcdb2cf5f19f72684eb62857916996615e"
+    input_content_digest: 634a87ad7feaf1defcd3836aeb042861b74282721a3e10e0c7d94e7b5fb991e8
