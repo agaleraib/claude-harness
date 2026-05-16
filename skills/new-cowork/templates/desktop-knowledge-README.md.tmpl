@@ -1,56 +1,73 @@
-# desktop-knowledge — drag these into Claude Desktop / claude.ai
+# desktop-knowledge — install this `.mcpb` (or drag the data files) into Claude Desktop / claude.ai
 
 > One-time bundle for the **{{AREA}} / {{PROJECT}}** cowork project. Created by `/new-cowork {{AREA}} {{PROJECT}}` on {{TODAY}}.
 
 ## What this is
 
-Five files that mirror the persona + cross-project preferences + per-project context the Claude Code session sees, so Claude Desktop and claude.ai Projects can read the same artifacts.
+Six artifacts that mirror the persona + cross-project preferences + per-project context the Claude Code session sees, so Claude Desktop and claude.ai Projects can read the same files.
 
 ```
 .claude/desktop-knowledge/
 ├── README.md                   ← this file (instructions)
+├── {{PROJECT}}.mcpb            (Claude Desktop Extension — drag-and-drop install; recommended)
 ├── USER.md                     → ~/.claude/memory/USER.md (symlink — operator profile)
 ├── FEEDBACK.md                 → ~/.claude/memory/FEEDBACK.md (symlink — validated patterns index)
 ├── workspace-CLAUDE.md         (copy of this project's CLAUDE.md — Desktop symlink-following is unreliable)
-└── mcp-config-snippet.json     (filesystem-MCP allowlist scoping Desktop to this project + ~/.claude/memory/)
+└── mcp-config-snippet.json     (filesystem-MCP allowlist for manual JSON config — Method B)
 ```
 
 ## How to use (operator)
 
-> **No programmatic Project-creation API** exists for Claude Desktop or claude.ai as of 2026-05-13. Project setup is a one-time UI drag.
+> **No programmatic Project-creation API** exists for Claude Desktop or claude.ai as of 2026-05-13. The drag-into-Desktop step (Method A) and the Project Knowledge upload (Method C) are one-time GUI actions.
 
-### Claude Desktop (recommended for filesystem-MCP access)
+Three install methods, in recommended order:
 
-1. Open Claude Desktop.
-2. Create a new Project named `{{PROJECT}}` (or `{{AREA}}/{{PROJECT}}`).
-3. Open Project Settings → Knowledge.
-4. Drag the four data files into Knowledge:
-   - `USER.md`
-   - `FEEDBACK.md`
-   - `workspace-CLAUDE.md`
-   - `mcp-config-snippet.json` (informational — Desktop reads `~/.claude/memory/` directly via Filesystem MCP once you wire the config below)
-5. Open Desktop's MCP config (`~/Library/Application Support/Claude/claude_desktop_config.json` on macOS). Paste the `filesystem` entry from `mcp-config-snippet.json`, merging into any existing `mcpServers` block.
-6. Restart Desktop. The Filesystem MCP should now expose this project's folder + the shared `~/.claude/memory/` root.
+### Method A — Desktop Extension (recommended, Claude Desktop ≥ 0.10)
 
-### claude.ai (web)
+One drag, no JSON edit, no Knowledge UI step. Wave 16.5 (2026-05-14) introduced the per-project `.mcpb` bundle.
+
+1. Open Claude Desktop (≥ 0.10).
+2. Drag `{{PROJECT}}.mcpb` into the Desktop window — OR open Settings → Extensions and click `Install from file…` then pick the `.mcpb`.
+3. Confirm the bundle appears under Settings → Extensions as `Cowork — {{AREA}}/{{PROJECT}}`. The pre-baked allowed directories are `${HOME}/cowork/{{AREA}}/{{PROJECT}}` and `${HOME}/.claude/memory`.
+4. (Optional — only if you want to expose additional directories) Click the extension → adjust `allowed_directories`.
+5. Restart Claude Desktop. The Filesystem MCP now exposes this project + the shared memory root, live (no refresh after edits).
+
+To regenerate the bundle (template update, path change, Wave 16.5 backfill), run `/cowork-regen-bundle {{AREA}}/{{PROJECT}}` from any Claude Code session.
+
+### Method B — Manual JSON config (power-user / pre-0.10 Desktop / pinned config)
+
+Use when you can't or don't want to use `.mcpb` extensions — e.g. Desktop < 0.10, or you maintain a hand-edited `claude_desktop_config.json` and want one canonical config block.
+
+1. Open Desktop's MCP config: `~/Library/Application Support/Claude/claude_desktop_config.json` on macOS (`%APPDATA%\Claude\claude_desktop_config.json` on Windows).
+2. Paste the `filesystem` entry from `mcp-config-snippet.json`, merging into any existing `mcpServers` block.
+3. Open Claude Desktop → create a Project named `{{PROJECT}}` (or `{{AREA}}/{{PROJECT}}`).
+4. Open Project Settings → Knowledge → drag the three data files in: `USER.md`, `FEEDBACK.md`, `workspace-CLAUDE.md`.
+5. Restart Desktop. The Filesystem MCP exposes this project + the shared memory root.
+
+This was the only path before Wave 16.5. It still works — Method A is just a one-step replacement.
+
+### Method C — Project Knowledge UI upload only (no-MCP fallback)
+
+Use when you can't run an MCP server at all — e.g. claude.ai web, or a locked-down Desktop instance.
 
 1. Open claude.ai → Projects → New Project named `{{PROJECT}}`.
 2. Upload the three Markdown files (`USER.md`, `FEEDBACK.md`, `workspace-CLAUDE.md`) into Project Knowledge.
-3. Remote-MCP wiring for filesystem access is not generally available on web — treat the upload as a snapshot. Re-upload after meaningful edits to `~/.claude/memory/` or this project's `CLAUDE.md`.
+3. Treat the upload as a snapshot. Re-upload after meaningful edits to `~/.claude/memory/` or this project's `CLAUDE.md` — there's no MCP for the web client (yet), so the upload is stale on edit.
 
 ## When to refresh
 
-| Surface | USER.md / FEEDBACK.md | workspace-CLAUDE.md |
-|---|---|---|
-| Claude Code | Always live — reads `~/.claude/memory/*.md` directly. No refresh needed. |
-| Claude Desktop (Filesystem MCP wired) | Live via MCP — no refresh needed. | Live if Desktop follows the symlink. If it doesn't, rerun `cp CLAUDE.md .claude/desktop-knowledge/workspace-CLAUDE.md` after edits. |
-| Claude Desktop (Project Knowledge drag only) | Stale after `~/.claude/memory/` edits — re-drag to refresh. | Stale after `CLAUDE.md` edits — re-copy + re-drag. |
-| claude.ai (web) | Stale after any edit — re-upload. | Stale after any edit — re-upload. |
+| Surface | `.mcpb` (Method A) | Manual MCP (Method B) | Knowledge UI only (Method C) |
+|---|---|---|---|
+| Claude Code | n/a | n/a | n/a — always live, reads `~/.claude/memory/*.md` directly |
+| USER.md / FEEDBACK.md | Live via MCP — no refresh needed. | Live via MCP — no refresh needed. | Stale after `~/.claude/memory/` edits — re-drag to refresh. |
+| workspace-CLAUDE.md | Live via MCP (reads project's `CLAUDE.md` directly). | Live via MCP. | Stale after `CLAUDE.md` edits — re-copy + re-drag. |
+| mcp-config-snippet.json | n/a (the `.mcpb` IS the wiring). | Only re-paste if `mcp-config-snippet.json` itself changes (rare). | n/a. |
 
 ## Caveats
 
-- **No programmatic Project-creation API.** Verified 2026-05-13. The drag step is irreducible until Anthropic ships one.
-- **Symlink behavior varies.** Claude Desktop's Project Knowledge may or may not follow symlinks on first drag. The `workspace-CLAUDE.md` file is intentionally a **copy** (not a symlink) because it's the load-bearing persona file. USER.md / FEEDBACK.md are symlinks for self-healing on edits to the shared root — accept staleness if Desktop fails to follow them and re-drag manually.
+- **No programmatic Project-creation API.** Verified 2026-05-13. The drag-into-Project step (Method C) and the drag-into-Settings step (Method A first-install) are irreducible until Anthropic ships one.
+- **`.mcpb` requires Claude Desktop ≥ 0.10.** Falls back to Method B / Method C on older versions.
+- **Symlink behavior varies in Method C only.** Knowledge UI may or may not follow symlinks on first drag. The `workspace-CLAUDE.md` file is intentionally a **copy** (not a symlink) because it's the load-bearing persona file. USER.md / FEEDBACK.md are symlinks for self-healing on edits to the shared root — accept staleness if Desktop fails to follow them and re-drag manually. Method A and Method B both bypass this by reading the symlink targets live via MCP.
 - **The `feedback/` directory under `~/.claude/memory/` is NEVER auto-loaded** by any surface. Only the FEEDBACK.md index is. Detail files are pulled on demand via Filesystem MCP / explicit operator action.
 
 ## See also

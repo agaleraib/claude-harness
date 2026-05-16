@@ -325,6 +325,127 @@ cp "$SCAFFOLD_PATH/CLAUDE.md" "$SCAFFOLD_PATH/.claude/desktop-knowledge/workspac
   rollback_scaffold; exit 2
 }
 
+# ---------- step 10b (Wave 16.5): Phase 4 — build .mcpb desktop extension bundle ----------
+# Per docs/specs/2026-05-14-cowork-desktop-plugin-generator.md §5 Task 2.
+#
+# Generates `<project>.mcpb` (Claude Desktop Extension, a ZIP archive) at
+# `<scaffold>/.claude/desktop-knowledge/<project>.mcpb` by:
+#   1. Copying the desktop-bundle template into a transient `<project>-bundle-src/`.
+#   2. Rendering manifest.json from manifest.json.tmpl with concrete values.
+#   3. Vendoring `@modelcontextprotocol/server-filesystem` into node_modules/
+#      via `npm install --omit=dev`.
+#   4. Packing the directory into a `.mcpb` via `npx --yes @anthropic-ai/mcpb pack`.
+#   5. Moving the resulting `.mcpb` to the bundle dir and deleting the src/.
+#
+# Soft-fail by design: if any step fails (no network, npm registry down,
+# mcpb CLI install fails), warn and continue — the rest of the scaffold
+# succeeds and the operator can run `/cowork-regen-bundle <area>/<project>`
+# once the issue resolves.
+BUNDLE_TEMPLATE_DIR="$TEMPLATES_DIR/desktop-bundle"
+BUNDLE_SRC_DIR="$SCAFFOLD_PATH/.claude/desktop-knowledge/$PROJECT-bundle-src"
+BUNDLE_OUT="$SCAFFOLD_PATH/.claude/desktop-knowledge/$PROJECT.mcpb"
+BUNDLE_BUILT="false"
+BUNDLE_WARN=""
+
+build_desktop_bundle() {
+  # Pre-flight: template dir exists?
+  if [ ! -d "$BUNDLE_TEMPLATE_DIR" ]; then
+    BUNDLE_WARN="desktop-bundle template missing at $BUNDLE_TEMPLATE_DIR — skipping Phase 4"
+    return 1
+  fi
+  if [ ! -f "$BUNDLE_TEMPLATE_DIR/manifest.json.tmpl" ]; then
+    BUNDLE_WARN="desktop-bundle/manifest.json.tmpl missing — skipping Phase 4"
+    return 1
+  fi
+
+  # Pre-flight: npm + npx available?
+  if ! command -v npm >/dev/null 2>&1; then
+    BUNDLE_WARN="npm not on PATH — skipping Phase 4 (install Node.js to enable .mcpb generation)"
+    return 1
+  fi
+  if ! command -v npx >/dev/null 2>&1; then
+    BUNDLE_WARN="npx not on PATH — skipping Phase 4"
+    return 1
+  fi
+
+  # Step 1: copy template tree to src/
+  rm -rf "$BUNDLE_SRC_DIR" 2>/dev/null
+  mkdir -p "$BUNDLE_SRC_DIR/server" || {
+    BUNDLE_WARN="mkdir failed for $BUNDLE_SRC_DIR"
+    return 1
+  }
+  cp "$BUNDLE_TEMPLATE_DIR/server/index.js" "$BUNDLE_SRC_DIR/server/index.js" || {
+    BUNDLE_WARN="cp server/index.js failed"
+    return 1
+  }
+  cp "$BUNDLE_TEMPLATE_DIR/package.json" "$BUNDLE_SRC_DIR/package.json" || {
+    BUNDLE_WARN="cp package.json failed"
+    return 1
+  }
+  if [ -f "$BUNDLE_TEMPLATE_DIR/icon.png" ]; then
+    cp "$BUNDLE_TEMPLATE_DIR/icon.png" "$BUNDLE_SRC_DIR/icon.png" || true
+  fi
+
+  # Step 2: render manifest.json with concrete placeholders
+  # {{PROJECT_PATH}} uses ${HOME} template var so the bundle is portable
+  # across machines (NOT operator's literal /Users/<name>/...).
+  local PROJECT_PATH_TPL="\${HOME}/cowork/$AREA/$PROJECT"
+  sed \
+    -e "s|{{PROJECT_AREA}}|$AREA|g" \
+    -e "s|{{PROJECT_ID}}|$PROJECT|g" \
+    -e "s|{{PROJECT_PATH}}|$PROJECT_PATH_TPL|g" \
+    -e "s|{{BUNDLE_VERSION}}|1.0.0|g" \
+    "$BUNDLE_TEMPLATE_DIR/manifest.json.tmpl" > "$BUNDLE_SRC_DIR/manifest.json" || {
+    BUNDLE_WARN="manifest.json render failed"
+    return 1
+  }
+
+  # Step 3: npm install --omit=dev to vendor @modelcontextprotocol/server-filesystem
+  ( cd "$BUNDLE_SRC_DIR" && npm install --omit=dev --no-audit --no-fund --silent ) >/dev/null 2>&1 || {
+    BUNDLE_WARN="npm install failed (offline? registry down?) — skipping .mcpb pack"
+    return 1
+  }
+
+  # Step 4: mcpb pack — produces <name>.mcpb in the cwd (name from manifest.json)
+  # Per `npm view @anthropic-ai/mcpb` ships a `mcpb` bin; `npx --yes` auto-fetches.
+  ( cd "$BUNDLE_SRC_DIR" && npx --yes @anthropic-ai/mcpb pack . >/dev/null 2>&1 ) || {
+    BUNDLE_WARN="mcpb pack failed — run /cowork-regen-bundle $AREA/$PROJECT to retry"
+    return 1
+  }
+
+  # Step 5: move the produced .mcpb to the bundle dir. mcpb names it after the
+  # manifest's `name` field — we set name to `cowork-<area>-<project>` so the
+  # output file is `cowork-<area>-<project>.mcpb`. Rename to `<project>.mcpb`
+  # for shorter operator-facing name.
+  local PACKED
+  PACKED="$(ls "$BUNDLE_SRC_DIR"/*.mcpb 2>/dev/null | head -1 || true)"
+  if [ -z "$PACKED" ] || [ ! -f "$PACKED" ]; then
+    BUNDLE_WARN="mcpb pack reported success but no .mcpb in $BUNDLE_SRC_DIR"
+    return 1
+  fi
+  mv "$PACKED" "$BUNDLE_OUT" || {
+    BUNDLE_WARN="mv $PACKED → $BUNDLE_OUT failed"
+    return 1
+  }
+
+  # Step 6: delete the src tree (we only persist the packed .mcpb + the template)
+  rm -rf "$BUNDLE_SRC_DIR" 2>/dev/null || true
+
+  BUNDLE_BUILT="true"
+  return 0
+}
+
+build_desktop_bundle || true
+
+if [ "$BUNDLE_BUILT" = "true" ]; then
+  # Append a note to _automations.md so the operator sees the one-time artifact.
+  printf '\n## Wave 16.5 — Desktop bundle (.mcpb)\n\n- `%s` generated at scaffold time by `/new-cowork` Phase 4. To regenerate (after template update or path change), run `/cowork-regen-bundle %s/%s`.\n' \
+    "$BUNDLE_OUT" "$AREA" "$PROJECT" >> "$SCAFFOLD_PATH/_automations.md" || true
+else
+  echo "⚠ Phase 4 (desktop bundle): $BUNDLE_WARN" >&2
+  echo "⚠ The 5-file desktop-knowledge bundle WAS written. Re-run \`/cowork-regen-bundle $AREA/$PROJECT\` once the underlying issue is resolved, OR use the legacy JSON-edit path in README.md Method B." >&2
+fi
+
 # ---------- step 11a: PROJECTS.md mutation (with byte-exact backup) ----------
 PROJECTS_MD="$MEMORY_ROOT/PROJECTS.md"
 if [ ! -f "$PROJECTS_MD" ]; then
@@ -480,6 +601,15 @@ RECEIPT_PATH="$(emit_receipt_get_path)"
   printf '  - {step: 9, action: "copy", source: "%s/CLAUDE.md", target: "%s/.claude/desktop-knowledge/workspace-CLAUDE.md"}\n' "$SCAFFOLD_PATH" "$SCAFFOLD_PATH"
   printf '  - {step: 10, action: "render template", source: "mcp-config-snippet.json.tmpl", target: "%s/.claude/desktop-knowledge/mcp-config-snippet.json"}\n' "$SCAFFOLD_PATH"
   printf '  - {step: 11, action: "PROJECTS.md row append + journal + receipt", target: "%s, %s, %s"}\n' "$PROJECTS_MD" "$JOURNAL" "$RECEIPT_PATH"
+  # Phase 4 (Wave 16.5) summary — present whether the bundle built or soft-failed.
+  if [ "$BUNDLE_BUILT" = "true" ]; then
+    printf 'desktop_bundle_mcpb: %s\n' "$BUNDLE_OUT"
+    printf 'desktop_bundle_status: built\n'
+  else
+    printf 'desktop_bundle_mcpb: null\n'
+    printf 'desktop_bundle_status: skipped\n'
+    printf 'desktop_bundle_warning: %s\n' "${BUNDLE_WARN:-unknown}"
+  fi
 } >> "$RECEIPT_PATH"
 
 # Trap cleared — emit-receipt has marked TERMINAL_WRITTEN=1.
@@ -493,8 +623,14 @@ echo "Next steps (operator):"
 echo "  1. cd $SCAFFOLD_PATH"
 echo "  2. Edit _charter.md (kind, closes_at if engagement, open questions)"
 echo "  3. Optional: git init"
-echo "  4. Optional: open Claude Desktop → create Project '$PROJECT' → drag .claude/desktop-knowledge/* into Project Knowledge"
-echo "     (see .claude/desktop-knowledge/README.md for full instructions)"
+if [ "$BUNDLE_BUILT" = "true" ]; then
+  echo "  4. Drag $BUNDLE_OUT into Claude Desktop → Settings → Extensions → Install"
+  echo "     (recommended — Method A in .claude/desktop-knowledge/README.md)"
+  echo "  5. Fallback: drag .claude/desktop-knowledge/* into Project Knowledge (Method C in README.md)"
+else
+  echo "  4. (Desktop bundle .mcpb generation was skipped — see warning above; run /cowork-regen-bundle $AREA/$PROJECT to retry)"
+  echo "  5. Drag .claude/desktop-knowledge/* into Project Knowledge (Method C in README.md) until bundle is rebuilt"
+fi
 echo ""
 echo "Receipt: $RECEIPT_PATH"
 echo "Journal: $JOURNAL"

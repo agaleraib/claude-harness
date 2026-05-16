@@ -1,0 +1,42 @@
+{
+  "manifest_version": "0.1",
+  "name": "cowork-{{PROJECT_AREA}}-{{PROJECT_ID}}",
+  "display_name": "Cowork — {{PROJECT_AREA}}/{{PROJECT_ID}}",
+  "version": "{{BUNDLE_VERSION}}",
+  "description": "Cowork project filesystem access for Claude Desktop — exposes {{PROJECT_PATH}} and ${HOME}/.claude/memory for live read/write.",
+  "author": {
+    "name": "klorian",
+    "url": "https://github.com/agaleraib"
+  },
+  "server": {
+    "type": "node",
+    "entry_point": "server/index.js",
+    "mcp_config": {
+      "command": "node",
+      "args": [
+        "${__dirname}/server/index.js",
+        "${user_config.allowed_directories}"
+      ]
+    }
+  },
+  "user_config": {
+    "allowed_directories": {
+      "type": "directory",
+      "title": "Cowork project + memory root",
+      "description": "Folders the Cowork MCP exposes to Claude Desktop. Defaults are pre-filled for this project; deselect any you don't want exposed.",
+      "multiple": true,
+      "required": true,
+      "default": [
+        "{{PROJECT_PATH}}",
+        "${HOME}/.claude/memory"
+      ]
+    }
+  },
+  "compatibility": {
+    "claude_desktop": ">=0.10.0",
+    "platforms": ["darwin", "win32", "linux"],
+    "runtimes": {
+      "node": ">=16.0.0"
+    }
+  }
+}

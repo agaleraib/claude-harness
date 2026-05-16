@@ -1,0 +1,10 @@
+{
+  "name": "cowork-desktop-bundle",
+  "version": "1.0.0",
+  "description": "Cowork project desktop bundle — passthrough wrapper around @modelcontextprotocol/server-filesystem.",
+  "private": true,
+  "main": "server/index.js",
+  "dependencies": {
+    "@modelcontextprotocol/server-filesystem": "2026.1.14"
+  }
+}

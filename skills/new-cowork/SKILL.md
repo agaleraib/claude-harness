@@ -1,6 +1,6 @@
 ---
 name: new-cowork
-description: Scaffold a cowork project at `~/cowork/<area>/<project>/` with `CLAUDE.md` + `_charter.md` + `_automations.md` + `.claude/desktop-knowledge/` bundle (5 files — README.md, USER.md symlink, FEEDBACK.md symlink, workspace-CLAUDE.md copy, mcp-config-snippet.json). Refuses on existing folder; emits canonical receipt + journal + PROJECTS.md row append. Sources operator profile from `~/.claude/memory/USER.md` (Wave 11 shared root).
+description: Scaffold a cowork project at `~/cowork/<area>/<project>/` with `CLAUDE.md` + `_charter.md` + `_automations.md` + `.claude/desktop-knowledge/` bundle (5 files — README.md, USER.md symlink, FEEDBACK.md symlink, workspace-CLAUDE.md copy, mcp-config-snippet.json) + (Wave 16.5) a Phase 4 `<project>.mcpb` Claude Desktop Extension generated alongside. Refuses on existing folder; emits canonical receipt + journal + PROJECTS.md row append. Sources operator profile from `~/.claude/memory/USER.md` (Wave 11 shared root).
 ---
 
 # new-cowork
@@ -34,7 +34,7 @@ Flags:
 
 Both `<area>` and `<project>` MUST match `^[A-Za-z0-9][A-Za-z0-9_-]*$` (no `/`, no `..`, no whitespace, no leading `-`, no shell-sensitive characters).
 
-## Behavior (11 steps)
+## Behavior (11 steps + Phase 4)
 
 1. Refuse if `<root>/<area>/<project>/` already exists (no overwrite — operator picks a new name or `rm -rf` first).
 2. `mkdir -p <root>/<area>/<project>/.claude/desktop-knowledge/`.
@@ -46,7 +46,26 @@ Both `<area>` and `<project>` MUST match `^[A-Za-z0-9][A-Za-z0-9_-]*$` (no `/`, 
 8. `ln -s <memory-root>/FEEDBACK.md .claude/desktop-knowledge/FEEDBACK.md` (relative symlink).
 9. `cp CLAUDE.md .claude/desktop-knowledge/workspace-CLAUDE.md` (copy, NOT symlink — Desktop Project Knowledge symlink-following is unreliable for the persona file).
 10. Write `.claude/desktop-knowledge/mcp-config-snippet.json` with filesystem-MCP allowlist scoping Desktop to the project path + `<memory-root>/`.
-11. Print operator-next-steps: cd into the folder, edit `_charter.md`, optionally `git init`, optionally drag the bundle into Claude Desktop.
+11. Print operator-next-steps: cd into the folder, edit `_charter.md`, optionally `git init`, install the `.mcpb` from step 12, fallback drag the bundle into Claude Desktop.
+
+### Phase 4 (step 12 — Wave 16.5) — build `<project>.mcpb` Claude Desktop Extension
+
+After step 10 completes (5-file desktop-knowledge bundle written) and before step 11a (PROJECTS.md mutation), Phase 4 generates a per-project Claude Desktop Extension bundle.
+
+**Mechanism:**
+1. Copy `templates/desktop-bundle/` → `<scaffold>/.claude/desktop-knowledge/<project>-bundle-src/`.
+2. Render `manifest.json.tmpl` with `{{PROJECT_AREA}}` → `<area>`, `{{PROJECT_ID}}` → `<project>`, `{{PROJECT_PATH}}` → `${HOME}/cowork/<area>/<project>` (note: `${HOME}` template var — NOT operator's literal `/Users/<name>/...`; this keeps the bundle portable across machines), `{{BUNDLE_VERSION}}` → `1.0.0`. Output: `<bundle-src>/manifest.json`.
+3. `cd <bundle-src> && npm install --omit=dev --no-audit --no-fund` vendors `@modelcontextprotocol/server-filesystem` (pinned, no `^` range) into `node_modules/`.
+4. `cd <bundle-src> && npx --yes @anthropic-ai/mcpb pack .` produces `<name>.mcpb` (named after manifest's `name` field — `cowork-<area>-<project>`).
+5. Rename / move the packed bundle to `<scaffold>/.claude/desktop-knowledge/<project>.mcpb`.
+6. `rm -rf <bundle-src>/` (only persist the packed `.mcpb` + the template — vendored deps + `node_modules/` are NOT committed; reproducible from template at any time).
+7. Append a `## Wave 16.5 — Desktop bundle (.mcpb)` line to `_automations.md` recording the bundle path.
+
+**Soft-fail policy:** If step 3 (npm install) or step 4 (mcpb pack) fails (no network, npm registry down, missing toolchain), Phase 4 emits a warning and the rest of the scaffold succeeds. The receipt records `desktop_bundle_status: skipped` + the warning text. Operator can run `/cowork-regen-bundle <area>/<project>` once the underlying issue resolves.
+
+**Auto-install of `@anthropic-ai/mcpb` CLI:** the skill uses `npx --yes` so the CLI is fetched on-demand if not globally installed. No `npm install -g @anthropic-ai/mcpb` required.
+
+**Operator install (post-scaffold):** drag the resulting `<project>.mcpb` into Claude Desktop → Settings → Extensions → Install. See `.claude/desktop-knowledge/README.md` Method A for the full flow.
 
 ## Receipt + journal lifecycle (NORMATIVE)
 
