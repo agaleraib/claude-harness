@@ -611,6 +611,27 @@ cp "$SCAFFOLD_PATH/CLAUDE.md" "$SCAFFOLD_PATH/.claude/desktop-knowledge/workspac
   rollback_scaffold; exit 2
 }
 
+# ---------- step 9b (Wave 15): area-level bundle copies (5→7 file delta) ----------
+# Per docs/specs/2026-05-14-cowork-area-context.md Task 3: when the area-level
+# files exist, copy them bytes-exact into the project bundle so Claude Desktop /
+# claude.ai (which don't parent-walk) see the same area context Claude Code
+# auto-loads. Bytes-exact copies, NOT symlinks — Desktop Knowledge symlink-
+# following is unreliable (same reason workspace-CLAUDE.md is a copy at step 9).
+# Skip silently when absent (operator chose --area-context=skip, or area files
+# never existed).
+if [ -f "$AREA_CLAUDE_FINAL" ]; then
+  cp "$AREA_CLAUDE_FINAL" "$SCAFFOLD_PATH/.claude/desktop-knowledge/area-CLAUDE.md" || {
+    echo "✗ cp area-CLAUDE.md to bundle failed" >&2
+    rollback_scaffold; exit 2
+  }
+fi
+if [ -f "$AREA_META_FINAL" ]; then
+  cp "$AREA_META_FINAL" "$SCAFFOLD_PATH/.claude/desktop-knowledge/area-meta.md" || {
+    echo "✗ cp area-meta.md to bundle failed" >&2
+    rollback_scaffold; exit 2
+  }
+fi
+
 # ---------- step 10b (Wave 16.5): Phase 4 — build .mcpb desktop extension bundle ----------
 # Per docs/specs/2026-05-14-cowork-desktop-plugin-generator.md §5 Task 2.
 #
