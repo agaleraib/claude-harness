@@ -18,12 +18,7 @@ Navigator-style active board. Per v2 §6, the file has exactly four sections —
 
 ## Next
 
-### Wave 15 - Cowork area-level context (Pivot Phase 3 sub-spec)
-- spec: docs/specs/2026-05-14-cowork-area-context.md
-- status: ready
-- exit gate: `templates/AREA_CLAUDE.md.tmpl` + `templates/_area.md.tmpl` exist in `skills/new-cowork/templates/`; `bash skills/new-cowork/lib/new-cowork.sh --area-context=create <new-area> <new-project>` in a fresh sandbox produces `<new-area>/CLAUDE.md` + `<new-area>/_area.md` AND project bundle contains `area-CLAUDE.md` + `area-meta.md` (5→7 file bundle delta); re-run is Stage 1 no-op (idempotency_key unchanged by area-file content edits); `skills/cowork-area-sync/SKILL.md` + `lib/cowork-area-sync.sh` exist and pass mixed active/closed/missing-status fixture (closed projects byte-identical before/after); resume case completes via journal glob + `status: in-progress` filter, adopts the in-progress `<utc-iso>` as session id; ambiguous-resume (≥2 in-progress journals) exits 6 with zero filesystem mutation; per-file rollback booleans (`area_claude_created_this_run`, `area_meta_created_this_run`) exercised by mixed-pre-existing-state fixtures; WORKFLOW.md has `/cowork-area-sync` row; AGENTS.md § Cross-surface mentions area-level files
-- depends-on: Wave 13 merged ✓ (`/new-cowork` shipped at `cd59e10`); cross-references gobot pivot Phase 3 (line 393 stub expanded by this sub-spec)
-- note: 3 unresolved Codex findings deferred to implementation per `feedback_planning_loop_stop_signal` — F5 (cowork-area-sync receipts conforming to docs/protocol/receipt-schema.md), F6 (source-digest drift check on resume), F7 (Codex prompt contract stop conditions); see `.harness-state/planning-loop/2026-05-14-cowork-area-context-revise-150920.md` for full review trail
+(none queued)
 
 ## Blocked
 
@@ -31,6 +26,7 @@ Navigator-style active board. Per v2 §6, the file has exactly four sections —
 
 ## Recently Shipped
 
+- [x] Wave 15 - Cowork area-level context (Pivot Phase 3 sub-spec) -> docs/waves/wave15-cowork-area-context.md (d7f1d30)
 - [x] Wave 14 - Memory system redesign — gobot pivot cascade (cross-repo) -> ../gobot/docs/waves/wave14-cowork-rename-cascade.md (gobot:970f790)
 - [x] Wave 13 - Memory system redesign — /new-cowork skill + Cross-surface section + WORKFLOW rows -> docs/waves/wave13-new-cowork-and-cross-surface.md (cd59e10)
 - [x] Wave 12 - Memory system redesign — migration + /memory-prune skill (54 promote / 3 archive / 205 keep) -> docs/waves/wave12-memory-system-migration-and-prune.md (be8a393)

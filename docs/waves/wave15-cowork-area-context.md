@@ -2,8 +2,8 @@
 wave_number: 15
 slug: cowork-area-context
 spec_path: docs/specs/2026-05-14-cowork-area-context.md
-merge_sha: TBD          # filled by /close-wave
-closed_at: TBD          # filled by /close-wave
+merge_sha: d7f1d30
+closed_at: 2026-05-17
 ---
 
 # Wave 15 — Cowork area-level context
