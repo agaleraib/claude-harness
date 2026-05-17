@@ -40,19 +40,29 @@ iso_today() { date -u '+%Y-%m-%d'; }
 usage() {
   cat <<'USAGE'
 new-cowork — scaffold ~/cowork/<area>/<project>/ with the 5-file desktop-knowledge bundle.
+Optionally scaffolds area-level CLAUDE.md + _area.md and includes them in the
+bundle (7-file shape) when --area-context=create is passed.
 
 USAGE:
-  new-cowork.sh <area> <project> [--root <dir>] [--memory-root <dir>] [--receipt-root <dir>] [--help]
+  new-cowork.sh <area> <project> [--root <dir>] [--memory-root <dir>] [--receipt-root <dir>]
+                                 [--area-context=create|skip|require] [--help]
 
 ARGS:
   <area>     Single path-safe segment matching ^[A-Za-z0-9][A-Za-z0-9_-]*$
   <project>  Single path-safe segment matching ^[A-Za-z0-9][A-Za-z0-9_-]*$
 
 FLAGS:
-  --root <dir>          Cowork root (default ~/cowork).
-  --memory-root <dir>   Shared memory root (default ~/.claude/memory).
-  --receipt-root <dir>  Where to emit receipt + journal (default <repo>/.harness-state).
-  --help                Print this usage and exit 0.
+  --root <dir>             Cowork root (default ~/cowork).
+  --memory-root <dir>      Shared memory root (default ~/.claude/memory).
+  --receipt-root <dir>     Where to emit receipt + journal (default <repo>/.harness-state).
+  --area-context=<mode>    Area-level CLAUDE.md / _area.md handling:
+                             create  - scaffold area files from templates if absent;
+                                       include in 7-file bundle.
+                             skip    - do not scaffold area files; 5-file bundle.
+                             require - refuse (exit 5) if <area>/CLAUDE.md is absent.
+                           TTY default when flag omitted + area files absent: prompt.
+                           Non-TTY callers MUST pass this flag explicitly (else exit 4).
+  --help                   Print this usage and exit 0.
 
 USAGE
 }
@@ -73,6 +83,8 @@ PROJECT=""
 ROOT=""
 MEMORY_ROOT=""
 RECEIPT_ROOT=""
+AREA_CONTEXT_MODE=""        # "" (unset) | create | skip | require
+AREA_CONTEXT_FLAG_PRESENT=0  # 1 iff --area-context=<mode> was passed
 
 # First two positional args = area + project; remaining are flags.
 POSITIONAL=()
@@ -81,6 +93,22 @@ while [ $# -gt 0 ]; do
     --root) ROOT="$2"; shift 2 ;;
     --memory-root) MEMORY_ROOT="$2"; shift 2 ;;
     --receipt-root) RECEIPT_ROOT="$2"; shift 2 ;;
+    --area-context=*)
+      AREA_CONTEXT_MODE="${1#--area-context=}"
+      AREA_CONTEXT_FLAG_PRESENT=1
+      case "$AREA_CONTEXT_MODE" in
+        create|skip|require) ;;
+        *)
+          echo "✗ --area-context must be one of: create | skip | require (got '$AREA_CONTEXT_MODE')" >&2
+          exit 2
+          ;;
+      esac
+      shift
+      ;;
+    --area-context)
+      echo "✗ --area-context requires a value: use --area-context=create|skip|require" >&2
+      exit 2
+      ;;
     --help|-h) usage; exit 0 ;;
     --*) echo "✗ unknown flag: $1" >&2; usage >&2; exit 2 ;;
     *)
@@ -125,6 +153,17 @@ fi
 if [ ! -f "$MEMORY_ROOT/USER.md" ]; then
   echo "✗ shared root not initialized; run Wave 1 first (expected $MEMORY_ROOT/USER.md)" >&2
   exit 1
+fi
+
+# ---------- non-TTY guard (BEFORE any disk write) ----------
+# Per spec §Area-context flag semantics: non-interactive callers MUST pass
+# --area-context=<mode> explicitly. Refusing here — before the started receipt
+# is reserved — means a script / Codex / cron caller that forgets the flag
+# produces ZERO filesystem mutation, not a half-started receipt the operator
+# has to triage.
+if [ "$AREA_CONTEXT_FLAG_PRESENT" -ne 1 ] && [ ! -t 0 ]; then
+  echo "✗ non-interactive shell requires explicit --area-context=create|skip|require. Aborting." >&2
+  exit 4
 fi
 
 # Find the script directory + templates dir.
@@ -257,6 +296,253 @@ emit_receipt_started || {
 # Set TRAP_CAUSE default; on success path we replace it before exit.
 export EMIT_RECEIPT__TRAP_CAUSE="aborted-on-ambiguity"
 
+# ---------- area-context: scaffold <area>/CLAUDE.md + <area>/_area.md ----------
+# Per docs/specs/2026-05-14-cowork-area-context.md §Area-context flag semantics.
+# Runs AFTER started receipt is reserved (so failed area writes have an audit
+# trail) but BEFORE the project scaffold (so area-file rollback is possible
+# without unwinding the whole project scaffold).
+#
+# Per-file `_created_this_run` flags + after_sha256 are kept in shell vars and
+# also appended to the started receipt as an audit-only appendix. The trap
+# below uses the in-memory vars for rollback decisions (independent per file
+# so mixed pre-existing state — one operator-authored, one missing — produces
+# correct rollback: delete only this-run-created files whose on-disk sha256
+# still matches their after_sha256).
+AREA_ROOT_DIR="$ROOT_REAL/$AREA"
+AREA_CLAUDE_FINAL="$AREA_ROOT_DIR/CLAUDE.md"
+AREA_META_FINAL="$AREA_ROOT_DIR/_area.md"
+AREA_CLAUDE_BEFORE_SHA="null"
+AREA_META_BEFORE_SHA="null"
+AREA_CLAUDE_AFTER_SHA="null"
+AREA_META_AFTER_SHA="null"
+AREA_CLAUDE_CREATED_THIS_RUN="false"
+AREA_META_CREATED_THIS_RUN="false"
+AREA_CONTEXT_PRESENT="false"
+AREA_CONTEXT_DECISION=""        # create | skip | require | present
+AREA_CONTEXT_DECIDED_VIA=""     # flag | prompt | implicit
+AREA_CONTEXT_SKIP_REASON="null"
+AREA_CLAUDE_ROLLBACK_SKIPPED_REASON=""
+AREA_META_ROLLBACK_SKIPPED_REASON=""
+
+# Capture pre-existing sha256 for both area files (null if absent).
+if [ -f "$AREA_CLAUDE_FINAL" ]; then
+  AREA_CLAUDE_BEFORE_SHA="$(sha256_file "$AREA_CLAUDE_FINAL")"
+fi
+if [ -f "$AREA_META_FINAL" ]; then
+  AREA_META_BEFORE_SHA="$(sha256_file "$AREA_META_FINAL")"
+fi
+
+# Decide effective mode: flag wins; else TTY prompt; else implicit-present.
+AREA_CLAUDE_PRESENT_AT_ENTRY="$([ -f "$AREA_CLAUDE_FINAL" ] && echo true || echo false)"
+AREA_META_PRESENT_AT_ENTRY="$([ -f "$AREA_META_FINAL" ] && echo true || echo false)"
+
+if [ "$AREA_CONTEXT_FLAG_PRESENT" -eq 1 ]; then
+  AREA_CONTEXT_DECIDED_VIA="flag"
+  AREA_CONTEXT_DECISION="$AREA_CONTEXT_MODE"
+else
+  # TTY without flag — already gated by non-TTY guard above.
+  if [ "$AREA_CLAUDE_PRESENT_AT_ENTRY" = "true" ]; then
+    # Area files already there — implicit "present" decision, no prompt.
+    AREA_CONTEXT_DECIDED_VIA="implicit"
+    AREA_CONTEXT_DECISION="present"
+  else
+    # TTY + no flag + no area files → prompt.
+    AREA_CONTEXT_DECIDED_VIA="prompt"
+    printf '\nArea `%s` has no shared CLAUDE.md. Create one now? [Y/n] ' "$AREA" >&2
+    read -r ANS </dev/tty || ANS=""
+    case "$ANS" in
+      ""|y|Y|yes|YES) AREA_CONTEXT_DECISION="create" ;;
+      *)              AREA_CONTEXT_DECISION="skip"; AREA_CONTEXT_SKIP_REASON="operator declined" ;;
+    esac
+  fi
+fi
+
+# `require` mode: refuse if <area>/CLAUDE.md absent. No project scaffold, no
+# area scaffold. Helper EXIT trap will rewrite the started receipt as
+# aborted-on-ambiguity.
+if [ "$AREA_CONTEXT_DECISION" = "require" ] && [ "$AREA_CLAUDE_PRESENT_AT_ENTRY" != "true" ]; then
+  echo "✗ --area-context=require: $AREA_CLAUDE_FINAL absent; refusing to scaffold project" >&2
+  echo "  (operator: create $AREA_CLAUDE_FINAL first, or rerun with --area-context=create|skip)" >&2
+  exit 5
+fi
+
+# `skip` mode: record skip reason if not already set, otherwise no-op here.
+if [ "$AREA_CONTEXT_DECISION" = "skip" ]; then
+  [ "$AREA_CONTEXT_SKIP_REASON" = "null" ] && AREA_CONTEXT_SKIP_REASON="flag=skip"
+fi
+
+# Per-file `created_this_run` decision: true iff THIS invocation will write
+# this specific file. In `create` mode, true iff file is currently absent.
+# In any other mode, false (we never write area files in skip/require/present).
+if [ "$AREA_CONTEXT_DECISION" = "create" ]; then
+  [ "$AREA_CLAUDE_PRESENT_AT_ENTRY" != "true" ] && AREA_CLAUDE_CREATED_THIS_RUN="true"
+  [ "$AREA_META_PRESENT_AT_ENTRY" != "true" ] && AREA_META_CREATED_THIS_RUN="true"
+fi
+
+# Rollback helper — runs from the EXIT trap on non-zero exit. Independently
+# per file: delete only files this invocation actually wrote AND whose on-disk
+# sha256 still matches the after_sha256 we recorded (operator edits since the
+# write → preserve, do not delete).
+rollback_area_files() {
+  if [ "$AREA_CLAUDE_CREATED_THIS_RUN" = "true" ] && [ -f "$AREA_CLAUDE_FINAL" ]; then
+    local now_claude
+    now_claude="$(sha256_file "$AREA_CLAUDE_FINAL" 2>/dev/null || echo MISSING)"
+    if [ "$now_claude" = "$AREA_CLAUDE_AFTER_SHA" ] && [ -n "$AREA_CLAUDE_AFTER_SHA" ] && [ "$AREA_CLAUDE_AFTER_SHA" != "null" ]; then
+      rm -f "$AREA_CLAUDE_FINAL" 2>/dev/null || true
+    else
+      AREA_CLAUDE_ROLLBACK_SKIPPED_REASON="area_claude edited after scaffold (sha mismatch)"
+    fi
+  elif [ "$AREA_CLAUDE_CREATED_THIS_RUN" != "true" ] && [ "$AREA_CLAUDE_PRESENT_AT_ENTRY" = "true" ]; then
+    AREA_CLAUDE_ROLLBACK_SKIPPED_REASON="area_claude pre-existed"
+  fi
+
+  if [ "$AREA_META_CREATED_THIS_RUN" = "true" ] && [ -f "$AREA_META_FINAL" ]; then
+    local now_meta
+    now_meta="$(sha256_file "$AREA_META_FINAL" 2>/dev/null || echo MISSING)"
+    if [ "$now_meta" = "$AREA_META_AFTER_SHA" ] && [ -n "$AREA_META_AFTER_SHA" ] && [ "$AREA_META_AFTER_SHA" != "null" ]; then
+      rm -f "$AREA_META_FINAL" 2>/dev/null || true
+    else
+      AREA_META_ROLLBACK_SKIPPED_REASON="area_meta edited after scaffold (sha mismatch)"
+    fi
+  elif [ "$AREA_META_CREATED_THIS_RUN" != "true" ] && [ "$AREA_META_PRESENT_AT_ENTRY" = "true" ]; then
+    AREA_META_ROLLBACK_SKIPPED_REASON="area_meta pre-existed"
+  fi
+}
+
+# After-trap appendix: append rollback metadata to the (now rewritten) terminal
+# receipt. Runs LAST so the helper's atomic mv has already replaced the file.
+# Best-effort: failures here are silent (the trap chain's exit code is owned
+# by the underlying script exit code, not this appendix write).
+append_area_rollback_appendix() {
+  if [ -z "$EMIT_RECEIPT__RECEIPT_PATH" ] || [ ! -f "$EMIT_RECEIPT__RECEIPT_PATH" ]; then
+    return 0
+  fi
+  {
+    printf '\n'
+    printf '# area-context rollback appendix (new-cowork)\n'
+    printf 'rolled_back: true\n'
+    # rollback_targets reflects what was actually removed (created_this_run AND no operator edits).
+    local targets=""
+    if [ "$AREA_CLAUDE_CREATED_THIS_RUN" = "true" ] && [ -z "$AREA_CLAUDE_ROLLBACK_SKIPPED_REASON" ]; then
+      targets="$targets$AREA_CLAUDE_FINAL"
+    fi
+    if [ "$AREA_META_CREATED_THIS_RUN" = "true" ] && [ -z "$AREA_META_ROLLBACK_SKIPPED_REASON" ]; then
+      [ -n "$targets" ] && targets="$targets, "
+      targets="$targets$AREA_META_FINAL"
+    fi
+    printf 'rollback_targets: [%s]\n' "$targets"
+    [ -n "$AREA_CLAUDE_ROLLBACK_SKIPPED_REASON" ] && printf 'area_claude_rollback_skipped_reason: "%s"\n' "$AREA_CLAUDE_ROLLBACK_SKIPPED_REASON"
+    [ -n "$AREA_META_ROLLBACK_SKIPPED_REASON" ]   && printf 'area_meta_rollback_skipped_reason: "%s"\n' "$AREA_META_ROLLBACK_SKIPPED_REASON"
+  } >> "$EMIT_RECEIPT__RECEIPT_PATH" 2>/dev/null || true
+}
+
+# Combined EXIT trap: roll back area files first (in-process state, fast),
+# then let the helper rewrite the started receipt as aborted-on-ambiguity /
+# failed / partial, then append the rollback metadata. Replaces the helper's
+# own EXIT trap installed inside emit_receipt_started.
+__new_cowork_exit_trap() {
+  local rc=$?
+  if [ "${EMIT_RECEIPT__TERMINAL_WRITTEN:-0}" -eq 1 ]; then
+    return $rc
+  fi
+  rollback_area_files
+  ( exit "$rc" ); emit_receipt__trap_handler
+  append_area_rollback_appendix
+  return $rc
+}
+trap '__new_cowork_exit_trap' EXIT
+
+# `create` mode: scaffold area files via temp+rename (skipping pre-existing).
+# Operator state is authoritative — we never overwrite an existing area file.
+if [ "$AREA_CONTEXT_DECISION" = "create" ]; then
+  mkdir -p "$AREA_ROOT_DIR" || {
+    echo "✗ mkdir failed for area root $AREA_ROOT_DIR" >&2
+    exit 2
+  }
+
+  if [ "$AREA_CLAUDE_CREATED_THIS_RUN" = "true" ]; then
+    AREA_CLAUDE_TMP="$AREA_ROOT_DIR/.CLAUDE.md.tmp.$$"
+    sed \
+      -e "s|{{AREA}}|$AREA|g" \
+      -e "s|{{TODAY}}|$(iso_today)|g" \
+      "$TEMPLATES_DIR/AREA_CLAUDE.md.tmpl" > "$AREA_CLAUDE_TMP" || {
+      echo "✗ render AREA_CLAUDE.md failed" >&2
+      rm -f "$AREA_CLAUDE_TMP" 2>/dev/null || true
+      exit 2
+    }
+    mv "$AREA_CLAUDE_TMP" "$AREA_CLAUDE_FINAL" || {
+      echo "✗ mv area CLAUDE.md failed" >&2
+      rm -f "$AREA_CLAUDE_TMP" 2>/dev/null || true
+      exit 2
+    }
+    AREA_CLAUDE_AFTER_SHA="$(sha256_file "$AREA_CLAUDE_FINAL")"
+  else
+    # Pre-existing file kept as-is; after_sha == before_sha for audit symmetry.
+    AREA_CLAUDE_AFTER_SHA="$AREA_CLAUDE_BEFORE_SHA"
+  fi
+
+  if [ "$AREA_META_CREATED_THIS_RUN" = "true" ]; then
+    AREA_META_TMP="$AREA_ROOT_DIR/._area.md.tmp.$$"
+    sed \
+      -e "s|{{AREA}}|$AREA|g" \
+      -e "s|{{TODAY}}|$(iso_today)|g" \
+      "$TEMPLATES_DIR/_area.md.tmpl" > "$AREA_META_TMP" || {
+      echo "✗ render _area.md failed" >&2
+      rm -f "$AREA_META_TMP" 2>/dev/null || true
+      exit 2
+    }
+    mv "$AREA_META_TMP" "$AREA_META_FINAL" || {
+      echo "✗ mv area _area.md failed" >&2
+      rm -f "$AREA_META_TMP" 2>/dev/null || true
+      exit 2
+    }
+    AREA_META_AFTER_SHA="$(sha256_file "$AREA_META_FINAL")"
+  else
+    AREA_META_AFTER_SHA="$AREA_META_BEFORE_SHA"
+  fi
+
+  AREA_CONTEXT_PRESENT="true"
+elif [ "$AREA_CONTEXT_DECISION" = "present" ]; then
+  # Implicit-present: both digests echo before==after (audit symmetry).
+  AREA_CLAUDE_AFTER_SHA="$AREA_CLAUDE_BEFORE_SHA"
+  AREA_META_AFTER_SHA="$AREA_META_BEFORE_SHA"
+  AREA_CONTEXT_PRESENT="true"
+elif [ "$AREA_CONTEXT_DECISION" = "skip" ]; then
+  AREA_CONTEXT_PRESENT="$AREA_CLAUDE_PRESENT_AT_ENTRY"   # purely informational
+elif [ "$AREA_CONTEXT_DECISION" = "require" ]; then
+  # File presence already enforced above (else we'd have exited 5).
+  AREA_CLAUDE_AFTER_SHA="$AREA_CLAUDE_BEFORE_SHA"
+  AREA_META_AFTER_SHA="$AREA_META_BEFORE_SHA"
+  AREA_CONTEXT_PRESENT="true"
+fi
+
+# Append area-context state to the started receipt (audit trail before any
+# further mutation). Trap-based rollback reads in-memory shell vars, not this
+# appendix, so a partial write here is OK — it won't corrupt rollback logic.
+{
+  printf '\n'
+  printf '# area-context state (started — pre-project-scaffold)\n'
+  printf 'area_context_present: %s\n' "$AREA_CONTEXT_PRESENT"
+  printf 'area_context_decision: %s\n' "$AREA_CONTEXT_DECISION"
+  printf 'decided_via: %s\n' "$AREA_CONTEXT_DECIDED_VIA"
+  printf 'area_context_skip_reason: %s\n' "$AREA_CONTEXT_SKIP_REASON"
+  printf 'area_claude_before_sha256: %s\n' "$AREA_CLAUDE_BEFORE_SHA"
+  printf 'area_claude_after_sha256: %s\n' "$AREA_CLAUDE_AFTER_SHA"
+  printf 'area_claude_created_this_run: %s\n' "$AREA_CLAUDE_CREATED_THIS_RUN"
+  printf 'area_meta_before_sha256: %s\n' "$AREA_META_BEFORE_SHA"
+  printf 'area_meta_after_sha256: %s\n' "$AREA_META_AFTER_SHA"
+  printf 'area_meta_created_this_run: %s\n' "$AREA_META_CREATED_THIS_RUN"
+} >> "$EMIT_RECEIPT__RECEIPT_PATH" 2>/dev/null || true
+
+# Test hook: NEW_COWORK_FAIL_AFTER_AREA_SCAFFOLD=1 simulates a crash between
+# area scaffold and project scaffold so the interrupted-run rollback path is
+# verifiable. The trap above rolls back area files independently per
+# created_this_run flag, leaving pre-existing operator files byte-identical.
+if [ "${NEW_COWORK_FAIL_AFTER_AREA_SCAFFOLD:-0}" = "1" ]; then
+  echo "✗ NEW_COWORK_FAIL_AFTER_AREA_SCAFFOLD=1 (test hook) — failing after area scaffold" >&2
+  exit 99
+fi
+
 # ---------- step 2: mkdir -p scaffold + bundle dir ----------
 mkdir -p "$SCAFFOLD_PATH/.claude/desktop-knowledge" || {
   echo "✗ mkdir failed for $SCAFFOLD_PATH" >&2
@@ -324,6 +610,27 @@ cp "$SCAFFOLD_PATH/CLAUDE.md" "$SCAFFOLD_PATH/.claude/desktop-knowledge/workspac
   echo "✗ cp workspace-CLAUDE.md failed" >&2
   rollback_scaffold; exit 2
 }
+
+# ---------- step 9b (Wave 15): area-level bundle copies (5→7 file delta) ----------
+# Per docs/specs/2026-05-14-cowork-area-context.md Task 3: when the area-level
+# files exist, copy them bytes-exact into the project bundle so Claude Desktop /
+# claude.ai (which don't parent-walk) see the same area context Claude Code
+# auto-loads. Bytes-exact copies, NOT symlinks — Desktop Knowledge symlink-
+# following is unreliable (same reason workspace-CLAUDE.md is a copy at step 9).
+# Skip silently when absent (operator chose --area-context=skip, or area files
+# never existed).
+if [ -f "$AREA_CLAUDE_FINAL" ]; then
+  cp "$AREA_CLAUDE_FINAL" "$SCAFFOLD_PATH/.claude/desktop-knowledge/area-CLAUDE.md" || {
+    echo "✗ cp area-CLAUDE.md to bundle failed" >&2
+    rollback_scaffold; exit 2
+  }
+fi
+if [ -f "$AREA_META_FINAL" ]; then
+  cp "$AREA_META_FINAL" "$SCAFFOLD_PATH/.claude/desktop-knowledge/area-meta.md" || {
+    echo "✗ cp area-meta.md to bundle failed" >&2
+    rollback_scaffold; exit 2
+  }
+fi
 
 # ---------- step 10b (Wave 16.5): Phase 4 — build .mcpb desktop extension bundle ----------
 # Per docs/specs/2026-05-14-cowork-desktop-plugin-generator.md §5 Task 2.
@@ -609,6 +916,28 @@ RECEIPT_PATH="$(emit_receipt_get_path)"
     printf 'desktop_bundle_mcpb: null\n'
     printf 'desktop_bundle_status: skipped\n'
     printf 'desktop_bundle_warning: %s\n' "${BUNDLE_WARN:-unknown}"
+  fi
+  # Wave 15 — area-context decision fields + audit-only digests.
+  # Per spec line 195: these are receipt metadata only and do NOT enter the
+  # idempotency_key. The Wave 13 idempotency input set (templates + USER.md +
+  # FEEDBACK.md + PROJECTS.md) is unchanged — area-content edits must not
+  # invalidate a project's idempotency_key (re-running same /new-cowork after
+  # an operator-edits-area scenario stays a Stage 1 no-op).
+  printf 'area_context_present: %s\n' "$AREA_CONTEXT_PRESENT"
+  printf 'area_context_decision: %s\n' "$AREA_CONTEXT_DECISION"
+  printf 'decided_via: %s\n' "$AREA_CONTEXT_DECIDED_VIA"
+  printf 'area_context_skip_reason: %s\n' "$AREA_CONTEXT_SKIP_REASON"
+  # Audit-only digests captured at scaffold time. Use after_sha (which equals
+  # before_sha for pre-existing files, the new digest for files this run wrote).
+  if [ "$AREA_CLAUDE_AFTER_SHA" = "null" ] || [ -z "$AREA_CLAUDE_AFTER_SHA" ]; then
+    printf 'area_claude_digest_at_scaffold: null\n'
+  else
+    printf 'area_claude_digest_at_scaffold: %s\n' "$AREA_CLAUDE_AFTER_SHA"
+  fi
+  if [ "$AREA_META_AFTER_SHA" = "null" ] || [ -z "$AREA_META_AFTER_SHA" ]; then
+    printf 'area_meta_digest_at_scaffold: null\n'
+  else
+    printf 'area_meta_digest_at_scaffold: %s\n' "$AREA_META_AFTER_SHA"
   fi
 } >> "$RECEIPT_PATH"
 

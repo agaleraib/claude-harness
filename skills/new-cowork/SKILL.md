@@ -1,6 +1,6 @@
 ---
 name: new-cowork
-description: Scaffold a cowork project at `~/cowork/<area>/<project>/` with `CLAUDE.md` + `_charter.md` + `_automations.md` + `.claude/desktop-knowledge/` bundle (5 files — README.md, USER.md symlink, FEEDBACK.md symlink, workspace-CLAUDE.md copy, mcp-config-snippet.json) + (Wave 16.5) a Phase 4 `<project>.mcpb` Claude Desktop Extension generated alongside. Refuses on existing folder; emits canonical receipt + journal + PROJECTS.md row append. Sources operator profile from `~/.claude/memory/USER.md` (Wave 11 shared root).
+description: Scaffold a cowork project at `~/cowork/<area>/<project>/` with `CLAUDE.md` + `_charter.md` + `_automations.md` + `.claude/desktop-knowledge/` bundle (5 files — README.md, USER.md symlink, FEEDBACK.md symlink, workspace-CLAUDE.md copy, mcp-config-snippet.json) + (Wave 15) optional area-level CLAUDE.md + _area.md when `--area-context=create` is passed, growing the bundle to 7 files (adds area-CLAUDE.md + area-meta.md) + (Wave 16.5) a Phase 4 `<project>.mcpb` Claude Desktop Extension generated alongside. Refuses on existing folder; emits canonical receipt + journal + PROJECTS.md row append. Sources operator profile from `~/.claude/memory/USER.md` (Wave 11 shared root).
 ---
 
 # new-cowork
@@ -30,6 +30,7 @@ Flags:
 - `--root <dir>` — cowork root (default `~/cowork`).
 - `--memory-root <dir>` — shared memory root (default `~/.claude/memory`). Used as the source of `USER.md` / `FEEDBACK.md` symlinks and as the `PROJECTS.md` mutation target.
 - `--receipt-root <dir>` — where to emit receipt + journal (default `<calling-repo>/.harness-state` if invoked from a repo, else `~/.harness-state`). No bespoke locations under `~/.claude/memory/.<x>-receipts/`.
+- `--area-context=create|skip|require` — area-level CLAUDE.md / _area.md handling (Wave 15). `create` scaffolds area files from templates if absent and adds them to the bundle (5→7 file delta). `skip` no-ops the area scaffold; 5-file bundle. `require` exits 5 if `<area>/CLAUDE.md` is absent (CI / automation hard precondition). TTY default when flag omitted + area files absent: prompt. Non-TTY callers MUST pass the flag explicitly (else exit 4 with zero filesystem mutation).
 - `--help` — print usage and exit 0 (handled BEFORE any side effect per `feedback_skill_help_branch_invariant`).
 
 Both `<area>` and `<project>` MUST match `^[A-Za-z0-9][A-Za-z0-9_-]*$` (no `/`, no `..`, no whitespace, no leading `-`, no shell-sensitive characters).
@@ -103,9 +104,26 @@ git cat-file -p "$BLOB_SHA" > <memory-root>/PROJECTS.md
 printf '{"op_id":"<op_id>","action":"rollback","ts":"%s"}\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> <receipt-root>/new-cowork.jsonl
 ```
 
+## Area-level context
+
+(Wave 15) When `--area-context=create` is passed, the skill scaffolds two area-level files at `~/cowork/<area>/` from `templates/AREA_CLAUDE.md.tmpl` + `templates/_area.md.tmpl`:
+
+- `<area>/CLAUDE.md` — persona, collaborators table, writing-style block, research sources. Inherited by every project under `<area>/` via Claude Code's parent-walk auto-load.
+- `<area>/_area.md` — structured area metadata (YAML frontmatter: collaborators with email/role/preference/alias, canonical sources).
+
+These files are also **copied bytes-exact** into the project's bundle as `area-CLAUDE.md` and `area-meta.md`, growing the bundle from 5 files to 7 (because Claude Desktop / claude.ai don't parent-walk — they only see what's in Project Knowledge). When the operator later edits `<area>/CLAUDE.md` or `_area.md`, run `/cowork-area-sync <area>` to refresh every active project's bundle.
+
+**Idempotency invariant unchanged.** Area-file content does NOT enter the project's `idempotency_key` — the Wave 13 input set (templates + USER.md + FEEDBACK.md + PROJECTS.md) is preserved. Editing `<area>/CLAUDE.md` between two identical `/new-cowork <area> <project>` invocations does not invalidate the Stage 1 no-op. Area-content propagation is owned by `/cowork-area-sync`, not `/new-cowork`.
+
+**Per-file rollback.** A failed run (e.g. test hook `NEW_COWORK_FAIL_AFTER_AREA_SCAFFOLD=1`, or a crash between area scaffold and project scaffold) rolls back only the area files THIS invocation created (per-file `area_claude_created_this_run` / `area_meta_created_this_run` booleans + sha256 match check). Pre-existing operator-authored area files are left byte-identical. The terminal receipt records `rolled_back: true` + per-file `area_*_rollback_skipped_reason` for files left in place.
+
+Full design + edge cases: [docs/specs/2026-05-14-cowork-area-context.md](../../docs/specs/2026-05-14-cowork-area-context.md).
+
 ## See also
 
 - `docs/specs/2026-05-13-memory-system-redesign.md` (Phase 3; Task 11)
+- `docs/specs/2026-05-14-cowork-area-context.md` (Wave 15: area-level context layer + `/cowork-area-sync`)
 - `docs/protocol/receipt-schema.md` (canonical receipt fields + idempotency_key derivation)
 - `skills/_shared/lib/emit-receipt.sh` (canonical receipt helper)
+- `skills/cowork-area-sync/` (sibling skill for refreshing area files in existing bundles)
 - `feedback_skill_help_branch_invariant` (handle `--help` before side effects)

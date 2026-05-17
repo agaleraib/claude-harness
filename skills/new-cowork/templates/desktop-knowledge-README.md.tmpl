@@ -13,8 +13,12 @@ Six artifacts that mirror the persona + cross-project preferences + per-project 
 ├── USER.md                     → ~/.claude/memory/USER.md (symlink — operator profile)
 ├── FEEDBACK.md                 → ~/.claude/memory/FEEDBACK.md (symlink — validated patterns index)
 ├── workspace-CLAUDE.md         (copy of this project's CLAUDE.md — Desktop symlink-following is unreliable)
+├── area-CLAUDE.md              (copy of ~/cowork/{{AREA}}/CLAUDE.md — present when area context exists; persona/style inherited from area)
+├── area-meta.md                (copy of ~/cowork/{{AREA}}/_area.md — present when area context exists; collaborators + sources for the area)
 └── mcp-config-snippet.json     (filesystem-MCP allowlist for manual JSON config — Method B)
 ```
+
+> If `~/cowork/{{AREA}}/CLAUDE.md` or `_area.md` changes, re-export the bundle via `/cowork-area-sync {{AREA}}` (or manually re-copy both files) and re-drag both into Project Knowledge.
 
 ## How to use (operator)
 

@@ -15,6 +15,83 @@ Command-form matrix per `docs/specs/2026-04-30-universal-harness-protocol-v2.md`
 | Cross-repo status | enumerate `~/.config/harness/projects.yml` by hand; `cd <path> && git --no-optional-locks status --porcelain && git --no-optional-locks worktree list --porcelain` per repo; compose Markdown summary at `.harness-state/harness-status-<ts>.md`; hand-author `.harness-state/harness-status-<ts>.yml` per `.harness-state/examples/wave2/manual-harness-status-success.yml` (with `idempotency_key.trace.stage_a_exempt: true`); recompute `idempotency_key` via `.harness-state/examples/wave2/recompute-wave2-keys.sh` | `/harness-status` — read-only cross-repo scan; emits `.harness-state/harness-status-<ts>.{md,json,yml}` in invoking repo only via `skills/_shared/lib/emit-receipt.sh` (Stage A no-op exemption per `docs/protocol/receipt-schema.md`) | `codex harness-status` prompt: read registry, run read-only `git status` / `git worktree list` per repo, write summary under `.harness-state/`, emit receipt under `.harness-state/` (with `stage_a_exempt: true`) | optional dashboard |
 | /memory-prune | `wc -c ~/.claude/memory/*.md`; for each file >5KB, hand-edit to drop the oldest entries below cap using the temp-rename pattern `cp <file> <file>.new && edit <file>.new && mv <file>.new <file>` (atomic, leaves old-intact on interruption); BEFORE `mv` of any resolved topic file to `~/.claude/memory/archive/`, run `git hash-object -w <source>` to capture pre-mutation bytes into the local git object store, then append a line to `.harness-state/memory-prune.jsonl` recording `{op_id, source_path, dest_path, source_sha256, source_blob_sha, dest_sha256, ts}` so byte-exact rollback is possible (`git cat-file -p <blob-sha> > <source>`); finally write a receipt at `.harness-state/memory-prune-<utc-iso>.yml` per `docs/protocol/receipt-schema.md`; optionally repeat against `~/.claude/projects/<encoded-cwd>/memory/MEMORY.md` for the current cwd | `/memory-prune` — dry-run by default; `--apply` to mutate; reads `~/.claude/memory/*.md` + current cwd's per-cwd MEMORY.md; `--apply` emits a receipt at `.harness-state/memory-prune-<utc-iso>.yml` conforming to `docs/protocol/receipt-schema.md` (content-derived `idempotency_key`, NO timestamp in key); journal lines appended to `.harness-state/memory-prune.jsonl` with `source_blob_sha` for byte-exact rollback; surfaced by `/session-start` warning + `/session-end` non-blocking nudge | `codex memory-prune` prompt: full 5-clause contract per `docs/specs/2026-05-13-memory-system-redesign.md` §"Codex prompt for `/memory-prune`" (inputs = `~/.claude/memory/*.md` + per-cwd `MEMORY.md`; outputs = mutated input files on `--apply` + `.harness-state/memory-prune.jsonl` + `.harness-state/memory-prune-<utc-iso>.yml`; ≥3 stop conditions including no-shared-root, unreadable-input, hash-object-failure, read-only-FS; verbatim verify commands from the spec; `operation_id = sha256_hex("memory-prune\n-")`, `stage_a_exempt` absent or false) | none |
 | /new-cowork | `mkdir -p ~/cowork/<area>/<project>/{.claude/desktop-knowledge,}`; write `CLAUDE.md` + `_charter.md` + `_automations.md` from inline templates; `ln -s ~/.claude/memory/USER.md .claude/desktop-knowledge/USER.md`; `ln -s ~/.claude/memory/FEEDBACK.md .claude/desktop-knowledge/FEEDBACK.md`; `cp CLAUDE.md .claude/desktop-knowledge/workspace-CLAUDE.md`; write `.claude/desktop-knowledge/{README.md,mcp-config-snippet.json}`; BEFORE editing `~/.claude/memory/PROJECTS.md`, run `git hash-object -w ~/.claude/memory/PROJECTS.md` to capture pre-edit bytes; append the row; append a line to `.harness-state/new-cowork.jsonl` (or `~/.harness-state/new-cowork.jsonl` if invoked from `~`) with `{op_id, area, project, scaffold_path, files_created, projects_md_blob_sha_before, ts}`; write a receipt at `.harness-state/new-cowork-<area>-<project>-<utc-iso>.yml` per `docs/protocol/receipt-schema.md` so the scaffold is rollback-traceable (scaffold rollback = `rm -rf <scaffold_path>`; PROJECTS.md rollback = `git cat-file -p <projects_md_blob_sha_before> > ~/.claude/memory/PROJECTS.md`) | `/new-cowork <area> <project>` — runs the manual sequence as a scripted skill body; Stage 1 idempotent-refuse via canonical `idempotency_key` lookup (returns existing receipt path + exit 0 on byte-identical re-invocation); refuses to overwrite an existing folder on inputs-changed re-invocation; prints "open Claude Desktop → drag `.claude/desktop-knowledge/*` into Project Knowledge" caveat; emits a receipt at `.harness-state/new-cowork-<area>-<project>-<utc-iso>.yml` (under calling repo's `.harness-state/` if invoked from a repo; under `~/.harness-state/` otherwise) conforming to `docs/protocol/receipt-schema.md`; also appends a `PROJECTS.md` row + journal line with `projects_md_blob_sha_before` | `codex new-cowork` prompt: full 5-clause contract per `docs/specs/2026-05-13-memory-system-redesign.md` §"Codex prompt for `/new-cowork`" (inputs = `skills/new-cowork/templates/*` + `~/.claude/memory/{USER,FEEDBACK,PROJECTS}.md`; outputs = 5-file desktop-knowledge bundle + 3 top-level scaffold files + PROJECTS.md row + journal + receipt; ≥3 stop conditions including folder-exists, missing-USER.md, bad-slug, scaffold-path-escape, hash-object-failure, id-collision; verbatim verify commands; `operation_id = sha256_hex("new-cowork\n<area>/<project>")` per F1 command-subject rule, `stage_a_exempt` absent or false) | none |
+| `/cowork-area-sync <area>` | For each `~/cowork/<area>/<*>/` containing `_charter.md` with `status: active` (skip closed/archived/missing-status): write `.harness-state/cowork-area-sync-<area>-<project>-<utc-iso>.started.yml` first; then `cp -f ~/cowork/<area>/CLAUDE.md` → temp+rename `<project>/.claude/desktop-knowledge/area-CLAUDE.md` (or `rm -f` if source absent); same for `_area.md` → `area-meta.md`; rename started receipt to terminal. Write parent journal `.harness-state/cowork-area-sync-<area>-<utc-iso>.journal.yml`. | `/cowork-area-sync <area>` skill invocation | See expanded Codex prompt contract below this table. | none (manual trigger after operator edits area files) |
+
+**Codex prompt contract for `/cowork-area-sync <area>` (verbatim, copy into a Codex prompt):**
+
+```
+Goal: refresh Desktop Knowledge bundles for every active project under
+  ~/cowork/<area>/ so they mirror current <area>/CLAUDE.md and <area>/_area.md.
+
+Inputs:
+  - Required arg: <area> (path segment under ~/cowork/, e.g. "tier1fx")
+  - Optional flag: --dry-run (print plan, exit 0, no mutation)
+  - Source files: ~/cowork/<area>/CLAUDE.md (may be absent), ~/cowork/<area>/_area.md (may be absent)
+  - Target projects: each directory at ~/cowork/<area>/*/ containing _charter.md
+    whose lifecycle bullet reads `- **status:** active` (markdown bullet shape
+    emitted by Wave 13's `skills/new-cowork/templates/_charter.md.tmpl:17`).
+    Skip closed/archived/missing-status.
+
+Outputs (deterministic paths — must all be written for a successful run):
+  - Parent journal: .harness-state/cowork-area-sync-<area>-<utc-iso>.journal.yml
+    Keys: started_at, area, area_claude_source_sha256, area_meta_source_sha256,
+          projects_planned, projects_completed, projects_skipped, status
+  - Per-active-project started receipt (transient):
+      .harness-state/cowork-area-sync-<area>-<project>-<utc-iso>.started.yml
+    Renamed to terminal name (drops `.started`) after both files processed.
+  - Per-active-project terminal receipt YAML keys:
+      command: cowork-area-sync
+      area: <area>
+      project: <project>
+      area_claude_before_sha256: <hex|null>
+      area_claude_after_sha256: <hex|null>
+      area_claude_action: copy|delete|noop
+      area_meta_before_sha256: <hex|null>
+      area_meta_after_sha256: <hex|null>
+      area_meta_action: copy|delete|noop
+
+Procedure (follow §Task 6 manual fallback verbatim):
+  1. Write parent journal with status: in-progress.
+  2. For each ~/cowork/<area>/*/ with _charter.md:
+       parse status (matches the markdown bullet `- **status:** <value>`):
+         awk '/^- \*\*status:\*\*/{ for(i=1;i<=NF;i++) if($i=="**status:**"){print $(i+1); exit} }' "$CHARTER"
+       if != "active" → append to projects_skipped, continue.
+  3. For each active project:
+       a. Compute area_claude_before_sha256, area_meta_before_sha256 from
+          existing bundle copies (null if absent).
+       b. Write started receipt YAML to .started.yml path.
+       c. For CLAUDE.md: if source exists, cp to temp+rename
+          (<bundle>/.area-CLAUDE.md.tmp.$$ then mv); else rm -f.
+       d. Same for _area.md → area-meta.md.
+       e. Compute after_sha256 digests.
+       f. Append after_sha256 + action keys; mv .started.yml → terminal name.
+  4. Finalize parent journal to status: complete.
+
+Stop conditions:
+  - Success: every active project has a terminal receipt; parent journal
+    status: complete; exit 0.
+  - Failure: any cp/rm error → leave parent journal status: in-progress,
+    started receipt for the failing project in place, exit non-zero.
+    The next invocation MUST detect the in-progress journal and resume
+    (skip projects with terminal receipts, re-process those with only
+    started receipts).
+
+Verification commands (run after each invocation):
+  - sha256sum ~/cowork/<area>/CLAUDE.md \
+    ~/cowork/<area>/<active-project>/.claude/desktop-knowledge/area-CLAUDE.md
+    (digests must match if both present).
+  - ls .harness-state/cowork-area-sync-<area>-*-<utc-iso>.yml
+    (count must equal number of active projects).
+  - grep '^status: complete$' .harness-state/cowork-area-sync-<area>-<utc-iso>.journal.yml
+  - For closed/archived projects: their bundle files must be byte-identical
+    before/after the run. Verify with sha256sum.
+
+Do NOT touch:
+  - Projects with status != active (closed, archived, missing-status).
+  - Files outside ~/cowork/<area>/ and .harness-state/.
+  - The source files ~/cowork/<area>/CLAUDE.md and _area.md themselves —
+    this command is a one-way push from source to bundles.
+```
 
 ## Codex prompt contract
 
