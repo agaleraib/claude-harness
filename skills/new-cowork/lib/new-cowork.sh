@@ -917,6 +917,28 @@ RECEIPT_PATH="$(emit_receipt_get_path)"
     printf 'desktop_bundle_status: skipped\n'
     printf 'desktop_bundle_warning: %s\n' "${BUNDLE_WARN:-unknown}"
   fi
+  # Wave 15 — area-context decision fields + audit-only digests.
+  # Per spec line 195: these are receipt metadata only and do NOT enter the
+  # idempotency_key. The Wave 13 idempotency input set (templates + USER.md +
+  # FEEDBACK.md + PROJECTS.md) is unchanged — area-content edits must not
+  # invalidate a project's idempotency_key (re-running same /new-cowork after
+  # an operator-edits-area scenario stays a Stage 1 no-op).
+  printf 'area_context_present: %s\n' "$AREA_CONTEXT_PRESENT"
+  printf 'area_context_decision: %s\n' "$AREA_CONTEXT_DECISION"
+  printf 'decided_via: %s\n' "$AREA_CONTEXT_DECIDED_VIA"
+  printf 'area_context_skip_reason: %s\n' "$AREA_CONTEXT_SKIP_REASON"
+  # Audit-only digests captured at scaffold time. Use after_sha (which equals
+  # before_sha for pre-existing files, the new digest for files this run wrote).
+  if [ "$AREA_CLAUDE_AFTER_SHA" = "null" ] || [ -z "$AREA_CLAUDE_AFTER_SHA" ]; then
+    printf 'area_claude_digest_at_scaffold: null\n'
+  else
+    printf 'area_claude_digest_at_scaffold: %s\n' "$AREA_CLAUDE_AFTER_SHA"
+  fi
+  if [ "$AREA_META_AFTER_SHA" = "null" ] || [ -z "$AREA_META_AFTER_SHA" ]; then
+    printf 'area_meta_digest_at_scaffold: null\n'
+  else
+    printf 'area_meta_digest_at_scaffold: %s\n' "$AREA_META_AFTER_SHA"
+  fi
 } >> "$RECEIPT_PATH"
 
 # Trap cleared — emit-receipt has marked TERMINAL_WRITTEN=1.
