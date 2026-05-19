@@ -1,0 +1,42 @@
+receipt_id: close-wave-15-2026-05-17T141457Z
+command: close-wave
+adapter: claude-code
+wave_id: "15"
+spec_path: docs/specs/2026-05-14-cowork-area-context.md
+inputs:
+  - docs/plan.md
+  - docs/specs/2026-05-14-cowork-area-context.md
+  - docs/waves/wave15-cowork-area-context.md
+outputs:
+  - docs/plan.md
+  - docs/waves/wave15-cowork-area-context.md
+verification:
+  commands: []
+  results:
+    - cmd: "git log --oneline -1 docs/plan.md"
+      exit_code: 0
+      summary: "plan.md tick visible in history (reconcile commit 05c5d16)"
+    - cmd: "git log --oneline origin/master..master"
+      exit_code: 0
+      summary: "local in sync with origin (pushed)"
+    - cmd: "bash skills/new-cowork/lib/new-cowork.sh --help"
+      exit_code: 0
+      summary: "new-cowork --help exit 0"
+    - cmd: "bash skills/cowork-area-sync/lib/cowork-area-sync.sh --help"
+      exit_code: 0
+      summary: "cowork-area-sync --help exit 0"
+started_at: "2026-05-17T141457Z"
+completed_at: "2026-05-17T141816Z"
+status: success
+merge_sha: d7f1d30
+operation_id: 364b93b8274ea75ca2c375f10787fcf4e78752430cf0a83df623cacd922f73a0
+idempotency_key:
+  value: 169f2e57566263ecea251a2b777fe78ab527d3c8a1ae991266827187b2cd5489
+  trace:
+    command: close-wave
+    wave_id_or_spec_path: "15"
+    sorted_inputs:
+      - "docs/plan.md:b71396adcb5a1d6fe60442eebaffceab384b612707b0fecbc9fc556483013a5e"
+      - "docs/specs/2026-05-14-cowork-area-context.md:dee6e7d51ea9a495908567ba2f353df6b620727854e47dc24f0c579b43473f43"
+      - "docs/waves/wave15-cowork-area-context.md:d5657da6fd38479b7ccae20ee14b147b1ad55e729beb1e1ca5c085268f298cfb"
+    input_content_digest: 4f821a11a8436553a9958269b5a2f15dc63abaf7f5a650e148c134a151587ae8

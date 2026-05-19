@@ -1,0 +1,30 @@
+receipt_id: run-wave-15-2026-05-17T130330Z
+command: run-wave
+adapter: claude-code
+wave_id: "15"
+spec_path: docs/specs/2026-05-14-cowork-area-context.md
+inputs:
+  - docs/plan.md
+  - docs/specs/2026-05-14-cowork-area-context.md
+outputs:
+  - /Users/klorian/workspace/claude-harness/.claude/worktrees/agent-a21dd1e300988e83e
+  - .harness-state/orchestrator.log
+verification:
+  commands: []
+  results:
+    - cmd: "orchestrator dispatch"
+      exit_code: 0
+      summary: "Wave 15 — 8 task commits + 1 summary commit; all 10 plan.md + 17 source-spec exit gates pass; no human-only TODOs"
+started_at: "2026-05-17T130330Z"
+completed_at: "2026-05-17T133233Z"
+status: success
+operation_id: 9258001b7fc88d2ba520dc5b3519099e7608ae2390004146da63406d81d4a0f7
+idempotency_key:
+  value: 503df6500bf9109b2e03bb755749b9a323b1069a9c81704e5e031f57f2806bc0
+  trace:
+    command: run-wave
+    wave_id_or_spec_path: "15"
+    sorted_inputs:
+      - "docs/plan.md:8ce9c12a178759f289a81f3e4c51a084b22913fc6d76c62a5dc40816078c065c"
+      - "docs/specs/2026-05-14-cowork-area-context.md:dee6e7d51ea9a495908567ba2f353df6b620727854e47dc24f0c579b43473f43"
+    input_content_digest: 19700b4af7558671602cbd4989c646aef82ea438a57b24c51e436d2505994509
