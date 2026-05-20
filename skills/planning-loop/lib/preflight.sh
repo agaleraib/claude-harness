@@ -101,7 +101,9 @@ if [[ -n "$ORPHAN_TMP" ]]; then
 fi
 
 # 2. Working-tree classification.
-PORCELAIN_OTHER="$(git status --porcelain | grep -v -F " ${SPEC_PATH}$" || true)"
+# Filter out lines whose porcelain entry equals " $SPEC_PATH" at end-of-line.
+# (Previous `grep -v -F " ${SPEC_PATH}$"` treated $ as literal under -F and never matched.)
+PORCELAIN_OTHER="$(git status --porcelain | awk -v t=" $SPEC_PATH" 'length($0) < length(t) || substr($0, length($0) - length(t) + 1) != t')"
 
 mkdir -p .git/planning-loop-park
 
