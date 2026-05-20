@@ -14,7 +14,18 @@ Navigator-style active board. Per v2 §6, the file has exactly four sections —
 
 ## Now
 
-(none queued)
+### Wave 16 — Cowork envelope interview (Pivot §4.6 implementation, cross-repo)
+
+- depends-on: Wave 15 merged (✓ d7f1d30) + gobot at `~/workspace/gobot/`
+- spec: docs/specs/2026-05-20-cowork-envelope-interview.md
+- done-when: All 8 envelope arrays land in every new _charter.md scaffolded by /new-cowork; existing charters untouched; scope-mcp-adapter caller count in gobot unchanged; gobot tsc baseline unchanged
+- next-concrete-action: Resolve OQ-3 / OQ-4 / OQ-5, then dispatch Task 1 (template skeleton)
+
+**Tasks (7) — splits cross-repo:** T1 (template, claude-harness), T2 (schema + validator + fixtures, claude-harness), T3 (8 typed probes, **gobot**), T4 (wrapper + --scope-file, claude-harness), T5 (probe tests, **gobot**), T6a (scope-mcp-adapter, **gobot**), T6 (docs, claude-harness). Either merge order is mechanically safe via interview_available gate.
+
+**Exit gate:** 14 numbered checks live in `## Exit Gate` of the spec (rows 1-14). Source of truth is that section.
+
+**Estimate:** ~1.5–2 operator-days end-to-end.
 
 ## Next
 
