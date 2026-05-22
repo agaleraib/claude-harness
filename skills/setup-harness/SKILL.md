@@ -216,9 +216,25 @@ Also check that universal hardening (`~/.claude/CLAUDE.md`) exists:
 ls ~/.claude/CLAUDE.md 2>/dev/null
 ```
 
-If missing, print a warning (do NOT auto-create — too opinionated for a partner's machine):
+If missing, **offer** to copy the harness's reference template — do NOT auto-create silently. The template lives at `~/.claude/harness/skills/setup-harness/templates/user-CLAUDE.md` and carries: surgical-changes, verification-after-edit, auto-memory visibility, and the memory protocol (mirror of `AGENTS.md` §Memory → Memory protocol (imperative)). The operator can edit freely after install.
 
-> ⚠️  `~/.claude/CLAUDE.md` not found. Universal behavioral guidelines (surgical-changes, no speculative features, verification-after-edit) won't apply globally. If you have a claude-harness checkout (typical maintainer location: `~/.claude/harness/CLAUDE.md`; else clone from your fork of claude-harness), copy its `CLAUDE.md` as a starting point; otherwise create one manually.
+Use `AskUserQuestion` (do not run `cp` silently):
+
+> `~/.claude/CLAUDE.md` is missing. This file auto-loads into every Claude Code session on this machine and carries universal behavioral guidelines. Want me to install the harness's reference template?
+
+Options:
+- **Copy the reference template (Recommended)** — installs `~/.claude/CLAUDE.md` from `~/.claude/harness/skills/setup-harness/templates/user-CLAUDE.md`. ~40 lines; covers code style, verification, memory protocol. Operator can edit afterward.
+- **Skip** — leave `~/.claude/CLAUDE.md` absent. Behavioral guidelines won't auto-load globally; the project's local `CLAUDE.md` is the only behavioral source.
+
+If the operator picks "Copy the reference template":
+
+```bash
+cp ~/.claude/harness/skills/setup-harness/templates/user-CLAUDE.md ~/.claude/CLAUDE.md
+```
+
+If they pick "Skip", print the install-later hint:
+
+> Skipped. To install later: `cp ~/.claude/harness/skills/setup-harness/templates/user-CLAUDE.md ~/.claude/CLAUDE.md`
 
 ## Step 6: Verify Global Git Hook (first-time only)
 

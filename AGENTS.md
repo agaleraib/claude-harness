@@ -44,6 +44,14 @@ The shared user-global memory root lives at `~/.claude/memory/` and contains six
 - `~/.claude/memory/archive/` — resolved or stale entries, unlimited size but **never auto-loaded**.
 - `~/.claude/memory/feedback/` — per-pattern detail files referenced from FEEDBACK.md; the dir is never auto-loaded as a whole, only the FEEDBACK.md index is.
 
+### Memory protocol (imperative)
+
+1. Memory directories are pre-loaded at session-start — use them. The shared root at `~/.claude/memory/` is read-only for sessions; treat its contents as canonical operator-curated state. The per-tool auto-memory dir (Claude Code: `~/.claude/projects/<encoded-cwd>/memory/`) is the AI-write surface.
+2. As you make progress, record status / decisions / new facts to the per-tool auto-memory dir immediately. Don't batch until end-of-session.
+3. **ASSUME INTERRUPTION:** context may compact or reset at any time, and the next session inherits only what's on disk. Unrecorded facts are lost. When in doubt, save.
+4. Prefer editing existing memory files (Edit tool) over creating new ones. Rename or delete entries that are no longer relevant. New-file sprawl is a worse failure mode than a stale paragraph.
+5. Promotion to the shared root is **manual** via `/memory-prune` (move + frontmatter stamp, not copy). Don't try to short-cut this from a session — the operator owns shared-root mutation.
+
 Caps and line budgets are enforced as conventions, not blocking hooks: `~/.claude/memory/FEEDBACK.md` MUST stay ≤5KB hard cap, and every line in `~/.claude/memory/*.md` (excluding `archive/`) MUST stay ≤150 chars. `/memory-prune` writes FEEDBACK.md; humans may append. `USER.md`, `REFERENCES.md`, and `PROJECTS.md` are human-written only. Over-cap files are surfaced as warnings by `/session-start` and as nudges by `/session-end`, never as blocks.
 
 Promotion from per-tool auto-memory into the shared root is **move + frontmatter stamp, not copy**. When an insight reproduced in a tool-specific auto-memory directory generalizes across projects, promotion to `~/.claude/memory/feedback/<slug>.md` carries a frontmatter `originCwd:` (and `originSessionId:` where the source tool records one) preserving the provenance link. The source file is deleted after the move so duplicate basenames in two per-cwd dirs is a bug, not a feature; promotion is the fix. No auto-promotion hook exists — operator triage is required.
