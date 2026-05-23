@@ -317,6 +317,9 @@ AREA_CLAUDE_AFTER_SHA="null"
 AREA_META_AFTER_SHA="null"
 AREA_CLAUDE_CREATED_THIS_RUN="false"
 AREA_META_CREATED_THIS_RUN="false"
+AREA_GIT_INITIALIZED_THIS_RUN="false"
+AREA_GITIGNORE_WRITTEN_THIS_RUN="false"
+AREA_GIT_SKIP_REASON="null"
 AREA_CONTEXT_PRESENT="false"
 AREA_CONTEXT_DECISION=""        # create | skip | require | present
 AREA_CONTEXT_DECIDED_VIA=""     # flag | prompt | implicit
@@ -499,6 +502,30 @@ if [ "$AREA_CONTEXT_DECISION" = "create" ]; then
     AREA_META_AFTER_SHA="$(sha256_file "$AREA_META_FINAL")"
   else
     AREA_META_AFTER_SHA="$AREA_META_BEFORE_SHA"
+  fi
+
+  # Initialize a git repo + drop a default .gitignore for fresh areas. Idempotent:
+  # skipped if .git already exists, gitignore preserved if operator authored one.
+  # Soft-fail: missing git binary or non-zero `git init` just records a skip reason
+  # in the receipt — the rest of the scaffold succeeds.
+  if [ -d "$AREA_ROOT_DIR/.git" ]; then
+    AREA_GIT_SKIP_REASON="pre-existing .git"
+  elif ! command -v git >/dev/null 2>&1; then
+    AREA_GIT_SKIP_REASON="git not on PATH"
+  else
+    if git -C "$AREA_ROOT_DIR" init -q -b main >/dev/null 2>&1; then
+      AREA_GIT_INITIALIZED_THIS_RUN="true"
+    else
+      AREA_GIT_SKIP_REASON="git init failed"
+    fi
+  fi
+
+  if [ -f "$AREA_ROOT_DIR/.gitignore" ]; then
+    : # operator-authored — preserve
+  elif [ -f "$TEMPLATES_DIR/.gitignore.tmpl" ]; then
+    if cp "$TEMPLATES_DIR/.gitignore.tmpl" "$AREA_ROOT_DIR/.gitignore" 2>/dev/null; then
+      AREA_GITIGNORE_WRITTEN_THIS_RUN="true"
+    fi
   fi
 
   AREA_CONTEXT_PRESENT="true"
@@ -939,6 +966,9 @@ RECEIPT_PATH="$(emit_receipt_get_path)"
   else
     printf 'area_meta_digest_at_scaffold: %s\n' "$AREA_META_AFTER_SHA"
   fi
+  printf 'area_git_initialized_this_run: %s\n' "$AREA_GIT_INITIALIZED_THIS_RUN"
+  printf 'area_gitignore_written_this_run: %s\n' "$AREA_GITIGNORE_WRITTEN_THIS_RUN"
+  printf 'area_git_skip_reason: %s\n' "$AREA_GIT_SKIP_REASON"
 } >> "$RECEIPT_PATH"
 
 # Trap cleared — emit-receipt has marked TERMINAL_WRITTEN=1.
@@ -951,7 +981,13 @@ echo ""
 echo "Next steps (operator):"
 echo "  1. cd $SCAFFOLD_PATH"
 echo "  2. Edit _charter.md (kind, closes_at if engagement, open questions)"
-echo "  3. Optional: git init"
+if [ "$AREA_GIT_INITIALIZED_THIS_RUN" = "true" ]; then
+  echo "  3. Area is a git repo (initialized this run at $AREA_ROOT_DIR). Stage what you want tracked."
+elif [ "$AREA_GIT_SKIP_REASON" != "null" ] && [ "$AREA_GIT_SKIP_REASON" != "pre-existing .git" ]; then
+  echo "  3. Area git init skipped ($AREA_GIT_SKIP_REASON) — run \`git -C $AREA_ROOT_DIR init -b main\` manually if you want version control."
+else
+  echo "  3. Stage changes against the area git repo at $AREA_ROOT_DIR."
+fi
 if [ "$BUNDLE_BUILT" = "true" ]; then
   echo "  4. Drag $BUNDLE_OUT into Claude Desktop → Settings → Extensions → Install"
   echo "     (recommended — Method A in .claude/desktop-knowledge/README.md)"

@@ -47,7 +47,9 @@ Both `<area>` and `<project>` MUST match `^[A-Za-z0-9][A-Za-z0-9_-]*$` (no `/`, 
 8. `ln -s <memory-root>/FEEDBACK.md .claude/desktop-knowledge/FEEDBACK.md` (relative symlink).
 9. `cp CLAUDE.md .claude/desktop-knowledge/workspace-CLAUDE.md` (copy, NOT symlink — Desktop Project Knowledge symlink-following is unreliable for the persona file).
 10. Write `.claude/desktop-knowledge/mcp-config-snippet.json` with filesystem-MCP allowlist scoping Desktop to the project path + `<memory-root>/`.
-11. Print operator-next-steps: cd into the folder, edit `_charter.md`, optionally `git init`, install the `.mcpb` from step 12, fallback drag the bundle into Claude Desktop.
+11. Print operator-next-steps: cd into the folder, edit `_charter.md`, install the `.mcpb` from step 12, fallback drag the bundle into Claude Desktop.
+
+When `--area-context=create` actually scaffolds area files, the area root is also `git init -b main`'d and seeded with a `.gitignore` (`.DS_Store`) from `templates/.gitignore.tmpl`. Idempotent: skipped if `<area>/.git` already exists; existing operator `.gitignore` preserved. Soft-fail if git is missing — the rest of the scaffold succeeds and the receipt records `area_git_skip_reason`.
 
 ### Phase 4 (step 12 — Wave 16.5) — build `<project>.mcpb` Claude Desktop Extension
 
