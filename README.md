@@ -57,7 +57,8 @@ Research and production experience show that heavy instruction systems degrade O
 │   ├── migration-check/            # DB migration safety review
 │   ├── a11y-check/                 # Accessibility audit
 │   ├── archive-plan/               # Compact ## Recently Shipped in docs/plan.md
-│   └── harness-status/             # Read-only cross-repo state scanner
+│   ├── harness-status/             # Read-only cross-repo state scanner
+│   └── skill-creator/              # VENDORED — Apache-2.0 fork of Anthropic's skill-creator
 │
 ~/.config/harness/                  # Per-user, per-machine (NOT in any repo)
 └── projects.yml                    # Path-only registry consumed by /harness-status
@@ -374,6 +375,20 @@ Runs an accessibility audit using axe-core via Playwright. Flags WCAG violations
 /a11y-check http://localhost:3000
 /a11y-check http://localhost:3000/dashboard,http://localhost:3000/settings
 ```
+
+### Authoring Skills
+
+#### `skill-creator` (vendored)
+
+Create new skills, improve existing ones, and benchmark them with evals. Forked from Anthropic's official [skill-creator](https://platform.claude.com/docs/en/agents-and-tools/agent-skills/best-practices) (Apache-2.0) and kept in-repo so local additions survive a reinstall — notably `references/anthropic-skill-authoring.md`, a vendored snapshot of Anthropic's skill-authoring best practices that the skill reads before drafting. Maintained as a fork: upstream updates are merged by hand.
+
+**When to use:** building a new skill from scratch, or editing/optimizing/eval-testing an existing one.
+
+```
+/skill-creator
+```
+
+Not harness-authored — it's listed here because it lives in `skills/` and ships out via the same symlink convention as the rest. This is the one exception to "`skills/` is harness-original work."
 
 ---
 
