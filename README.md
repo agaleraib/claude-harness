@@ -52,13 +52,22 @@ Research and production experience show that heavy instruction systems degrade O
 │   ├── commit/                     # Review → fix/park → commit → plan update
 │   ├── project-init/               # One-time project profile setup
 │   ├── setup-harness/              # Install harness to a project
+│   ├── run-wave/                   # Dispatch a plan.md wave to the orchestrator
+│   ├── close-wave/                 # Merge + finalize a dispatched wave
+│   ├── archive-plan/               # Compact ## Recently Shipped in docs/plan.md
+│   ├── planning-loop/              # Drive a spec through Codex adversarial review
+│   ├── harness-status/             # Read-only cross-repo state scanner
 │   ├── deploy-check/               # Pre-deploy validation
 │   ├── api-smoke-test/             # End-to-end API testing
 │   ├── migration-check/            # DB migration safety review
 │   ├── a11y-check/                 # Accessibility audit
-│   ├── archive-plan/               # Compact ## Recently Shipped in docs/plan.md
-│   ├── harness-status/             # Read-only cross-repo state scanner
+│   ├── triage-parking/             # Classify + sweep parking_lot.md
+│   ├── apply-anthropic-reviews/    # Ship APPLY items from an anthropic-reviews PR
+│   ├── memory-prune/               # Cap-management for ~/.claude/memory/*.md
+│   ├── shared-root-init/           # Bootstrap the ~/.claude/memory/ shared root
 │   └── skill-creator/              # VENDORED — Apache-2.0 fork of Anthropic's skill-creator
+│                                   # (cowork-area-sync/, new-cowork/ live in the repo
+│                                   #  but are workspace-specific — not installed universally)
 │
 ~/.config/harness/                  # Per-user, per-machine (NOT in any repo)
 └── projects.yml                    # Path-only registry consumed by /harness-status
@@ -633,21 +642,31 @@ cp .claude/agents/code-reviewer.md ~/.claude/agents/
 cp .claude/agents/spec-planner.md ~/.claude/agents/
 cp .claude/agents/project-tracker.md ~/.claude/agents/
 
-# Copy all skills
+# Copy all skills — whole directories, not just SKILL.md. Many skills ship
+# lib/ helpers (archive-plan, harness-status, memory-prune, shared-root-init),
+# templates/ (setup-harness), or references/+evals/ (planning-loop, skill-creator)
+# that the skill cannot run without.
 for skill in session-start session-end micro park commit project-init \
              setup-harness deploy-check api-smoke-test migration-check a11y-check \
-             run-wave close-wave archive-plan harness-status planning-loop; do
-  mkdir -p ~/.claude/skills/$skill
-  cp skills/$skill/SKILL.md ~/.claude/skills/$skill/
+             run-wave close-wave archive-plan harness-status planning-loop \
+             memory-prune shared-root-init triage-parking apply-anthropic-reviews \
+             skill-creator; do
+  rm -rf ~/.claude/skills/$skill
+  cp -R skills/$skill ~/.claude/skills/$skill
 done
 
 # Copy the shared receipt-emission helper (sourced by run-wave, close-wave,
-# archive-plan, harness-status, commit)
+# archive-plan, harness-status, memory-prune, commit)
 mkdir -p ~/.claude/skills/_shared/lib
 cp skills/_shared/lib/emit-receipt.sh ~/.claude/skills/_shared/lib/
 ```
 
 That's it. These agents and skills are now available in every Claude Code session across all your projects.
+
+> **Not installed by the loop above:** the repo also contains `cowork-area-sync/`
+> and `new-cowork/`, which are tied to a specific cowork/workspace platform and are
+> intentionally excluded from the universal install. Add them by hand only if you
+> use that workflow: `cp -R skills/new-cowork ~/.claude/skills/new-cowork`.
 
 Or use the skill to automate setup for a specific project:
 
