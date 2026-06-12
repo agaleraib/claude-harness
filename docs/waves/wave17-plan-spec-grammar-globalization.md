@@ -2,11 +2,11 @@
 wave_number: 17
 slug: plan-spec-grammar-globalization
 spec_path: docs/specs/2026-06-11-plan-spec-grammar-globalization.md
-merge_sha: pending
+merge_sha: 5a1e585
 work_sha: 1a1ded7
-closed_at: 2026-06-11
+closed_at: 2026-06-12
 branch: grammar-globalization
-status: on-branch-awaiting-merge
+status: merged
 ---
 
 # Wave 17 — Plan & spec grammar globalization
@@ -20,8 +20,8 @@ cross-repo migration is forced. `markdown-app` (cleanPlan) is the parser pilot t
 proves the grammar end-to-end.
 
 Built directly in-session (doc + small back-compatible TS change), not via `/run-wave`
-dispatch. Recorded as Wave 17 for board auditability. **On branch `grammar-globalization`,
-awaiting `--no-ff` merge to master** (human checkpoint per Operating Rules).
+dispatch. Recorded as Wave 17 for board auditability. Merged to master via `--no-ff`
+(`5a1e585`); markdown-app pilot merged to its `main` separately.
 
 ## §Shipped (claude-harness — global layer)
 
