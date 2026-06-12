@@ -3,6 +3,7 @@ wave_number: 17
 slug: plan-spec-grammar-globalization
 spec_path: docs/specs/2026-06-11-plan-spec-grammar-globalization.md
 merge_sha: pending
+work_sha: 1a1ded7
 closed_at: 2026-06-11
 branch: grammar-globalization
 status: on-branch-awaiting-merge
