@@ -16,6 +16,26 @@ Tool-neutral protocol contract for any agent (LLM or human) operating on this re
 - `parking_lot.md` — deferred work and side-quests.
 - `WORKFLOW.md` — command-form matrix (Manual / Claude Code / Codex / Automation).
 
+## Plan & spec grammar
+
+Two numbering ladders that never cross. Confusing them is the recurring drift source; this section is the canonical rule — conform to it rather than copying a prior spec's numbering.
+
+**Board ladder — `Wave N` (lives in `docs/plan.md` only).** Global and monotonic: assigned at append time as `max(existing wave numbers) + 1`, never restarts, never reused, never renumbered. A Wave is the `/run-wave` unit and a single all-or-nothing commit batch. "Wave" names a board entry — nothing else. `/spec-planner` is the sole writer of `### Wave N` blocks (see that agent's plan.md auto-append rules).
+
+**Spec ladder — `Phase` + `Task` (lives in `docs/specs/` only).** A per-feature spec subdivides exactly one board wave into `Phase 1..n` / `Task 1..m`, both restarting at `1` inside the spec. `Phase`/`Task` numbers are spec-local and carry no board meaning. Do **not** use "Wave" as a spec-internal heading.
+
+**Feature ids — `F-0xx`.** Global and monotonic across all specs (like waves: never reused). They label acceptance criteria and tasks; they are the one id that spans specs.
+
+**Mandatory header line.** Every spec carries a machine-readable map of which board wave it belongs to, as the first line after the H1 title:
+
+> **Board wave:** Wave 7 · Phases 1–4 · Tasks 1–7 · Features F-014–F-017
+
+Segments are `·`-separated; ranges use an en-dash (`–`); singular labels (`Phase 3`, `Task 5`, `Feature F-014`) name a single item. This line — not any inline heading — is the canonical anchor a parser reads to jump between `plan.md` and the spec.
+
+**Exception — whole-project specs.** A spec that defines several board waves at once (a project-scaffold spec, not a per-feature spec) MAY map `Phase N = Wave N`, but only when `N` equals the real board number. Such a spec emits one header line per board wave it defines (`Board wave: Wave 1 · Phase 1 · …`, then `Board wave: Wave 2 · Phase 2 · …`). Per-feature specs are always one board wave and never do this.
+
+**`(Wave N)` parentheticals are legacy, not canonical.** Older specs write `### Phase 1 (Wave 7):` inline. This stays valid as a fallback — it is **not banned** — but the header line is authoritative. New specs need not add the parenthetical; tools resolve the board mapping from the header line first and fall back to the parenthetical only when the header line is absent.
+
 ## What to do
 
 1. Read `WORKFLOW.md` first to choose an execution path for the command at hand.
