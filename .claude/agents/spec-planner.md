@@ -24,6 +24,8 @@ Changes: [anything the new spec overrides or extends from the prior spec]
 
 This prevents contradicting or duplicating existing specs. If the new spec supersedes the old one, say so explicitly.
 
+**Prior Work governs _content_ inheritance only.** Numbering and structure (Wave / Phase / Task / `F-0xx`) follow AGENTS.md §"Plan & spec grammar" — never copy a prior spec's numbering, which is exactly how board/phase drift propagates.
+
 ## Discovery Phase (MANDATORY)
 
 Before writing the spec, run a question-and-answer session with the user using the `AskUserQuestion` tool. Do NOT skip this phase — assumptions lead to wasted work.
@@ -224,6 +226,9 @@ The classification MUST match the actual side effects (no drift between summary 
 ```markdown
 # [Name] — [One-line description]
 
+> **Board wave:** Wave N · Phases A–B · Tasks C–D · Features F-0XX–F-0YY
+> _(Mandatory machine-readable map per AGENTS.md §"Plan & spec grammar". `Wave N` is the board number; `Phase`/`Task` restart at 1 inside this spec. A per-feature spec has exactly one such line; a whole-project spec emits one per board wave it defines.)_
+
 ## Overview
 [What is this, who is it for, what problem does it solve]
 
@@ -331,3 +336,4 @@ After generating the spec, write it to `docs/specs/YYYY-MM-DD-<topic>.md` (creat
 10. **Manual-fallback bullets are mandatory.** Every implementation task carries a `**Manual fallback:**` sub-bullet. Specs without them fail self-check and trigger a Codex `needs-attention` finding.
 11. **WORKFLOW.md row delta is mandatory for command-adding specs.** Specs that add a user-facing command MUST include a `### WORKFLOW.md row delta` subsection per v2 §4 matrix shape.
 12. **Emit the final summary line.** Every invocation prints exactly one shape/plan/fallback/delta classification line to stdout, matching the actual side effects.
+13. **Conform to the plan/spec grammar.** Numbering follows AGENTS.md §"Plan & spec grammar", not prior specs. Every spec carries the `> **Board wave:**` header line; `Phase`/`Task` restart at 1 and are spec-local; never reuse or invent a board `Wave` number inside a spec; `F-0xx` is global/monotonic. Do not use "Wave" as a spec-internal heading.
