@@ -1,6 +1,6 @@
 ---
 name: triage-parking
-description: Triage parking_lot.md — classify open items (skip / archive / substantive / modest / trivial-auto-ok), archive stale ones, and optionally open a single bundled draft PR for trivial items the user has explicitly opted in via [auto-ok]. Triage-only by default; never auto-merges; per-repo opt-in via .harness-profile. Use on-demand when the parking lot has accumulated and you want a sweep without dropping into manual classification.
+description: Triage parking_lot.md — classify open items (skip / archive / substantive / modest / trivial-auto-ok), archive stale ones, and optionally open a single bundled draft PR for trivial items the user has explicitly opted in via [auto-ok]. Also batch-promotes operator-marked substantive items to GitHub issues, routing each readiness label through the shared AFK/HITL classifier. Triage-only by default; never auto-merges; per-repo opt-in via .harness-profile. Use on-demand when the parking lot has accumulated and you want a sweep without dropping into manual classification.
 ---
 
 # Triage Parking
@@ -92,6 +92,8 @@ For each item, capture:
   - `[auto-ok]` — explicit opt-in for auto-fix
   - `[hold]` — explicit "do not touch"
   - `[queued ` — already queued by a prior triage run (skip without action)
+  - `[promote]` — explicit opt-in for batch promotion to a GitHub issue (Step 4b)
+  - `[promoted ` — already promoted to an issue by a prior run (skip without action)
 
 Skip blank lines and any line not starting with `- [`. Preserve original line text for write-back later.
 
@@ -241,6 +243,48 @@ If the gate passes:
    ```
 5. Capture the PR URL/number for Step 5's log line and Step 6's report.
 6. `cd` back to the original directory. The trap removes the worktree on exit.
+
+## Step 4b: Batch-promote operator-marked substantive items to issues (Wave 20, Task 14)
+
+`/triage-parking` can bulk-create GitHub issues from substantive items the operator has explicitly marked for promotion — distinct from the `[auto-ok]` trivial-PR path. Promotion is **opt-in per item** via a `[promote]` marker (the operator adds it in `parking_lot.md`, the same way `[auto-ok]`/`[hold]` are opt-in). Items without `[promote]` are never promoted — substantive items default to "flag for human, leave in Open" (Step 2).
+
+Run this step AFTER Step 4 (the trivial-auto-ok PR) and BEFORE Step 5 (the log). Skip entirely when no open item carries `[promote]`.
+
+### 4b.1 Select
+
+Collect every `## Open` item with a `[promote]` marker that is NOT also `[hold]` and NOT already `[promoted ...]`. These are the batch.
+
+### 4b.2 Classify each through the shared classifier (Task 12)
+
+For EACH selected item, route it through the shared AFK/HITL 4-gate classifier at `skills/_shared/classifier/classify.ts` — the SAME module `/park --issue` and `/spec-planner` use, so all three agree on one verdict. Derive the four capability signals from the item description (unobtainable-credential / out-of-band-action / unspecified-product-judgment / irreversible-prod-action) and classify under the intended runner (default `sandcastle`; `worktree` only when the item clearly needs host secrets/tools).
+
+- `ready-for-agent` → label `ready-for-agent`
+- `ready-for-human` → label `ready-for-human`
+
+Do NOT hand-assign labels — the classifier is authoritative.
+
+### 4b.3 Create one issue per item
+
+```bash
+gh issue create \
+  --title "<item description, first ~72 chars>" \
+  --body "$(cat <<'BODY'
+<full description>
+
+Promoted from parking_lot.md (parked <date>, source: <source>).
+Classifier verdict: <ready-for-agent | ready-for-human>; runner: <sandcastle | worktree>; gates: <tripped or "none">.
+BODY
+)" \
+  --label "<ready-for-agent | ready-for-human>"
+```
+
+### 4b.4 Mark promoted in parking_lot.md
+
+For each promoted item, append ` [promoted YYYY-MM-DD via #<n>]` to its `## Open` line (Edit tool) so future runs skip it — mirroring the `[queued]` convention. Commit on main with `chore(parking): promote <N> items to issues YYYY-MM-DD`.
+
+> NOTE: This is prose protocol. Do not create live `gh` issues from a CI gate / worktree dispatch — run `gh issue create` only in a real operator session with `gh` credentials. Where a test harness exists, stub the `gh` seam (`skills/_shared/loop/gh-seam.ts`).
+
+The Step 5 log line gains a promoted count when this step runs: `... | 2 promoted→#51,#52 | ...`.
 
 ## Step 5: Triage log (always-log invariant)
 
