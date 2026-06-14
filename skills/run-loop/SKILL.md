@@ -12,6 +12,14 @@ The engine is the shared, frozen-interface module at `skills/_shared/loop/`: pul
 
 Name chosen over `/loop` — that is the Anthropic interval-scheduler built-in. `/run-loop` is consistent with `/run-wave`.
 
+> **Status (as of Wave 20):** the engine, protocol, scheduler, providers, and safety *logic*
+> are built and tested, and the `gh` adapter is real — but the **live execution path is not yet
+> wired**. The runner adapters' `.run()` spawn no agent, `runGuardrailPreflight`/`runLoop` are
+> not invoked from a driver, `DenylistHookProbe` has no concrete impl, and `RUN_LOOP_ENFORCE`
+> (the env var the installed denylist hook gates on) is set nowhere. So this skill can read and
+> relabel issues but **cannot drive real work end-to-end until Wave 21** (`docs/specs/2026-06-14-run-loop-live-wiring.md`)
+> lands the concrete adapters + driver. The steps below describe the intended live flow.
+
 **First — handle `--help` / `-h` / `help`** before any other parsing or side effects. If `$ARGUMENTS` is exactly one of those tokens (whitespace-trimmed, case-insensitive), print the usage block below and **exit immediately**. Do NOT read plan.md, do NOT call `gh`, do NOT create a worktree, do NOT establish any guardrail context, do NOT touch the working tree.
 
 ```

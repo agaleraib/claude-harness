@@ -29,7 +29,20 @@ Navigator-style active board. Per v2 §6, the file has exactly four sections —
 
 ## Next
 
-(none) — the `/run-loop` engine feature (Waves 18→19→20) is fully shipped.
+### Wave 21 — /run-loop live wiring: from stubbed seams to a runnable lane
+
+- depends-on: **Wave 20 merged** (engine + safety logic, all real side effects stubbed)
+- spec: docs/specs/2026-06-14-run-loop-live-wiring.md
+- done-when: a real `/run-loop issues` run drains ≥1 sandcastle issue end-to-end (read → implement → gate → review → merge → tick) and emits the AFK-merged / HITL-waiting / blocked-on-human summary; the denylist hook is verified active with `RUN_LOOP_ENFORCE=1` for a worktree item; no frozen Phase-1 interface changes
+- next-concrete-action: T1 first — decide the agent-dispatch mechanism (Agent tool vs `claude -p` subprocess), the load-bearing choice the rest of the wave depends on
+
+**Why this wave:** Waves 18–20 built the `/run-loop` brain (engine, protocol, scheduler, safety logic) behind injected seams that currently have only test stubs — nothing invokes `runLoop()` with production deps, `runGuardrailPreflight` is never called, `DenylistHookProbe` has no concrete impl, the runner adapters spawn no agent, and `RUN_LOOP_ENFORCE` (the env var the installed hook gates on) is set nowhere. So `/run-loop issues` reads issues but cannot drive real work. This wave builds the hands: concrete adapters + a live driver. Implements frozen interfaces; changes none.
+
+**Tasks (6):** T1 (concrete runner adapters — real agent dispatch, keystone), T2 (mechanical-gate execution — GateRunner + review/auto-fix + real findings-filer gh), T3 (safety adapters — DenylistHookProbe + SnapshotStore + WriteGuard + `RUN_LOOP_ENFORCE=1` export into worktree-agent env), T4 (secret-bearing host adapters — egress mechanism + ApprovalStore + CredentialProvider, controls A–C), T5 (the live driver — assemble EngineDeps + GuardrailDeps, run preflight then runLoop, print RunSummaryReport), T6 (real smoke + deferred quickbase-replacement #2/#3 live test).
+
+**Exit gate:** Each task's **Verify:** block (T1–T6). Hard gate: a real `/run-loop issues` run drains ≥1 sandcastle issue end-to-end + emits the AFK/HITL/blocked summary; denylist hook verified active w/ `RUN_LOOP_ENFORCE=1` for a worktree item; loop tests stay green (134 + new), strict tsc 0 errors, no `any`, no frozen-interface change.
+
+**Estimate:** large — concrete adapters across runner/gate/safety/secret seams + a live driver + a live cross-repo test. T1 (agent-dispatch mechanism) is the keystone OQ.
 
 ## Blocked
 
