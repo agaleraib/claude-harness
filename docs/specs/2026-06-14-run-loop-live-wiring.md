@@ -33,6 +33,35 @@ issue end-to-end and emits the AFK-merged / HITL-waiting / blocked-on-human summ
 | entry-point invoking `runGuardrailPreflight` + `runLoop` | ❌ comment only | **T5** the live driver |
 | live run against a real repo | ❌ (T18 was stubbed) | **T6** real smoke + quickbase-replacement #2/#3 |
 
+## Pre-implementation validation (spikes run 2026-06-14)
+
+Two throwaway spikes de-risked the load-bearing assumptions before any production code. Both
+PASSED. Artifacts were `/tmp/run-loop-spike/{dispatch-spike,hook-spike}.mjs` (not committed).
+
+- **Spike 1 — T1 dispatch (the keystone).** A `dispatchAgent` prototype shelled from a node
+  process to `claude -p` (with `CLAUDECODE` + `CLAUDE_CODE_*` stripped from the child env),
+  `--permission-mode bypassPermissions --model claude-haiku-4-5-20251001 --max-turns 20`, cwd set
+  to a throwaway git repo. In ~10.7s the headless agent created and committed a file; a
+  `collectCommits` prototype (`git log base..HEAD`) recovered the commit. **Confirms:** nested
+  headless dispatch works (the run_eval.py CLAUDECODE-unset gotcha holds), `bypassPermissions`
+  lets the agent write + commit with no prompts, and the `collectCommits` seam recovers the work.
+  **Impl note for T1:** `claude -p` waits ~3s for piped stdin — `dispatchAgent` must pass
+  `stdin: 'ignore'` (or `< /dev/null`) to skip it.
+- **Spike 2 — T3 hook backstop.** With the denylist PreToolUse hook installed globally and the
+  matcher on master, an A/B test dispatched headless agents told to `rm -rf` a directory *outside*
+  the worktree. Run A (`RUN_LOOP_ENFORCE=1`): the agent reported the command "blocked by the
+  universal denylist" and the target sentinel **survived**. Run B (control, env unset): the
+  command **ran and deleted** the directory. **Confirms, end-to-end:** the global hook fires for a
+  headless agent's Bash calls (not merely for piped-JSON unit tests), it inherits
+  `RUN_LOOP_ENFORCE` from the dispatch env and gates on it, the block prevents the *effect* (the
+  spec's T10 effect-based Verify, satisfied live), and the control proves causation — the model
+  *will* run `rm -rf` when unblocked, so survival under enforcement is the hook, not model refusal.
+
+Net: the two claims T1 rests on — `bypassPermissions` enables unattended action, and the global
+denylist hook + `RUN_LOOP_ENFORCE` is the backstop that makes that safe — are validated, not
+assumed. T1 and T3 implementations should cite these results; what remains unproven is the
+worktree create/teardown + docker/sandcastle path + full gate→review→merge cycle (T2/T6).
+
 ## Tasks
 
 ### Task 1: Concrete runner adapters — real agent dispatch (keystone — DECIDED)
