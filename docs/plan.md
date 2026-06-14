@@ -35,19 +35,6 @@ Navigator-style active board. Per v2 §6, the file has exactly four sections —
 > blockers must be merged before the next dispatches. Within Waves 19/20, independent tasks
 > may be fanned out in parallel (Workflow) since Phase 1 freezes the shared interfaces.
 
-### Wave 19 — /run-loop engine: Phases 2–4 core (providers + protocol + scheduler)
-
-- depends-on: **Wave 18 merged** (engine + Runner interface frozen)
-- spec: docs/specs/2026-06-14-run-loop-engine.md
-- done-when: both work-source providers, the per-item mechanical protocol, and the DAG scheduler land and pass their Verify blocks; the core is unit-testable without any unattended/safety machinery
-- next-concrete-action: After Wave 18 merges, fan out the independent tasks (T3 ∥ T4) then the protocol/scheduler chain — parallelizable via Workflow against the frozen interfaces
-
-**Tasks (8) — Phases 2–4:** T3 (wave provider), T4 (issue provider + terminal-transition contract), T5 (implement→gate), T6 (review + auto-fix), T7 (findings→issues), T8 (DAG scheduler), T8a (concurrency + atomic-merge), T9 (failure handling + termination + run summary).
-
-**Exit gate:** Each listed task's **Verify:** block (T3–T9 + 8a). Phases 1–4 Verify all green is the precondition for any live test.
-
-**Estimate:** medium–large — providers parallelizable; protocol→scheduler is a dependency chain.
-
 ### Wave 20 — /run-loop engine: Phases 5–7 safety + integration + entry
 
 - depends-on: **Wave 19 merged** (core providers + protocol + scheduler)
@@ -67,6 +54,7 @@ Navigator-style active board. Per v2 §6, the file has exactly four sections —
 
 ## Recently Shipped
 
+- [x] Wave 19 - /run-loop engine: Phases 2–4 core (providers + protocol + scheduler) -> docs/waves/wave19-run-loop-engine-core.md (eede94b)
 - [x] Wave 18 - /run-loop engine: Phase 1 foundation (engine + runner interface) -> docs/waves/wave18-run-loop-engine-foundation.md (953987f)
 - [x] Wave 17 - Plan & spec grammar globalization (two-ladder + board-wave header line; markdown-app parser pilot) -> docs/waves/wave17-plan-spec-grammar-globalization.md (5a1e585)
 - [x] Wave 15 - Cowork area-level context (Pivot Phase 3 sub-spec) -> docs/waves/wave15-cowork-area-context.md (d7f1d30)

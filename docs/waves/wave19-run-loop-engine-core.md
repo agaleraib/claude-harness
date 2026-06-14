@@ -2,8 +2,8 @@
 wave_number: 19
 slug: run-loop-engine-core
 spec_path: docs/specs/2026-06-14-run-loop-engine.md
-merge_sha:
-closed_at:
+merge_sha: eede94b
+closed_at: 2026-06-14
 ---
 
 # Wave 19 — /run-loop engine: Phases 2–4 core (providers + protocol + scheduler)
