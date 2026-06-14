@@ -9,6 +9,7 @@
   "scripts": {
     "test": "node --test test/*.test.ts",
     "dry-run": "node test/dry-run.ts",
+    "dry-run:runners": "node test/dry-run-runners.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   }
 }

@@ -108,11 +108,21 @@ export interface RunSummary {
   readonly results: readonly ItemResult[];
 }
 
+/**
+ * A startup check run once, before the loop begins. Runner-aware preflight
+ * (sandcastle/Docker availability — Task 2) is wired here so the engine stays
+ * agnostic of what is being checked: it just awaits the hook and aborts the whole
+ * run if it throws. Optional — omit it and the loop starts immediately.
+ */
+export type Preflight = () => Promise<void>;
+
 /** Everything the engine needs injected. No concrete impls live in the engine. */
 export interface EngineDeps {
   readonly source: WorkSource;
   readonly protocol: PerItemProtocol;
   readonly runnerFactory: RunnerFactory;
+  /** Optional startup check; if it rejects, the run aborts before any item runs. */
+  readonly preflight?: Preflight;
 }
 
 /**

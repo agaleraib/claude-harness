@@ -13,6 +13,11 @@ import {
   type WorkItem,
   type WorkSource,
 } from '../types.ts';
+import {
+  type ContainerEngineProbe,
+  type SandcastleAdapter,
+  type WorktreeAdapter,
+} from '../runners.ts';
 
 /**
  * In-memory WorkSource over a fixed list of items, yielded in order. An item is
@@ -90,5 +95,38 @@ export class StubRunnerFactory implements RunnerFactory {
 export class NoopProtocol implements PerItemProtocol {
   async run(item: WorkItem, _runner: Runner): Promise<ItemResult> {
     return { itemId: item.id, status: 'completed' };
+  }
+}
+
+// --- Task 2 stubs: no-op runner adapters + a stubbable container-engine probe. ---
+
+/** A no-op adapter usable for both sandcastle and worktree runner side effects. */
+export class NoopAdapter implements SandcastleAdapter, WorktreeAdapter {
+  readonly calls: string[] = [];
+  async prepare(_item: WorkItem): Promise<void> {
+    this.calls.push('prepare');
+  }
+  async run(_item: WorkItem, _prompt: string): Promise<void> {
+    this.calls.push('run');
+  }
+  async collectCommits(_item: WorkItem): Promise<readonly string[]> {
+    this.calls.push('collectCommits');
+    return [];
+  }
+  async teardown(_item: WorkItem): Promise<void> {
+    this.calls.push('teardown');
+  }
+}
+
+/** Container-engine probe with a fixed availability, for the Docker-absent tests. */
+export class StubContainerEngineProbe implements ContainerEngineProbe {
+  readonly name: string;
+  private readonly available: boolean;
+  constructor(available: boolean, name = 'Docker') {
+    this.available = available;
+    this.name = name;
+  }
+  async isAvailable(): Promise<boolean> {
+    return this.available;
   }
 }

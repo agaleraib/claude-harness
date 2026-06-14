@@ -28,7 +28,16 @@ import {
  * picks up the remaining work.
  */
 export async function runLoop(deps: EngineDeps): Promise<RunSummary> {
-  const { source, protocol, runnerFactory } = deps;
+  const { source, protocol, runnerFactory, preflight } = deps;
+
+  // Startup preflight (Task 2): runner-aware checks run once before any item is
+  // processed. If it rejects (e.g. Docker absent for sandcastle items), the whole
+  // run aborts here — no item is dispatched. The engine stays agnostic of what the
+  // preflight checks; it only honors the abort.
+  if (preflight !== undefined) {
+    await preflight();
+  }
+
   const visited: string[] = [];
   const results: ItemResult[] = [];
 
