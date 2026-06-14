@@ -18,6 +18,7 @@ import {
   type Runner,
   type WorkItem,
 } from '../types.ts';
+import { type GhClient } from '../gh-seam.ts';
 import { type GateResult, type GateRunner, runExitGate } from './gate.ts';
 import {
   type AutoFixer,
@@ -25,6 +26,7 @@ import {
   type Finding,
   runReviewLoop,
 } from './review.ts';
+import { fileLeftoverFindings } from './findings-filer.ts';
 
 /**
  * Protocol-internal disposition, richer than the frozen ItemResult.status. The
@@ -45,6 +47,8 @@ export interface ProtocolOutcome {
   readonly gate?: GateResult;
   /** Non-blocking (MEDIUM/LOW) findings from the review — Task 7 files these. */
   readonly leftoverFindings?: readonly Finding[];
+  /** GitHub issue numbers created for the leftover findings (Task 7). */
+  readonly filedFindingIssues?: readonly number[];
   /** Blocking findings that survived the single re-review (review-escalated). */
   readonly survivingBlockers?: readonly Finding[];
   /** How many times /code-review ran (bounded: ≤ 2). */
@@ -78,6 +82,8 @@ export interface PerItemDeps {
   /** Optional: when present, the bounded review/auto-fix loop runs after the gate. */
   readonly reviewer?: CodeReviewer;
   readonly fixer?: AutoFixer;
+  /** Optional: when present, leftover MEDIUM/LOW findings are filed as issues (Task 7). */
+  readonly gh?: GhClient;
 }
 
 /**
@@ -139,12 +145,21 @@ export class PerItemProtocolImpl implements PerItemProtocol {
     }
 
     const review = await runReviewLoop(item, this.deps.reviewer, this.deps.fixer);
+
+    // Task 7: file every leftover MEDIUM/LOW finding as a gh issue so nothing is
+    // dropped — regardless of whether the item escalates or proceeds to merge.
+    const filedFindingIssues =
+      this.deps.gh !== undefined
+        ? await fileLeftoverFindings(item, review.leftover, this.deps.gh)
+        : [];
+
     if (review.disposition === 'escalate') {
       return {
         itemId: item.id,
         disposition: 'review-escalated',
         gate,
         leftoverFindings: review.leftover,
+        filedFindingIssues,
         survivingBlockers: review.survivingBlockers,
         reviewCount: review.reviewCount,
         ...(review.note !== undefined ? { note: review.note } : {}),
@@ -155,6 +170,7 @@ export class PerItemProtocolImpl implements PerItemProtocol {
       disposition: 'ready-to-merge',
       gate,
       leftoverFindings: review.leftover,
+      filedFindingIssues,
       reviewCount: review.reviewCount,
     };
   }

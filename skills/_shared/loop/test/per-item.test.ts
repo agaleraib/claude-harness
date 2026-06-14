@@ -4,8 +4,11 @@ import { strict as assert } from 'node:assert';
 import { test } from 'node:test';
 import { type GateRunner } from '../protocol/gate.ts';
 import { PerItemProtocolImpl } from '../protocol/per-item.ts';
+import { type CodeReviewer, type Finding, type ReviewEffort } from '../protocol/review.ts';
+import { FROM_CODE_REVIEW } from '../protocol/findings-filer.ts';
 import { type WorkItem } from '../types.ts';
 import { StubRunner } from './stubs.ts';
+import { GhStub } from './gh-stub.ts';
 
 /** A GateRunner whose three checks return fixed booleans. */
 function gateRunner(opts: {
@@ -75,4 +78,28 @@ test('T5: the gate runs all three checks (no short-circuit) so the note names ev
   assert.match(outcome.gate?.note ?? '', /tests/);
   assert.match(outcome.gate?.note ?? '', /typecheck/);
   assert.doesNotMatch(outcome.gate?.note ?? '', /verify/);
+});
+
+test('T7: protocol files leftover MEDIUM/LOW findings as issues through the gh seam', async () => {
+  const MED: Finding = { id: 'm', severity: 'MEDIUM', title: 'a medium' };
+  const reviewer: CodeReviewer = {
+    async review(_item: WorkItem, _effort: ReviewEffort): Promise<readonly Finding[]> {
+      return [MED];
+    },
+  };
+  const gh = new GhStub();
+  const protocol = new PerItemProtocolImpl({
+    gate: gateRunner({}),
+    reviewer,
+    fixer: { async fix(): Promise<void> {} },
+    gh,
+  });
+  const item: WorkItem = { id: 'issue-7', issueNumber: 7, sourceLabel: 'ready-for-agent' };
+  const outcome = await protocol.runProtocol(item, new StubRunner('sandcastle'));
+
+  assert.equal(outcome.disposition, 'ready-to-merge');
+  assert.equal(outcome.filedFindingIssues?.length, 1, 'one issue filed for the MEDIUM');
+  const filed = gh.peek(outcome.filedFindingIssues![0]!);
+  assert.ok(filed?.labels.includes(FROM_CODE_REVIEW));
+  assert.ok(filed?.labels.includes('ready-for-agent'));
 });
