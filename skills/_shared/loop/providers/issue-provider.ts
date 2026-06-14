@@ -304,12 +304,22 @@ export class TerminalTransitions {
         return { ...(prLinkCommentId !== undefined ? { prLinkCommentId } : {}), closed: true };
       }
       case 'escalated': {
-        // If a prior intent already created the escalation issue, reuse its number
-        // (the journal carries it). Otherwise create exactly one.
+        // createIssue is the one non-deterministic effect — a crash between the
+        // create and the journal stamp would otherwise double-create. Two cross-
+        // checks make it idempotent:
+        //  1. the journal resultIds (fast path);
+        //  2. a DETERMINISTIC marker embedded in the escalation issue body, found by
+        //     scanning ready-for-human issues — covers the lost-stamp crash window.
         const prior = await this.findEffect(effectKey(itemId, 'escalated'));
         const priorNum = prior?.resultIds?.escalationIssue;
         if (priorNum !== undefined) {
           return { escalationIssue: priorNum };
+        }
+        const escMarker = `run-loop:${this.runId}:${itemId}:escalation-issue`;
+        const existing = await this.gh.listByLabelAllStates(READY_FOR_HUMAN);
+        const already = existing.find((i) => i.body.includes(escMarker));
+        if (already !== undefined) {
+          return { escalationIssue: already.number };
         }
         const esc = input.escalation ?? {
           title: `Escalation: issue #${input.issueNumber} needs a human`,
@@ -317,7 +327,8 @@ export class TerminalTransitions {
         };
         const escalationIssue = await this.gh.createIssue({
           title: esc.title,
-          body: esc.body,
+          // Embed the deterministic marker so a lost-stamp resume can find this issue.
+          body: `${esc.body}\n\n${escMarker}`,
           labels: [READY_FOR_HUMAN],
         });
         return { escalationIssue };
