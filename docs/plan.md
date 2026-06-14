@@ -35,19 +35,6 @@ Navigator-style active board. Per v2 §6, the file has exactly four sections —
 > blockers must be merged before the next dispatches. Within Waves 19/20, independent tasks
 > may be fanned out in parallel (Workflow) since Phase 1 freezes the shared interfaces.
 
-### Wave 18 — /run-loop engine: Phase 1 foundation (engine + runner interface)
-
-- depends-on: none (new feature, claude-harness); sandcastle + Docker Desktop available; Matt Pocock engineering skills installed at `~/.agents/skills/`
-- spec: docs/specs/2026-06-14-run-loop-engine.md
-- done-when: the shared loop engine + `Runner` interface land in `skills/_shared/loop/` and pass their Verify blocks (Task 1 + Task 2); these interfaces are the contract every later wave imports
-- next-concrete-action: Dispatch Wave 18 (Task 1 engine skeleton + Task 2 runner interface) serially via /run-wave
-
-**Tasks (2) — Phase 1:** T1 (engine skeleton + control loop), T2 (runner interface: `sandcastle` + `worktree`).
-
-**Exit gate:** Task 1 + Task 2 **Verify:** blocks in the spec, both green. The engine is a pure function of (work-source, git/issue state); the `Runner` interface resolves sandcastle-default / worktree-on-declaration and aborts cleanly when Docker is absent.
-
-**Estimate:** small — 2 tasks, foundational; run serial (must merge before Wave 19).
-
 ### Wave 19 — /run-loop engine: Phases 2–4 core (providers + protocol + scheduler)
 
 - depends-on: **Wave 18 merged** (engine + Runner interface frozen)
@@ -80,6 +67,7 @@ Navigator-style active board. Per v2 §6, the file has exactly four sections —
 
 ## Recently Shipped
 
+- [x] Wave 18 - /run-loop engine: Phase 1 foundation (engine + runner interface) -> docs/waves/wave18-run-loop-engine-foundation.md (953987f)
 - [x] Wave 17 - Plan & spec grammar globalization (two-ladder + board-wave header line; markdown-app parser pilot) -> docs/waves/wave17-plan-spec-grammar-globalization.md (5a1e585)
 - [x] Wave 15 - Cowork area-level context (Pivot Phase 3 sub-spec) -> docs/waves/wave15-cowork-area-context.md (d7f1d30)
 - [x] Wave 14 - Memory system redesign — gobot pivot cascade (cross-repo) -> ../gobot/docs/waves/wave14-cowork-rename-cascade.md (gobot:970f790)

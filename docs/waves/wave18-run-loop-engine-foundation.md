@@ -2,8 +2,8 @@
 wave_number: 18
 slug: run-loop-engine-foundation
 spec_path: docs/specs/2026-06-14-run-loop-engine.md
-merge_sha:
-closed_at:
+merge_sha: 953987f
+closed_at: 2026-06-14
 ---
 
 # Wave 18 — /run-loop engine foundation (Phase 1)
