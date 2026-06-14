@@ -35,13 +35,23 @@ issue end-to-end and emits the AFK-merged / HITL-waiting / blocked-on-human summ
 
 ## Tasks
 
-### Task 1: Concrete runner adapters — real agent dispatch (keystone)
+### Task 1: Concrete runner adapters — real agent dispatch (keystone — DECIDED)
+
+**Dispatch mechanism (grill 2026-06-14, decided — resolves OQ1):** the loop is **node-driven**
+(keep the tested `runLoop` TS engine), and the runner re-enters an agent by **shelling out to a
+headless `claude -p` subprocess** — NOT the harness `Agent` tool. Rationale: `runLoop` is a pure
+node function, and the `Agent` tool is a Claude-Code in-session primitive unreachable from a node
+process (and maximally Claude-coupled, which the tool-neutral contract forbids). Precedent +
+the CLAUDECODE-unset-to-nest gotcha already live in `skills/skill-creator/scripts/run_eval.py`.
+This also vindicates the Wave 20 safety design: a headless child carries no session permission
+prompts, so the global PreToolUse denylist hook + `RUN_LOOP_ENFORCE` (T3) ARE the backstop.
 
 Implement `SandcastleAdapter` and `WorktreeAdapter` (`runners.ts` seams) with real side effects:
 - `prepare(item)`: sandcastle = start the container; worktree = `git worktree add .claude/worktrees/agent-<id>/` off the current head.
-- `run(item, prompt)`: **dispatch a Claude Code agent** to execute the per-item work in the
-  prepared workspace. Decide and document the dispatch mechanism (the harness's `Agent` tool vs a
-  `claude -p` subprocess) — this is the load-bearing design choice; the rest of the wave depends on it.
+- `run(item, prompt)`: dispatch the agent via a single shared **`dispatchAgent(prompt, {cwd, env})`**
+  helper (the one swap-point — see the agnosticism punt in OQ1) that shells to `claude -p` with
+  `CLAUDECODE` unset so it nests cleanly. For worktree items, `env` includes `RUN_LOOP_ENFORCE=1`
+  (T3) and the item's task-scoped secrets (T4); for sandcastle items it runs inside the container.
 - `collectCommits(item)`: enumerate the commits the agent produced (`git log base..head`).
 - `teardown(item)`: sandcastle = stop/remove container; worktree = `git worktree remove`.
 
@@ -51,7 +61,8 @@ Worktree runs on the host (host env + injected secrets per T4).
 **Verify:** Against a throwaway local repo, a sandcastle item's `run()` dispatches an agent that
 makes a commit, `collectCommits` returns it, `teardown` removes the workspace. A worktree item
 creates and removes a real `.claude/worktrees/agent-<id>/`. Docker-absent ⇒ sandcastle items abort
-cleanly while the harness reports why.
+cleanly while the harness reports why. The dispatch goes through the single `dispatchAgent` helper
+(asserted: one invocation site), and a worktree dispatch's env carries `RUN_LOOP_ENFORCE=1`.
 
 ### Task 2: Concrete mechanical-gate execution (GateRunner + review + findings)
 
@@ -108,9 +119,18 @@ prints the `RunSummaryReport` alongside the frozen `RunSummary` (Wave 19 carry-f
 real `CommandRunner` (`execFile('gh', argv)`) to the `gh` adapter. `/run-loop --help` still
 short-circuits before any of this.
 
+**Pre-run preview (grill 2026-06-14, decided).** Before dispatching the first item in an unattended
+run, the driver prints the resolved plan — "N ready items, here's the order + each item's runner" —
+and requires a confirm to proceed. This is a sanity gate against pointing the loop at the wrong queue
+(not a spend control — account-level usage limits own spend). A `--yes` / non-interactive flag bypasses
+it for cron/truly-unattended use. **No loop-level spend cap** (operator owns spend via the backend's
+account limits); the Wave 19 iteration cap (default 20) remains the only loop-side blast-radius bound —
+recommend a low explicit cap (e.g. 3–5) for the first live runs.
+
 **Verify:** `/run-loop issues` on a repo with one ready sandcastle issue drives it read → implement →
 gate → review → merge → `plan.md`/issue tick and prints a run summary with AFK-merged=1. `/run-loop
 --help` still does nothing else. `runGuardrailPreflight` is provably invoked before the first item.
+The pre-run preview lists the ready items and is bypassed by `--yes`.
 
 ### Task 6: Real smoke + the deferred T18 live test
 
@@ -131,11 +151,19 @@ frozen Phase-1 interface changes (additive impls only) — flag loudly if one is
 
 ## Open questions
 
-1. **Agent dispatch mechanism (T1, load-bearing).** Harness `Agent` tool vs `claude -p` subprocess.
-   The `Agent` tool gives orchestrator-grade isolation but is awkward to call from inside a module;
-   a subprocess is simpler but needs its own permission posture. Decide in T1 before the rest.
-2. **Sandcastle dependency.** Real sandcastle needs Docker/Podman; if absent on the host, the lane
+1. **Agent dispatch mechanism (T1) — RESOLVED (grill 2026-06-14).** Node-driven loop +
+   headless `claude -p` subprocess, via a single `dispatchAgent` helper. The harness `Agent` tool
+   was rejected (unreachable from a node process; maximally Claude-coupled). See T1.
+2. **Backend agnosticism — PUNTED to a future wave (grill 2026-06-14, option iii).** AGENTS.md L3
+   promises the loop is tool-neutral, but v1 ships a **Claude-only** reference dispatcher (`claude -p`
+   hard-wired in `dispatchAgent`). Rationale: sandcastle is backend-neutral for free (the container is
+   the boundary), but the worktree confinement layer (PreToolUse denylist hook + `RUN_LOOP_ENFORCE`)
+   is built on Claude-Code primitives that don't port — designing a Codex safety story speculatively
+   isn't worth it pre-adoption. A future wave adopting another backend (e.g. Codex) would need both a
+   per-backend dispatch adapter (swap `dispatchAgent`) AND a per-backend confinement adapter. T5/T-docs
+   must note this in AGENTS.md (tool-neutral in contract; Claude-only reference dispatcher in v1).
+3. **Sandcastle dependency.** Real sandcastle needs Docker/Podman; if absent on the host, the lane
    degrades to worktree-only — confirm the operator's runtime before the live test.
-3. **Egress/write-guard portability** (carried from engine-spec OQ 4 & 7) — `sandbox-exec` macOS vs
+4. **Egress/write-guard portability** (carried from engine-spec OQ 4 & 7) — `sandbox-exec` macOS vs
    netns Linux; the portable subset is still unpinned. Advisory fallback + honest run-summary
    warnings remain the v1 posture.

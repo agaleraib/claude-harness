@@ -34,7 +34,7 @@ Navigator-style active board. Per v2 §6, the file has exactly four sections —
 - depends-on: **Wave 20 merged** (engine + safety logic, all real side effects stubbed)
 - spec: docs/specs/2026-06-14-run-loop-live-wiring.md
 - done-when: a real `/run-loop issues` run drains ≥1 sandcastle issue end-to-end (read → implement → gate → review → merge → tick) and emits the AFK-merged / HITL-waiting / blocked-on-human summary; the denylist hook is verified active with `RUN_LOOP_ENFORCE=1` for a worktree item; no frozen Phase-1 interface changes
-- next-concrete-action: T1 first — decide the agent-dispatch mechanism (Agent tool vs `claude -p` subprocess), the load-bearing choice the rest of the wave depends on
+- next-concrete-action: T1 dispatch mechanism DECIDED (grill 2026-06-14: node engine + headless `claude -p` via a single `dispatchAgent` helper; backend-agnosticism punted to a future wave). Start by implementing `dispatchAgent` + the sandcastle adapter against a throwaway repo (the keystone spike)
 
 **Why this wave:** Waves 18–20 built the `/run-loop` brain (engine, protocol, scheduler, safety logic) behind injected seams that currently have only test stubs — nothing invokes `runLoop()` with production deps, `runGuardrailPreflight` is never called, `DenylistHookProbe` has no concrete impl, the runner adapters spawn no agent, and `RUN_LOOP_ENFORCE` (the env var the installed hook gates on) is set nowhere. So `/run-loop issues` reads issues but cannot drive real work. This wave builds the hands: concrete adapters + a live driver. Implements frozen interfaces; changes none.
 
