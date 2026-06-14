@@ -164,6 +164,7 @@ When the shape-consequence table classifies the spec as **wave-shaped**, `/spec-
 - spec: docs/specs/YYYY-MM-DD-<topic>.md
 - status: ready
 - exit gate: <one line, sourced from the spec's exit gate>
+- Runner: <sandcastle | worktree>   # classifier verdict per §"Per-wave/task Runner: line"
 ```
 
 **Idempotency.** If plan.md already contains a `### Wave ` entry whose `spec:` line points at the same `<spec_path>`, the operation is a no-op (no duplicate row). Re-running `/spec-planner` on the same spec must not duplicate plan.md rows.
@@ -181,6 +182,32 @@ When the shape-consequence table classifies the spec as **wave-shaped**, `/spec-
 **Decision visibility.** The shape classification and plan.md consequence are surfaced in the final summary line (see "Final summary line" below). Auto-append is friction-removal by design (per `feedback_codex_walks_back_friction_reducers`); confirmation prompts are NOT added to the happy path.
 
 For specs classified **micro-shaped** or **trivial**, plan.md is left untouched (byte-equal before/after). Suggest the user run `/micro` per task (micro-shaped) or edit directly (trivial).
+
+### Per-wave/task `Runner:` line + HITL-as-non-leaf lint (Wave 20, Task 15)
+
+Every wave/task `/spec-planner` authors emits a `Runner:` line declaring its execution lane — `sandcastle` (default, container-isolated) or `worktree` (native host, has secrets/tools the container lacks). The runner choice is NOT guessed: route the wave/task through the shared AFK/HITL 4-gate classifier at `skills/_shared/classifier/classify.ts` (the SAME module `/park --issue` and `/triage-parking` use) and emit the runner the classifier resolved against, plus its readiness verdict.
+
+**How to derive the runner + readiness:**
+
+1. From the task body, extract the four capability signals (unobtainable-credential / out-of-band-action / unspecified-product-judgment / irreversible-prod-action).
+2. A task is `Runner: worktree` when it needs host secrets/tools a container cannot provide (e.g. host keychain, host `gh`/git creds, host network); otherwise `Runner: sandcastle`.
+3. Call the classifier under that runner. A `ready-for-human` verdict means the wave is **HITL** (a human is in the loop for it); `ready-for-agent` means it can run AFK.
+
+Emit on each `### Wave N` block (plan.md auto-append) and each task contract:
+
+```markdown
+- Runner: <sandcastle | worktree>   # classifier: <ready-for-agent | ready-for-human>; gates: <tripped or "none">
+```
+
+The wave provider defaults to `sandcastle` when the `Runner:` line is absent, so this is additive — older plans without `Runner:` lines still parse.
+
+**HITL-as-non-leaf lint.** After laying out the dependency DAG, WARN when a `worktree`/HITL wave gates a large downstream subtree — "HITL waves should be DAG leaves". A human-in-the-loop wave that blocks ≥3 downstream waves stalls the whole subtree waiting on a human, defeating the loop's AFK-frontier-first scheduling. Emit:
+
+```
+⚠️ HITL-as-non-leaf: Wave <N> (Runner: worktree / ready-for-human) gates <M> downstream waves [<list>]. HITL waves should be DAG leaves — consider splitting the AFK-able work into a separate leaf wave so the loop can drain it unattended.
+```
+
+The lint is a warning, not a hard block — the planner surfaces it and the operator decides.
 
 ### Mandatory `Manual fallback:` per implementation task
 
@@ -293,6 +320,7 @@ Each task is a contract: build it, verify it, move on. Do not skip ahead.
 - [ ] **Task 1:** [What to build]
   - **Files:** [explicit paths]
   - **Depends on:** Nothing
+  - **Runner:** [sandcastle | worktree — classifier verdict per §"Per-wave/task Runner: line"]
   - **Verify:** [Concrete check — e.g., "bun run dev starts cleanly, localhost:3000 renders default page"]
 
 - [ ] **Task 2:** [Next task]
@@ -337,3 +365,4 @@ After generating the spec, write it to `docs/specs/YYYY-MM-DD-<topic>.md` (creat
 11. **WORKFLOW.md row delta is mandatory for command-adding specs.** Specs that add a user-facing command MUST include a `### WORKFLOW.md row delta` subsection per v2 §4 matrix shape.
 12. **Emit the final summary line.** Every invocation prints exactly one shape/plan/fallback/delta classification line to stdout, matching the actual side effects.
 13. **Conform to the plan/spec grammar.** Numbering follows AGENTS.md §"Plan & spec grammar", not prior specs. Every spec carries the `> **Board wave:**` header line; `Phase`/`Task` restart at 1 and are spec-local; never reuse or invent a board `Wave` number inside a spec; `F-0xx` is global/monotonic. Do not use "Wave" as a spec-internal heading.
+14. **Emit a `Runner:` line per wave/task.** Route each wave/task through the shared AFK/HITL classifier (`skills/_shared/classifier/`) and declare `Runner: sandcastle` (default) or `Runner: worktree`. Run the HITL-as-non-leaf lint and warn when a `worktree`/HITL wave gates ≥3 downstream waves. The wave provider defaults to `sandcastle` when the line is absent, so this is additive.
