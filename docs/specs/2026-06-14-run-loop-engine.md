@@ -1,6 +1,11 @@
 # `/run-loop` — unattended wave/issue loop engine
 
-> **Board wave:** Wave 18 · Phases 1–7 · Tasks 1–19 · Features F-008–F-014
+> **Board wave:** Wave 18 · Phase 1 · Tasks 1–2 · Features F-008
+> **Board wave:** Wave 19 · Phases 2–4 · Tasks 3–9 (incl. 8a) · Features F-009–F-011
+> **Board wave:** Wave 20 · Phases 5–7 · Tasks 10–18 (incl. 11a) · Features F-012–F-014
+>
+> _This spec spans three board waves by dependency layer (Phase 1 freezes the interfaces
+> Waves 19/20 import); see `docs/plan.md`._
 
 ## Overview
 

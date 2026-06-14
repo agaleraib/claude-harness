@@ -29,18 +29,50 @@ Navigator-style active board. Per v2 §6, the file has exactly four sections —
 
 ## Next
 
-### Wave 18 — /run-loop unattended wave/issue loop engine
+> **/run-loop engine** (spec `docs/specs/2026-06-14-run-loop-engine.md`) is split across
+> three board waves by dependency layer: **Wave 18** (Phase 1 foundation) → **Wave 19**
+> (Phases 2–4 core) → **Wave 20** (Phases 5–7 safety + integration + entry). Each wave's
+> blockers must be merged before the next dispatches. Within Waves 19/20, independent tasks
+> may be fanned out in parallel (Workflow) since Phase 1 freezes the shared interfaces.
+
+### Wave 18 — /run-loop engine: Phase 1 foundation (engine + runner interface)
 
 - depends-on: none (new feature, claude-harness); sandcastle + Docker Desktop available; Matt Pocock engineering skills installed at `~/.agents/skills/`
 - spec: docs/specs/2026-06-14-run-loop-engine.md
-- done-when: Phases 1–4 (engine, providers, per-item protocol, scheduler) land and pass their Verify blocks; Phases 5–7 (safety guardrails, harness integration, /run-loop entry + AGENTS.md docs) land before the first unattended AFK run; first live test = quickbase-replacement issues #2/#3 via `/run-loop issues`
-- next-concrete-action: Dispatch Phase 1 (Task 1 engine skeleton + Task 2 runner interface)
+- done-when: the shared loop engine + `Runner` interface land in `skills/_shared/loop/` and pass their Verify blocks (Task 1 + Task 2); these interfaces are the contract every later wave imports
+- next-concrete-action: Dispatch Wave 18 (Task 1 engine skeleton + Task 2 runner interface) serially via /run-wave
 
-**Tasks (20) across 7 phases:** P1 T1 (engine skeleton), T2 (runner interface); P2 T3 (wave provider), T4 (issue provider + terminal-transition contract); P3 T5 (implement→gate), T6 (review + auto-fix), T7 (findings→issues); P4 T8 (DAG scheduler), T8a (concurrency + atomic-merge), T9 (failure handling + termination + run summary); P5 T10 (denylist hook), T11 (worktree write-confinement), T11a (secret-bearing in-run containment); P6 T12 (shared AFK/HITL classifier), T13 (close-wave tick + receipts), T14 (/park promote + /triage-parking), T15 (/spec-planner Runner field); P7 T16 (/run-loop skill), T17 (AGENTS.md loop protocol), T18 (e2e live test).
+**Tasks (2) — Phase 1:** T1 (engine skeleton + control loop), T2 (runner interface: `sandcastle` + `worktree`).
 
-**Exit gate:** Each task's **Verify:** block in the spec (Tasks 1–18 + 8a + 11a). Critical-path rule: Phases 1–4 Verify all green before any live test; Phase 5 guardrails (denylist hook + egress enforcement) installed before the first unattended worktree run.
+**Exit gate:** Task 1 + Task 2 **Verify:** blocks in the spec, both green. The engine is a pure function of (work-source, git/issue state); the `Runner` interface resolves sandcastle-default / worktree-on-declaration and aborts cleanly when Docker is absent.
 
-**Estimate:** large — new engine + PreToolUse hook + edits across 4 existing skills; multi-session.
+**Estimate:** small — 2 tasks, foundational; run serial (must merge before Wave 19).
+
+### Wave 19 — /run-loop engine: Phases 2–4 core (providers + protocol + scheduler)
+
+- depends-on: **Wave 18 merged** (engine + Runner interface frozen)
+- spec: docs/specs/2026-06-14-run-loop-engine.md
+- done-when: both work-source providers, the per-item mechanical protocol, and the DAG scheduler land and pass their Verify blocks; the core is unit-testable without any unattended/safety machinery
+- next-concrete-action: After Wave 18 merges, fan out the independent tasks (T3 ∥ T4) then the protocol/scheduler chain — parallelizable via Workflow against the frozen interfaces
+
+**Tasks (8) — Phases 2–4:** T3 (wave provider), T4 (issue provider + terminal-transition contract), T5 (implement→gate), T6 (review + auto-fix), T7 (findings→issues), T8 (DAG scheduler), T8a (concurrency + atomic-merge), T9 (failure handling + termination + run summary).
+
+**Exit gate:** Each listed task's **Verify:** block (T3–T9 + 8a). Phases 1–4 Verify all green is the precondition for any live test.
+
+**Estimate:** medium–large — providers parallelizable; protocol→scheduler is a dependency chain.
+
+### Wave 20 — /run-loop engine: Phases 5–7 safety + integration + entry
+
+- depends-on: **Wave 19 merged** (core providers + protocol + scheduler)
+- spec: docs/specs/2026-06-14-run-loop-engine.md
+- done-when: host guardrails, harness integration, the `/run-loop` entry point, and AGENTS.md docs land and pass their Verify blocks; the denylist hook + egress enforcement are installed before any unattended worktree run; e2e live test runs against quickbase-replacement issues #2/#3
+- next-concrete-action: After Wave 19 merges, fan out the independent leaves (T10, T11, T14, T15, T17) then the dependent tasks; T18 (live test) last
+
+**Tasks (10) — Phases 5–7:** T10 (denylist hook), T11 (worktree write-confinement), T11a (secret-bearing in-run containment), T12 (shared AFK/HITL classifier), T13 (close-wave tick + receipts), T14 (/park promote + /triage-parking), T15 (/spec-planner Runner field), T16 (/run-loop skill), T17 (AGENTS.md loop protocol), T18 (e2e live test).
+
+**Exit gate:** Each listed task's **Verify:** block (T10–T18 + 11a). Hard gate: denylist hook + egress enforcement installed before the first unattended worktree run; T18 emits the AFK/HITL/blocked run-summary metric.
+
+**Estimate:** large — PreToolUse hook + edits across 4 existing skills + the entry skill + live test.
 
 ## Blocked
 
