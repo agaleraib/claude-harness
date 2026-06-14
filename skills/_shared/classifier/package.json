@@ -1,0 +1,9 @@
+{
+  "name": "@harness/afk-hitl-classifier",
+  "private": true,
+  "type": "module",
+  "description": "Shared AFK/HITL 4-gate capability classifier (claude-harness Wave 20, Task 12). Shared between /spec-planner (plan time) and the /run-loop engine (pickup time). Node 25 strips TypeScript types natively — no build step.",
+  "engines": {
+    "node": ">=24"
+  }
+}
