@@ -20,6 +20,16 @@ The notes below apply only when a Claude Code session is the executor. Anthropic
 
 Skill bodies live in `skills/<skill>/SKILL.md`. The skills index is best read by listing `skills/` directly; treat individual SKILL.md files as the source of truth for command behavior.
 
+## Loop protocol — Claude Code invocation notes
+
+The tool-neutral loop protocol lives in `AGENTS.md` §"Loop protocol". The Claude-Code-specific layer:
+
+- Invoke via the `/run-loop` skill: `/run-loop waves` or `/run-loop issues`. `--help` short-circuits before any side effect (matches `/run-wave`). The skill body is `skills/run-loop/SKILL.md`; the engine is the TypeScript module `skills/_shared/loop/` (Node ≥24 native type-stripping, `node:test`, no build step).
+- The catastrophic-command denylist is a Claude Code **`PreToolUse` hook** the operator installs in `~/.claude/settings.json` (global). The matcher logic ships from `skills/_shared/loop/safety/denylist.ts`; wiring it into global settings is an operator action and is NOT done from a session — see the `/run-loop` skill's Human-only TODOs.
+- The worktree runner uses Claude Code's `.claude/worktrees/agent-<id>/` worktree convention (same as `/run-wave`'s orchestrator dispatch). The sandcastle runner uses a container engine.
+- Issue-source mode uses the `gh` CLI through the `GhClient` seam (`skills/_shared/loop/gh-adapter.ts`); a live run needs `gh` credentials in the session.
+- The shared AFK/HITL classifier (`skills/_shared/classifier/`) is called by the `spec-planner` agent at plan time and by the loop at pickup time — one definition, no Claude-only assumptions.
+
 ## When in doubt
 
 When a Claude-specific override conflicts with `AGENTS.md`, the conflict is itself a signal that AGENTS.md needs to be updated (or that the Claude override is overreaching). Default to AGENTS.md and surface the conflict.
