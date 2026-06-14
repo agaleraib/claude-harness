@@ -19,6 +19,12 @@ import {
   type WorkItem,
 } from '../types.ts';
 import { type GateResult, type GateRunner, runExitGate } from './gate.ts';
+import {
+  type AutoFixer,
+  type CodeReviewer,
+  type Finding,
+  runReviewLoop,
+} from './review.ts';
 
 /**
  * Protocol-internal disposition, richer than the frozen ItemResult.status. The
@@ -37,6 +43,12 @@ export interface ProtocolOutcome {
   readonly disposition: Disposition;
   /** The exit-gate result, when the gate ran. */
   readonly gate?: GateResult;
+  /** Non-blocking (MEDIUM/LOW) findings from the review — Task 7 files these. */
+  readonly leftoverFindings?: readonly Finding[];
+  /** Blocking findings that survived the single re-review (review-escalated). */
+  readonly survivingBlockers?: readonly Finding[];
+  /** How many times /code-review ran (bounded: ≤ 2). */
+  readonly reviewCount?: number;
   readonly note?: string;
 }
 
@@ -63,6 +75,9 @@ export function toItemResult(outcome: ProtocolOutcome): ItemResult {
 /** Dependencies injected into the per-item protocol. */
 export interface PerItemDeps {
   readonly gate: GateRunner;
+  /** Optional: when present, the bounded review/auto-fix loop runs after the gate. */
+  readonly reviewer?: CodeReviewer;
+  readonly fixer?: AutoFixer;
 }
 
 /**
@@ -108,15 +123,40 @@ export class PerItemProtocolImpl implements PerItemProtocol {
   }
 
   /**
-   * Hook run after a green gate. Base implementation simply marks the item
-   * ready-to-merge; Task 6 overrides it with the review loop.
+   * Hook run after a green gate. When a reviewer + fixer are injected, run the
+   * bounded code-review / auto-fix loop (Task 6): at most one re-review; surviving
+   * CRITICAL/HIGH ⇒ `review-escalated`; otherwise `ready-to-merge` carrying the
+   * MEDIUM/LOW leftovers for Task 7. When no reviewer is injected, the item goes
+   * straight to ready-to-merge (the Task 5 behavior).
    */
   protected async afterGate(
     item: WorkItem,
     _runner: Runner,
     gate: GateResult,
   ): Promise<ProtocolOutcome> {
-    return { itemId: item.id, disposition: 'ready-to-merge', gate };
+    if (this.deps.reviewer === undefined || this.deps.fixer === undefined) {
+      return { itemId: item.id, disposition: 'ready-to-merge', gate };
+    }
+
+    const review = await runReviewLoop(item, this.deps.reviewer, this.deps.fixer);
+    if (review.disposition === 'escalate') {
+      return {
+        itemId: item.id,
+        disposition: 'review-escalated',
+        gate,
+        leftoverFindings: review.leftover,
+        survivingBlockers: review.survivingBlockers,
+        reviewCount: review.reviewCount,
+        ...(review.note !== undefined ? { note: review.note } : {}),
+      };
+    }
+    return {
+      itemId: item.id,
+      disposition: 'ready-to-merge',
+      gate,
+      leftoverFindings: review.leftover,
+      reviewCount: review.reviewCount,
+    };
   }
 
   /** Build the agent prompt for an item (the synthetic spec / issue body). */
