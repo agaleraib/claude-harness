@@ -1,0 +1,20 @@
+{
+  "//": "Strict TypeScript config for the /run-loop engine module (Wave 18). The harness repo ships no global toolchain, so this scopes type-checking to skills/_shared/loop/. Run `npx -p typescript tsc --noEmit -p skills/_shared/loop/tsconfig.json` from a checkout that has typescript available. Node 25 strips types natively at runtime, so no build step is needed to execute the tests.",
+  "compilerOptions": {
+    "strict": true,
+    "noImplicitAny": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "target": "es2023",
+    "lib": ["es2023"],
+    "types": ["node"],
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
+    "verbatimModuleSyntax": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true
+  },
+  "include": ["**/*.ts"]
+}

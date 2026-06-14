@@ -1,0 +1,14 @@
+{
+  "name": "@harness/run-loop",
+  "private": true,
+  "type": "module",
+  "description": "Shared /run-loop engine + Runner interface (claude-harness Wave 18, Phase 1). Node 25 strips TypeScript types natively — no build step.",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.ts",
+    "dry-run": "node test/dry-run.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  }
+}
