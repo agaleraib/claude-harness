@@ -29,7 +29,18 @@ Navigator-style active board. Per v2 §6, the file has exactly four sections —
 
 ## Next
 
-(none queued)
+### Wave 18 — /run-loop unattended wave/issue loop engine
+
+- depends-on: none (new feature, claude-harness); sandcastle + Docker Desktop available; Matt Pocock engineering skills installed at `~/.agents/skills/`
+- spec: docs/specs/2026-06-14-run-loop-engine.md
+- done-when: Phases 1–4 (engine, providers, per-item protocol, scheduler) land and pass their Verify blocks; Phases 5–7 (safety guardrails, harness integration, /run-loop entry + AGENTS.md docs) land before the first unattended AFK run; first live test = quickbase-replacement issues #2/#3 via `/run-loop issues`
+- next-concrete-action: Dispatch Phase 1 (Task 1 engine skeleton + Task 2 runner interface)
+
+**Tasks (20) across 7 phases:** P1 T1 (engine skeleton), T2 (runner interface); P2 T3 (wave provider), T4 (issue provider + terminal-transition contract); P3 T5 (implement→gate), T6 (review + auto-fix), T7 (findings→issues); P4 T8 (DAG scheduler), T8a (concurrency + atomic-merge), T9 (failure handling + termination + run summary); P5 T10 (denylist hook), T11 (worktree write-confinement), T11a (secret-bearing in-run containment); P6 T12 (shared AFK/HITL classifier), T13 (close-wave tick + receipts), T14 (/park promote + /triage-parking), T15 (/spec-planner Runner field); P7 T16 (/run-loop skill), T17 (AGENTS.md loop protocol), T18 (e2e live test).
+
+**Exit gate:** Each task's **Verify:** block in the spec (Tasks 1–18 + 8a + 11a). Critical-path rule: Phases 1–4 Verify all green before any live test; Phase 5 guardrails (denylist hook + egress enforcement) installed before the first unattended worktree run.
+
+**Estimate:** large — new engine + PreToolUse hook + edits across 4 existing skills; multi-session.
 
 ## Blocked
 
