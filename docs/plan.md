@@ -29,24 +29,7 @@ Navigator-style active board. Per v2 §6, the file has exactly four sections —
 
 ## Next
 
-> **/run-loop engine** (spec `docs/specs/2026-06-14-run-loop-engine.md`) is split across
-> three board waves by dependency layer: **Wave 18** (Phase 1 foundation) → **Wave 19**
-> (Phases 2–4 core) → **Wave 20** (Phases 5–7 safety + integration + entry). Each wave's
-> blockers must be merged before the next dispatches. Within Waves 19/20, independent tasks
-> may be fanned out in parallel (Workflow) since Phase 1 freezes the shared interfaces.
-
-### Wave 20 — /run-loop engine: Phases 5–7 safety + integration + entry
-
-- depends-on: **Wave 19 merged** (core providers + protocol + scheduler)
-- spec: docs/specs/2026-06-14-run-loop-engine.md
-- done-when: host guardrails, harness integration, the `/run-loop` entry point, and AGENTS.md docs land and pass their Verify blocks; the denylist hook + egress enforcement are installed before any unattended worktree run; e2e live test runs against quickbase-replacement issues #2/#3
-- next-concrete-action: After Wave 19 merges, fan out the independent leaves (T10, T11, T14, T15, T17) then the dependent tasks; T18 (live test) last
-
-**Tasks (10) — Phases 5–7:** T10 (denylist hook), T11 (worktree write-confinement), T11a (secret-bearing in-run containment), T12 (shared AFK/HITL classifier), T13 (close-wave tick + receipts), T14 (/park promote + /triage-parking), T15 (/spec-planner Runner field), T16 (/run-loop skill), T17 (AGENTS.md loop protocol), T18 (e2e live test).
-
-**Exit gate:** Each listed task's **Verify:** block (T10–T18 + 11a). Hard gate: denylist hook + egress enforcement installed before the first unattended worktree run; T18 emits the AFK/HITL/blocked run-summary metric.
-
-**Estimate:** large — PreToolUse hook + edits across 4 existing skills + the entry skill + live test.
+(none) — the `/run-loop` engine feature (Waves 18→19→20) is fully shipped.
 
 ## Blocked
 
@@ -54,6 +37,7 @@ Navigator-style active board. Per v2 §6, the file has exactly four sections —
 
 ## Recently Shipped
 
+- [x] Wave 20 - /run-loop engine: Phases 5–7 safety + integration + entry -> docs/waves/wave20-run-loop-engine-safety-integration.md (8c605fe)
 - [x] Wave 19 - /run-loop engine: Phases 2–4 core (providers + protocol + scheduler) -> docs/waves/wave19-run-loop-engine-core.md (eede94b)
 - [x] Wave 18 - /run-loop engine: Phase 1 foundation (engine + runner interface) -> docs/waves/wave18-run-loop-engine-foundation.md (953987f)
 - [x] Wave 17 - Plan & spec grammar globalization (two-ladder + board-wave header line; markdown-app parser pilot) -> docs/waves/wave17-plan-spec-grammar-globalization.md (5a1e585)

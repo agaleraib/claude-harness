@@ -2,8 +2,8 @@
 wave_number: 20
 slug: run-loop-engine-safety-integration
 spec_path: docs/specs/2026-06-14-run-loop-engine.md
-merge_sha:
-closed_at:
+merge_sha: 8c605fe
+closed_at: 2026-06-14
 ---
 
 # Wave 20 — /run-loop engine: safety guardrails + harness integration + entry point + docs
