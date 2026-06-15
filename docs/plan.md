@@ -29,20 +29,7 @@ Navigator-style active board. Per v2 §6, the file has exactly four sections —
 
 ## Next
 
-### Wave 21 — /run-loop live wiring: from stubbed seams to a runnable lane
-
-- depends-on: **Wave 20 merged** (engine + safety logic, all real side effects stubbed)
-- spec: docs/specs/2026-06-14-run-loop-live-wiring.md
-- done-when: a real `/run-loop issues` run drains ≥1 issue end-to-end via the **Codex-implement + Opus-review + verify-gate** path (read → implement → gate → review → verify → merge → tick) and emits the AFK-merged / HITL-waiting / blocked-on-human summary; no frozen Phase-1 interface changes
-- next-concrete-action: design VALIDATED via 5 spikes (2026-06-14/15) — start T1 (the `dispatchAgent` + `dispatchReview` seams + backend registry), then T2 implement adapters against a throwaway repo
-
-**Why this wave:** Waves 18–20 built the `/run-loop` brain (engine, protocol, scheduler, safety logic) behind injected seams that have only test stubs — nothing invokes `runLoop()` with production deps, the runner adapters spawn no agent, there is no live driver. So `/run-loop issues` reads issues but cannot drive real work. This wave builds the hands: pluggable backend adapters + a live driver. Reuses the tool-neutral engine unchanged; implements frozen interfaces (additive only). Design pivoted post-2026-06-15 Anthropic billing change → **pluggable backends, Codex-default implement, cross-model review** (see spec §Decisions + §Validation).
-
-**Tasks (6):** T1 (`dispatchAgent`+`dispatchReview` seams + backend registry; stdin-ignore), T2 (implement adapters — Codex `codex exec -s workspace-write` default + Claude `claude -p` flag, both lanes, **agent-edits/runner-commits**), T3 (review backends — Anthropic-API Opus 4.8 default + OpenRouter + Codex fallback; per-repo external-review egress knob), T4 (mechanical gate + **verify-gate** — review finding is a proposal, reproduce-as-failing-test before acting; reviewer proposes, gate decides), T5 (live driver — backend-aware preflight → runLoop → pre-run preview `--yes` → RunSummaryReport), T6 (real smoke + quickbase-replacement #2/#3 live test).
-
-**Exit gate:** Each task's **Verify:** block (T1–T6). Hard gate: a real `/run-loop issues` run drains ≥1 issue end-to-end via Codex-implement + Opus-review + verify-gate + emits the AFK/HITL/blocked summary; loop tests stay green (134 + new), strict tsc 0 errors, no `any`, no frozen-interface change.
-
-**Estimate:** large — backend abstraction + Codex/Claude implement adapters (both lanes) + Opus/OpenRouter review backends + verify-gate + live driver + a live cross-repo test. Design is spike-validated; the build is mostly wiring concrete adapters behind seams.
+(none)
 
 ## Blocked
 
@@ -50,6 +37,7 @@ Navigator-style active board. Per v2 §6, the file has exactly four sections —
 
 ## Recently Shipped
 
+- [x] Wave 21 - /run-loop live wiring: pluggable backends + cross-model review + production composition root (live drain via real entry: Codex implement + Opus-4.8 review) -> docs/waves/wave21-run-loop-live-wiring.md (8461197)
 - [x] Wave 20 - /run-loop engine: Phases 5–7 safety + integration + entry -> docs/waves/wave20-run-loop-engine-safety-integration.md (8c605fe)
 - [x] Wave 19 - /run-loop engine: Phases 2–4 core (providers + protocol + scheduler) -> docs/waves/wave19-run-loop-engine-core.md (eede94b)
 - [x] Wave 18 - /run-loop engine: Phase 1 foundation (engine + runner interface) -> docs/waves/wave18-run-loop-engine-foundation.md (953987f)

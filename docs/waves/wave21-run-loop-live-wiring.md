@@ -2,8 +2,8 @@
 wave_number: 21
 slug: run-loop-live-wiring
 spec_path: docs/specs/2026-06-14-run-loop-live-wiring.md
-merge_sha: null
-closed_at: null
+merge_sha: 8461197
+closed_at: 2026-06-15
 ---
 
 # Wave 21 — /run-loop live wiring (pluggable backends + cross-model review)
