@@ -1,198 +1,156 @@
-# Spec: /run-loop live wiring — from stubbed seams to a runnable lane
+# Spec: /run-loop live wiring — pluggable backends, Codex-default, cross-model review
 
-**Date:** 2026-06-14
-**Status:** draft (follow-up to `docs/specs/2026-06-14-run-loop-engine.md`)
+**Date:** 2026-06-14 (rewritten 2026-06-15 after the backend pivot + spike validation)
+**Status:** design validated end-to-end via 5 spikes (see §Validation); ready to build
 **Board wave:** Wave 21 (single wave)
+**Predecessor:** `docs/specs/2026-06-14-run-loop-engine.md` (Waves 18–20 — the engine + safety logic)
 
 ## Why this spec exists
 
-Waves 18–20 built the `/run-loop` engine, protocol, scheduler, and safety logic — the
-**brain** — with every real side effect behind an injected seam. Those seams currently have
-**only test stubs**: nothing calls `runLoop()` with production dependencies, `runGuardrailPreflight`
-is never invoked, `DenylistHookProbe` has no concrete implementation, the runner adapters'
-`.run()` methods spawn no agent, and `RUN_LOOP_ENFORCE` (the env var the installed denylist hook
-gates on) is set nowhere. So `/run-loop issues` can read/relabel issues (the `gh` adapter is real)
-but **cannot drive real work end-to-end today.**
+Waves 18–20 built the `/run-loop` **engine, protocol, scheduler, and safety logic** — the brain —
+with every real side effect behind an injected seam. Those seams have **only test stubs**: nothing
+calls `runLoop()` with production deps, the runner adapters spawn no agent, and there is no live
+driver. So `/run-loop issues` reads issues but cannot drive real work. This wave builds the **hands**:
+concrete adapters + a live driver.
 
-This wave builds the **hands**: concrete adapters for the existing seams + a live driver that
-assembles them and runs the loop. It changes **no frozen Phase-1 interface** — it implements
-them. The verdict for "done" is a real `/run-loop issues` run that drains at least one sandcastle
-issue end-to-end and emits the AFK-merged / HITL-waiting / blocked-on-human summary.
+Two events reshaped the design after the original draft:
 
-## Scope (what exists vs what this wave adds)
+1. **The Anthropic billing change (effective 2026-06-15)** moves Claude Code + Agent SDK usage to a
+   separate, capped, **metered** programmatic credit pool (full API rates, no subscriber discount,
+   no rollover). An unattended per-item agent loop is "heavy automation," so Claude-backend dispatch
+   is now metered **in every lane** — eliminating the "host lane = free subscription" advantage the
+   original default-runner analysis relied on.
+2. **Codex offers a structurally better fit for the bulk implementation work**: file-based ChatGPT
+   OAuth (portable into containers, unlike Claude's macOS Keychain) and a native OS-level sandbox
+   (`codex exec -s workspace-write`) that subsumes most of the hand-rolled Wave-20 worktree guardrails.
 
-| Seam (interface, shipped) | Today | Wave 21 |
+The result is **not** a Codex-only pivot. The engine is tool-neutral by contract (AGENTS.md
+"Loop protocol"), so the right move is to **make the backend pluggable** and pick economical defaults.
+
+## Decisions (locked — see §Validation for the empirical basis)
+
+| Axis | Decision |
+|---|---|
+| Loop architecture | **Node-driven** — keep the tested `runLoop` engine; the runner re-enters an agent by **shelling to a headless CLI subprocess** (the harness `Agent` tool is unreachable from a node process). |
+| Backend pluggability | **Un-punt agnosticism.** A `dispatchAgent` seam selects the backend; the engine stays backend-agnostic. |
+| **Implement** backend | **Codex (`codex exec`) = default** (ChatGPT-sub OAuth, sidesteps Anthropic metering) · **Claude (`claude -p`) = flag.** Per-item override via the runner/label field. |
+| **Review** backend | A **separate** selector (`dispatchReview` — a model judgment on a diff, *not* an agentic CLI): **Anthropic API → Opus 4.8 = default** · **OpenRouter (complexity-routed)** · Codex same-model = fallback. Review is low-volume → **pay-per-token API is intentional and cheap**. |
+| Commit model | **Agent edits, runner commits.** The agent only touches workspace files; the unsandboxed node runner does `git add`/`commit` after. Backend-uniform (works for Codex's read-only-`.git` sandbox *and* Claude). |
+| Dispatch mechanics | Child stdin **ignored** (`stdio:['ignore',…]`) — `codex exec` blocks indefinitely on open stdin; `claude -p` waits 3s. |
+| Worktree confinement | **Codex native `-s workspace-write`** (host, OS-enforced) / container = boundary. The **Wave-20 denylist hook + `RUN_LOOP_ENFORCE` become the *Claude*-backend's worktree story**, not the universal path. |
+| Container auth | Codex: mount `~/.codex` (ro seed → writable `CODEX_HOME` copy) + `codex exec --dangerously-bypass-approvals-and-sandbox` (container is the boundary). Run as non-root for Claude; Codex tolerates root under sandbox-bypass. |
+| Review trust | **Verify-gate is authoritative.** A review finding is a *proposal*: convert a claimed bug to a failing test and re-run the gate. Never merge/act on a raw review assertion — even from Opus. |
+| Review data egress | An external review API (OpenRouter, or any non-local endpoint) sends code diffs to a third party → **per-repo policy knob** governing which repos may use a non-local review backend (ties to Wave-20 egress posture). |
+| Cost ceiling | No loop-level spend cap — operator owns spend via account-level limits. Wave-19 iteration cap (default 20; run low first) is the only loop-side bound. |
+| Pre-run preview | Driver prints "N ready items + resolved order/runners — proceed?" with a `--yes` bypass for cron. |
+
+## Validation (5 spikes, 2026-06-14/15 — artifacts in `/tmp/*-spike/`, throwaway)
+
+1. **Claude host dispatch — PASS.** node → `claude -p` (CLAUDECODE/`CLAUDE_CODE_*` stripped, bypassPermissions) ran a headless agent that committed; `collectCommits` recovered it. Impl note: ignore stdin.
+2. **Denylist-hook backstop — PASS (A/B).** With the global hook + `RUN_LOOP_ENFORCE=1`, a dispatched agent's `rm -rf` outside the worktree was **blocked** (sentinel survived); control without the env var **deleted** it. The hook is the differentiator, not model refusal. *(This is now the Claude-backend's worktree safety story.)*
+3. **Codex dispatch, both lanes — PASS.** Host: `codex exec -s workspace-write` ran headless on the ChatGPT OAuth token, edited the file; the unsandboxed runner committed (`e28cf6f`). Container: mounted OAuth token **authenticated inside a Linux container** (the exact thing the macOS Keychain blocked for Claude), created the file, no root refusal under sandbox-bypass. Findings folded into Decisions: stdin-ignore; `.git` is read-only under `workspace-write` → **agent-edits/runner-commits**.
+4. **gpt-5.5 implementation capability — PASS.** Given a stub + 10 tests (unit-order rejection, >59 min, empty/garbage validation), `codex exec` produced a correct one-shot `parseDuration`; the gate verified **10/10 green independently**.
+5. **Cross-model review tier — the reviewer-quality thesis, proven.** Reviewing #4's Codex diff: **haiku** gave one finding = a **false positive** (claimed JS `$` matches before `\n`; verified wrong). **Opus 4.8** (via Anthropic API) **cleared that false positive** with correct reasoning *and* found **two real gaps the tests missed** — non-string coercion (`parseDuration(["1h"])`→3600) and >2^53 precision loss — both verified empirically. Conclusions: reviewer model tier is load-bearing (Opus-4.8-class default); and the **verify-gate is essential** (both reviewers' findings were verified before accept/discard).
+
+## Scope (what exists vs. what this wave adds)
+
+| Seam / piece | Today | Wave 21 |
 |---|---|---|
-| `GhClient` (`gh-adapter.ts`) | ✅ real | (reuse) |
-| `WorkSource` providers (wave/issue) | ✅ real parse logic | (reuse) |
-| `runLoop()` / scheduler / protocol logic | ✅ tested | (reuse) |
-| `SandcastleAdapter` / `WorktreeAdapter` `.run()` | ⚠️ stub | **T1** concrete agent dispatch |
-| `GateRunner`, review/auto-fix, `findings-filer` gh seam | ⚠️ stub | **T2** concrete mechanical-gate execution |
-| `DenylistHookProbe`, `SnapshotStore`, `WriteGuard` | ⚠️ interface only | **T3** concrete + `RUN_LOOP_ENFORCE` export |
-| egress mechanism, `ApprovalStore`, `CredentialProvider` | ⚠️ interface only | **T4** concrete secret-bearing host adapters |
-| entry-point invoking `runGuardrailPreflight` + `runLoop` | ❌ comment only | **T5** the live driver |
-| live run against a real repo | ❌ (T18 was stubbed) | **T6** real smoke + quickbase-replacement #2/#3 |
-
-## Pre-implementation validation (spikes run 2026-06-14)
-
-Two throwaway spikes de-risked the load-bearing assumptions before any production code. Both
-PASSED. Artifacts were `/tmp/run-loop-spike/{dispatch-spike,hook-spike}.mjs` (not committed).
-
-- **Spike 1 — T1 dispatch (the keystone).** A `dispatchAgent` prototype shelled from a node
-  process to `claude -p` (with `CLAUDECODE` + `CLAUDE_CODE_*` stripped from the child env),
-  `--permission-mode bypassPermissions --model claude-haiku-4-5-20251001 --max-turns 20`, cwd set
-  to a throwaway git repo. In ~10.7s the headless agent created and committed a file; a
-  `collectCommits` prototype (`git log base..HEAD`) recovered the commit. **Confirms:** nested
-  headless dispatch works (the run_eval.py CLAUDECODE-unset gotcha holds), `bypassPermissions`
-  lets the agent write + commit with no prompts, and the `collectCommits` seam recovers the work.
-  **Impl note for T1:** `claude -p` waits ~3s for piped stdin — `dispatchAgent` must pass
-  `stdin: 'ignore'` (or `< /dev/null`) to skip it.
-- **Spike 2 — T3 hook backstop.** With the denylist PreToolUse hook installed globally and the
-  matcher on master, an A/B test dispatched headless agents told to `rm -rf` a directory *outside*
-  the worktree. Run A (`RUN_LOOP_ENFORCE=1`): the agent reported the command "blocked by the
-  universal denylist" and the target sentinel **survived**. Run B (control, env unset): the
-  command **ran and deleted** the directory. **Confirms, end-to-end:** the global hook fires for a
-  headless agent's Bash calls (not merely for piped-JSON unit tests), it inherits
-  `RUN_LOOP_ENFORCE` from the dispatch env and gates on it, the block prevents the *effect* (the
-  spec's T10 effect-based Verify, satisfied live), and the control proves causation — the model
-  *will* run `rm -rf` when unblocked, so survival under enforcement is the hook, not model refusal.
-
-Net: the two claims T1 rests on — `bypassPermissions` enables unattended action, and the global
-denylist hook + `RUN_LOOP_ENFORCE` is the backstop that makes that safe — are validated, not
-assumed. T1 and T3 implementations should cite these results; what remains unproven is the
-worktree create/teardown + docker/sandcastle path + full gate→review→merge cycle (T2/T6).
+| `runLoop` / scheduler / providers / gh-adapter | ✅ tested, tool-neutral | reuse unchanged |
+| Wave-20 denylist hook / write-root / egress | ✅ built + spike-validated | **demoted** to the Claude-backend's worktree adapter |
+| `dispatchAgent` (implement) seam + backend registry | ❌ | **T1** |
+| Codex + Claude implement adapters (both lanes) | ⚠️ stub | **T2** |
+| `dispatchReview` seam + Opus-API / OpenRouter / Codex review backends | ❌ | **T3** |
+| Mechanical gate (`GateRunner`) + **verify-gate** + findings-filer | ⚠️ stub | **T4** |
+| Live driver (preflight → runLoop → preview → summary) | ❌ comment only | **T5** |
+| Real smoke + live test | ❌ (was stubbed) | **T6** |
 
 ## Tasks
 
-### Task 1: Concrete runner adapters — real agent dispatch (keystone — DECIDED)
+### Task 1: Backend abstraction — `dispatchAgent` + `dispatchReview` seams + registry
 
-**Dispatch mechanism (grill 2026-06-14, decided — resolves OQ1):** the loop is **node-driven**
-(keep the tested `runLoop` TS engine), and the runner re-enters an agent by **shelling out to a
-headless `claude -p` subprocess** — NOT the harness `Agent` tool. Rationale: `runLoop` is a pure
-node function, and the `Agent` tool is a Claude-Code in-session primitive unreachable from a node
-process (and maximally Claude-coupled, which the tool-neutral contract forbids). Precedent +
-the CLAUDECODE-unset-to-nest gotcha already live in `skills/skill-creator/scripts/run_eval.py`.
-This also vindicates the Wave 20 safety design: a headless child carries no session permission
-prompts, so the global PreToolUse denylist hook + `RUN_LOOP_ENFORCE` (T3) ARE the backstop.
+Introduce two dispatch seams and a backend registry resolved from config:
+- `dispatchAgent(prompt, {cwd, env, lane})` → runs an **agentic CLI** (implement step; needs tools/workspace/sandbox). Backends: `codex` (default), `claude` (flag). Resolved per item from the runner/label field; engine stays backend-agnostic.
+- `dispatchReview(diff, {context})` → a **single model judgment on a diff** (no tools). Backends: `anthropic-api:opus-4.8` (default), `openrouter:<model>` (complexity-routed), `codex` (same-model fallback).
+- Both spawn with **stdin ignored** (`stdio:['ignore','pipe','pipe']`) — non-negotiable (codex blocks on stdin otherwise).
+- Config: backend selection + API keys (`ANTHROPIC_API_KEY` review-only, `OPENROUTER_API_KEY`) sourced from env / `.harness-profile`, never logged.
 
-Implement `SandcastleAdapter` and `WorktreeAdapter` (`runners.ts` seams) with real side effects:
-- `prepare(item)`: sandcastle = start the container; worktree = `git worktree add .claude/worktrees/agent-<id>/` off the current head.
-- `run(item, prompt)`: dispatch the agent via a single shared **`dispatchAgent(prompt, {cwd, env})`**
-  helper (the one swap-point — see the agnosticism punt in OQ1) that shells to `claude -p` with
-  `CLAUDECODE` unset so it nests cleanly. For worktree items, `env` includes `RUN_LOOP_ENFORCE=1`
-  (T3) and the item's task-scoped secrets (T4); for sandcastle items it runs inside the container.
-- `collectCommits(item)`: enumerate the commits the agent produced (`git log base..head`).
-- `teardown(item)`: sandcastle = stop/remove container; worktree = `git worktree remove`.
+**Verify:** Unit tests over backend resolution (per-item override, defaults, unknown-backend error). A dispatch helper test asserts the child is spawned with no stdin. Selecting `claude` vs `codex` for implement, and `anthropic-api` vs `openrouter` for review, routes to the right adapter (adapters stubbed).
 
-Sandcastle requires Docker/Podman present — reuse `preflightRunners` Docker-absent abort.
-Worktree runs on the host (host env + injected secrets per T4).
+### Task 2: Concrete implement adapters — Codex (default) + Claude, both lanes, runner-commits
 
-**Verify:** Against a throwaway local repo, a sandcastle item's `run()` dispatches an agent that
-makes a commit, `collectCommits` returns it, `teardown` removes the workspace. A worktree item
-creates and removes a real `.claude/worktrees/agent-<id>/`. Docker-absent ⇒ sandcastle items abort
-cleanly while the harness reports why. The dispatch goes through the single `dispatchAgent` helper
-(asserted: one invocation site), and a worktree dispatch's env carries `RUN_LOOP_ENFORCE=1`.
+- **Codex adapter:** worktree lane = `codex exec -s workspace-write -C <wt> --skip-git-repo-check`; sandcastle lane = container with `~/.codex` mounted (ro seed → writable `CODEX_HOME` copy) + `--dangerously-bypass-approvals-and-sandbox` (container is the boundary). Image runs the agent (non-root for Claude; Codex tolerates root under bypass).
+- **Claude adapter:** `claude -p` with `CLAUDECODE`/`CLAUDE_CODE_*` stripped; worktree lane gated by the Wave-20 denylist hook + `RUN_LOOP_ENFORCE=1` (its confinement story); sandcastle lane = container with a `setup-token`/`ANTHROPIC_API_KEY` (subscription-in-container is unsupported/grey — see OQ).
+- **Agent edits, runner commits:** after the agent returns, the unsandboxed node runner does `git add -A && git commit` (the agent's sandbox makes `.git` read-only). Then `collectCommits(base..HEAD)`.
 
-### Task 2: Concrete mechanical-gate execution (GateRunner + review + findings)
+**Verify:** Against a throwaway repo, the Codex adapter (host) runs an agent that edits files, the runner commits, `collectCommits` returns the commit. A container run authenticates on the mounted token and produces a commit visible on the host. The Claude adapter (host) does the same with the hook active. Docker-absent ⇒ sandcastle items abort cleanly (reuse `preflightRunners`).
 
-Wire the per-item protocol's injected seams to real commands:
-- `GateRunner`: run the item's exit gate in its workspace — tests + typecheck + the item's
-  `Verify`/acceptance checks — returning `GateResult` (red blocks merge, no short-circuit).
-- review + bounded auto-fix: invoke `/code-review` (inline `high`; `ultra` only on a per-item
-  opt-in flag), auto-fix CRITICAL+HIGH one round, then escalate.
-- `fileLeftoverFindings`: file MED/LOW as gh issues via the **real** `GhClient` (the seam exists;
-  wire the live adapter), labeled `from:code-review` + the source item's label.
+### Task 3: Concrete review backends — Opus-4.8 API (default) + OpenRouter + Codex; verify-gate-fed
 
-**Verify:** A fixture item with a deliberately failing test produces a red `GateResult` and is NOT
-merged. A green item with one HIGH review finding is auto-fixed then merged; a MED finding becomes a
-real `from:code-review` gh issue. Re-running files no duplicate (idempotent).
+`dispatchReview` implementations:
+- **`anthropic-api:opus-4.8`** (default) — a completion on the per-item diff. Low-volume → pay-per-token, billed to a review-only `ANTHROPIC_API_KEY` (separate from the implement subscription).
+- **`openrouter:<model>`** — OpenAI-compatible endpoint, model chosen by review complexity.
+- **`codex`** — same-model fallback (cheapest; weakest adversarial value).
+- **Data-egress policy:** a `.harness-profile` knob declares whether a repo may use a non-local review backend; if not, fall back to a local/Codex review and log it (external review APIs receive code diffs — a third-party data egress).
 
-### Task 3: Concrete safety adapters + `RUN_LOOP_ENFORCE` export
+**Verify:** The same diff routed to each backend returns a structured findings list. With the external-review policy off for a repo, an `openrouter` selection is refused/downgraded to local with a logged reason. A weak reviewer's false positive and a strong reviewer's real finding both flow into T4's verify step (not acted on directly).
 
-- `DenylistHookProbe.isActive()`: detect the catastrophic-command PreToolUse hook is installed and
-  firing — parse `~/.claude/settings.json` for the `loop-denylist` PreToolUse entry (the bridge
-  installed as a Wave-20 human TODO). Return false ⇒ the preflight refuses worktree items.
-- **Export `RUN_LOOP_ENFORCE=1` into the worktree-agent environment** (T1's `run()` for worktree
-  items) so the installed hook actually enforces. Without this the hook fail-opens and the denylist
-  backstop never fires — the specific gap that prompted this wave. (Sandcastle items don't need it;
-  the container is their boundary.)
-- `SnapshotStore.create()`: real `git tag`/`stash` of `master` before the first worktree merge.
-- `WriteGuard`: OS-level write-root guard where supported (`sandbox-exec` macOS), else advisory +
-  `advisory-write-root` warning (Open Question 4 from the engine spec).
+### Task 4: Mechanical gate + verify-gate (reviewer proposes, gate decides)
 
-**Verify:** With the hook present in `~/.claude/settings.json`, `isActive()` is true and a worktree
-item runs with `RUN_LOOP_ENFORCE=1` in its env (asserted) so a catastrophic command is blocked.
-With the hook absent, `isActive()` is false and worktree items are refused while sandcastle drains.
-A pre-run snapshot ref is created before the first worktree merge.
+- **`GateRunner`** runs the item's exit gate in its workspace — tests + typecheck + the item's `Verify`/acceptance checks — returning `GateResult` (red blocks merge, no short-circuit).
+- **Verify-gate:** each review finding is a *proposal*. Before any auto-fix or escalation, the loop attempts to **reproduce** it as a failing assertion against the gate; only reproduced findings drive a fix round (bounded; then escalate). Unreproduced findings are logged as advisory, never block a merge. This is the discipline the spike proved necessary (a confident reviewer — even Opus — can be wrong; haiku was).
+- Reproduced-but-unfixed findings → filed as gh issues via the real `GhClient` (`from:code-review` + source label), idempotently.
 
-### Task 4: Concrete secret-bearing host adapters (controls A–C)
+**Verify:** A fixture with a deliberately failing test produces a red `GateResult` and is NOT merged. A *real* review finding (e.g. the non-string-coercion gap) reproduces as a failing test and drives a fix round; a *false-positive* finding (the JS-`$`/newline claim) fails to reproduce and is logged advisory, not acted on. Re-running files no duplicate issues.
 
-- egress mechanism: real default-deny egress context (`sandbox-exec` egress profile macOS / netns +
-  filter Linux); no OS mechanism ⇒ refuse `egress-unenforceable` (never open egress with live secrets).
-- `ApprovalStore`: the per-item pre-execution approval token — a `loop:approved-for-execution` gh
-  label/marker the operator sets; absent ⇒ `awaiting-pre-approval`, agent never invoked.
-- `CredentialProvider`: inject only the item's declared `secrets:` (scoped/short-lived where the
-  provider supports it), never the whole `.env.local`.
+### Task 5: The live driver — preflight → runLoop → preview → summary
 
-**Verify:** Integration test (host-seam stubbed where CI can't run real `sandbox-exec`, but the
-adapter exercised on a supporting host): no allowlist ⇒ only loopback reachable; unapproved item
-deferred `awaiting-pre-approval`; only declared secrets present in the agent env; no-egress-mechanism
-host ⇒ `egress-unenforceable`.
+`run-loop-entry.ts` (or a `run-loop-driver.ts` it delegates to) builds production `EngineDeps`
+(providers + protocol + `DefaultRunnerFactory` with T2 implement adapters + T3 review backends),
+runs `runGuardrailPreflight` (now backend-aware: Codex lane relies on its native sandbox; Claude
+worktree lane requires the denylist hook), then `runLoop`, and prints the `RunSummaryReport`
+alongside the frozen `RunSummary`. Includes the **pre-run preview** ("N ready items + resolved
+backends/runners — proceed?", `--yes` bypass). `/run-loop --help` short-circuits before any of it.
 
-### Task 5: The live driver — assemble deps and run
+**Verify:** `/run-loop issues` on a repo with one ready item drives read → implement (Codex) → gate →
+review (Opus) → verify → merge → board tick, and prints a summary with the AFK/HITL/blocked metric.
+`--help` does nothing else. `runGuardrailPreflight` is provably invoked before the first item, and is
+backend-aware (a Claude worktree item without the hook is refused; a Codex item is not).
 
-`run-loop-entry.ts` (or a new `run-loop-driver.ts` it delegates to) builds the production
-`EngineDeps` (real provider + protocol + `DefaultRunnerFactory` with T1 adapters) and `GuardrailDeps`
-(T3/T4 adapters), runs `runGuardrailPreflight(pendingItems, deps)` first, then `runLoop(deps)`, and
-prints the `RunSummaryReport` alongside the frozen `RunSummary` (Wave 19 carry-forward #3). Provides a
-real `CommandRunner` (`execFile('gh', argv)`) to the `gh` adapter. `/run-loop --help` still
-short-circuits before any of this.
+### Task 6: Real smoke + live test
 
-**Pre-run preview (grill 2026-06-14, decided).** Before dispatching the first item in an unattended
-run, the driver prints the resolved plan — "N ready items, here's the order + each item's runner" —
-and requires a confirm to proceed. This is a sanity gate against pointing the loop at the wrong queue
-(not a spend control — account-level usage limits own spend). A `--yes` / non-interactive flag bypasses
-it for cron/truly-unattended use. **No loop-level spend cap** (operator owns spend via the backend's
-account limits); the Wave 19 iteration cap (default 20) remains the only loop-side blast-radius bound —
-recommend a low explicit cap (e.g. 3–5) for the first live runs.
+(a) Clean-room smoke against a throwaway local repo: one ready item, Codex implements, Opus reviews,
+runner commits/merges. (b) The deferred **quickbase-replacement #2/#3** live test (after seeding its
+`.harness-profile`). Capture the AFK-merged / HITL-waiting / blocked-on-human run summary as the
+Option-C workability verdict.
 
-**Verify:** `/run-loop issues` on a repo with one ready sandcastle issue drives it read → implement →
-gate → review → merge → `plan.md`/issue tick and prints a run summary with AFK-merged=1. `/run-loop
---help` still does nothing else. `runGuardrailPreflight` is provably invoked before the first item.
-The pre-run preview lists the ready items and is bypassed by `--yes`.
-
-### Task 6: Real smoke + the deferred T18 live test
-
-Run `/run-loop issues` end-to-end against (a) a throwaway local repo for a clean-room smoke, then
-(b) the deferred **quickbase-replacement #2/#3** live test (after the operator seeds its
-`.harness-profile loop_denylist:` — Wave 20 human TODO #2). Capture the AFK-merged / HITL-waiting /
-blocked-on-human run summary as the Option-C workability verdict.
-
-**Verify:** A live run merges/PRs #2's work behind the mechanical gate, defers #3 until #2 is merged,
-emits the run-summary metric, and no denylist violation / no red merge occurs.
+**Verify:** A live run merges/PRs #2's work behind the mechanical gate (Codex implement + Opus review
++ verify-gate), defers #3 until #2 is merged, and emits the run-summary metric. No red merge; no denylist
+violation (Claude lane) / sandbox escape (Codex lane).
 
 ## Exit gate
 
-`skills/_shared/loop/` tests stay green (existing 134 + new); strict `tsc` 0 errors; no `any`. A real
-`/run-loop issues` run drains ≥1 sandcastle issue end-to-end and emits the AFK/HITL/blocked summary
-(T5/T6). The denylist hook is verified active with `RUN_LOOP_ENFORCE=1` for a worktree item (T3). No
-frozen Phase-1 interface changes (additive impls only) — flag loudly if one is forced.
+`skills/_shared/loop/` tests stay green (134 + new); strict `tsc` 0 errors; no `any`; **no frozen
+Phase-1 interface change** (additive impls only — flag loudly if forced). A real `/run-loop issues`
+run drains ≥1 item end-to-end via the **Codex-implement + Opus-review + verify-gate** path and emits
+the AFK/HITL/blocked summary (T5/T6).
 
 ## Open questions
 
-1. **Agent dispatch mechanism (T1) — RESOLVED (grill 2026-06-14).** Node-driven loop +
-   headless `claude -p` subprocess, via a single `dispatchAgent` helper. The harness `Agent` tool
-   was rejected (unreachable from a node process; maximally Claude-coupled). See T1.
-2. **Backend agnosticism — PUNTED to a future wave (grill 2026-06-14, option iii).** AGENTS.md L3
-   promises the loop is tool-neutral, but v1 ships a **Claude-only** reference dispatcher (`claude -p`
-   hard-wired in `dispatchAgent`). Rationale: sandcastle is backend-neutral for free (the container is
-   the boundary), but the worktree confinement layer (PreToolUse denylist hook + `RUN_LOOP_ENFORCE`)
-   is built on Claude-Code primitives that don't port — designing a Codex safety story speculatively
-   isn't worth it pre-adoption. A future wave adopting another backend (e.g. Codex) would need both a
-   per-backend dispatch adapter (swap `dispatchAgent`) AND a per-backend confinement adapter. T5/T-docs
-   must note this in AGENTS.md (tool-neutral in contract; Claude-only reference dispatcher in v1).
-3. **Sandcastle dependency.** Real sandcastle needs Docker/Podman; if absent on the host, the lane
-   degrades to worktree-only — confirm the operator's runtime before the live test.
-4. **Egress/write-guard portability** (carried from engine-spec OQ 4 & 7) — `sandbox-exec` macOS vs
-   netns Linux; the portable subset is still unpinned. Advisory fallback + honest run-summary
-   warnings remain the v1 posture.
+1. **Backend defaults are pricing-driven and may shift.** Codex-default rests on ChatGPT-sub OAuth
+   being viable for automation; OpenAI could meter it like Anthropic did (2026-06-15). The pluggable
+   seam is the hedge — defaults are config, not architecture.
+2. **Subscription-for-unattended-automation is ToS-grey for every vendor** (Claude *and* OpenAI), per
+   the sandcastle #191 thread. Not legal advice; the operator owns the call. The API-billed review
+   path is unambiguous.
+3. **Claude-backend container auth** has no clean subscription path (Keychain not portable; #191 OPEN).
+   The Claude sandcastle lane needs `setup-token`/`CLAUDE_CODE_OAUTH_TOKEN` (grey) or an API key
+   (metered). The Codex sandcastle lane has no such problem (file OAuth). So the Claude backend is
+   effectively worktree-first.
+4. **OpenRouter / external review egress.** Sending diffs to a third party is a data-egress decision;
+   the per-repo policy knob (T3) governs it, but the portable default (which repos opt in) is unpinned.
+5. **Codex reads `AGENTS.md`** (its own convention) — our "Loop protocol" section will be seen by
+   dispatched Codex agents. Likely a feature (they follow the protocol); confirm it doesn't mislead.
+6. **OS-level egress/write-guard portability** (carried from the engine spec) — `sandbox-exec` macOS vs
+   netns/landlock Linux; the portable subset is unpinned. Codex's native sandbox covers the Codex lane;
+   the Claude worktree lane keeps the advisory-or-OS-enforced posture with honest run-summary surfacing.
