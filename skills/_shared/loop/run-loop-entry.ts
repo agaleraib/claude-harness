@@ -113,3 +113,99 @@ Behavior:
 
 Name chosen over /loop (the Anthropic interval-scheduler built-in) for
 consistency with /run-wave.`;
+
+// --- Production wiring (Wave 21, Task 5 completion) --------------------------------
+//
+// The entry EXECUTABLE assembles the REAL graph and drives it. Imports are kept INSIDE
+// runProduction (dynamic) so importing this module for its pure parsers (the unit
+// tests) does not pull in the heavy production composition root.
+
+/**
+ * Run a /run-loop source end-to-end through the REAL production graph: build production
+ * EngineDeps (providers + the production protocol with the T2 implement adapters + T3
+ * review backends + GhCliAdapter for issues mode), run the backend-aware guardrail
+ * preflight, the preview (--yes bypass), runLoop, and print the RunSummaryReport.
+ *
+ * `waves` mode is not wired for the live local path yet (the wave provider drives
+ * plan.md, not a throwaway repo); `issues` mode is the live path. An optional
+ * `localSource` lets a fully local throwaway smoke (no GitHub remote) drive the SAME
+ * production protocol + driver without `gh`.
+ */
+export async function runProduction(
+  source: WorkSourceArg,
+  opts: {
+    readonly yes: boolean;
+    readonly print?: (line: string) => void;
+    /** Clean-room local drive: a throwaway repo dir + a JSON item file (no gh). */
+    readonly localRepo?: string;
+    readonly localItemFile?: string;
+  },
+): Promise<void> {
+  const print = opts.print ?? ((l: string) => console.log(l));
+  const { drive } = await import('./run-loop-driver.ts');
+  const prodMod = await import('./run-loop-prod-deps.ts');
+
+  // Clean-room local path (committed): --repo + --item-file drive the SAME production
+  // graph against a throwaway repo with one local item — no `gh`, no GitHub mutation.
+  if (opts.localRepo !== undefined && opts.localItemFile !== undefined) {
+    const { readFileSync } = await import('node:fs');
+    const item = JSON.parse(readFileSync(opts.localItemFile, 'utf8')) as Record<string, unknown> & { id: string };
+    const config = prodMod.buildBackendConfigFromEnv();
+    const prod = prodMod.buildLocalCleanRoomDeps({ repoDir: opts.localRepo, item, config, seams: { console: { print } } });
+    await drive({
+      engine: prod.engine,
+      config: prod.config,
+      readyItems: prod.readyItems,
+      hookProbe: { async isActive() { return false; } },
+      console: { print },
+      confirm: { async confirm() { return true; } },
+      buildReport: (summary) => prod.buildReport(summary),
+      yes: opts.yes,
+    });
+    return;
+  }
+
+  if (source === 'waves') {
+    print('/run-loop: `waves` live drive is not wired for the local path yet; use `issues`.');
+    return;
+  }
+  const prod = await prodMod.buildIssuesProductionDeps();
+  await drive({
+    engine: prod.engine,
+    config: prod.config,
+    readyItems: prod.readyItems,
+    hookProbe: { async isActive() { return false; } }, // Codex worktree needs no hook
+    console: { print },
+    confirm: { async confirm() { return true; } }, // CLI confirm; --yes also bypasses
+    buildReport: (summary) => prod.buildReport(summary),
+    yes: opts.yes,
+  });
+}
+
+/**
+ * CLI entry: `node run-loop-entry.ts <source> [--yes]`. Parses, short-circuits --help,
+ * and otherwise drives the production graph. Guarded by import.meta.main so importing
+ * this module never triggers a run.
+ */
+export async function main(argv: readonly string[]): Promise<void> {
+  const flagValue = (name: string): string | undefined => {
+    const i = argv.indexOf(name);
+    return i !== -1 && i + 1 < argv.length ? argv[i + 1] : undefined;
+  };
+  const localRepo = flagValue('--repo');
+  const localItemFile = flagValue('--item-file');
+  await runEntry(argv, {
+    print: (l) => console.log(l),
+    runDrive: (src, o) =>
+      runProduction(src, {
+        yes: o.yes,
+        ...(localRepo !== undefined ? { localRepo } : {}),
+        ...(localItemFile !== undefined ? { localItemFile } : {}),
+      }),
+  });
+}
+
+// Direct-run shim: only fires when this file is the executed entry point.
+if (import.meta.main) {
+  void main(process.argv.slice(2));
+}

@@ -38,29 +38,31 @@ merged — the human decides whether to merge.
 
 | Check | Result | Evidence |
 |---|---|---|
-| `skills/_shared/loop/` tests stay green (134 + new) | **PASS** | `node --test test/*.test.ts` → 179 tests, 179 pass, 0 fail (134 baseline + 45 new: T1 14, T2 7, T3 8, T4 5, T5 10, T6 1) |
+| `skills/_shared/loop/` tests stay green (134 + new) | **PASS** | `node --test test/*.test.ts` → **186 tests, 186 pass, 0 fail** (134 baseline + 52 new: T1 14, T2 7, T3 8, T4 5, T5 10, T6 1, + composition-root 7) |
 | strict `tsc` 0 errors | **PASS** | `tsc --noEmit -p tsconfig.json` (typescript 5.7.2 + @types/node 22 via temp prefix) → exit 0, 0 errors |
-| no `any` | **PASS** | grep for bare `any` across new source (`dispatch/`, `verify-gate.ts`, `run-loop-driver.ts`) → none |
-| no frozen Phase-1 interface change (additive only) | **PASS** | `git diff 55c782b..HEAD -- types.ts engine.ts` → 0 changed lines; all existing protocol/gh/runner/termination/guardrail files untouched; `run-loop-entry.ts` +31 (new `runEntry` export only, no existing export modified) |
-| real end-to-end drain (Codex implement + Opus review + verify-gate), emits AFK/HITL/blocked summary | **PASS (T6a clean-room live)** | Run on **2026-06-15** with operator-provided review keys. **REAL `codex exec -s workspace-write`** implemented one item (`slugify.js`) against a throwaway repo; the **runner committed** (agent left `.git` read-only — commit `b68289c` authored by the repo's git user, NOT codex; base `e4bd3d8`). The exit gate ran real tests+typecheck+verify → green. **REAL `anthropic-api:opus-4.8`** reviewed the actual diff and returned 3 structured findings (1 MEDIUM, 2 LOW). The verify-gate attempted all 3 as reproductions against the gate; **none reproduced → all advisory, fixer-calls=0, escalate=false, issues-filed=0 (no raw review assertion acted on)**. Green gate + no escalation ⇒ AFK merge. Run summary: `merged-afk: 1 / opened-awaiting-human: 0 / deferred-blocked: 0 / escalated: 0 / gate-failed: 0 / stop-reason: drained`. No red merge; no Codex sandbox escape (only the requested file created). Evidence below. |
+| no `any` | **PASS** | grep for bare `any` across new source (`dispatch/`, `verify-gate.ts`, `run-loop-driver.ts`, `run-loop-prod-deps.ts`, `run-loop-entry.ts`) → none |
+| no frozen Phase-1 interface change (additive only) | **PASS** | `git diff 55c782b..HEAD -- types.ts engine.ts` → 0 changed lines; all existing frozen protocol/gh/runner/termination/guardrail files untouched. The composition root (`run-loop-prod-deps.ts`) is NEW; `run-loop-entry.ts` is additive (+96, new `runProduction`/`main`/CLI shim only); `implement.ts` adds one additive `ShellGitCommitter.diff()` method (the `GitCommitter` interface is unchanged). |
+| real `/run-loop issues` drain via the ACTUAL entry command (Codex implement + Opus-4.8 review + verify-gate), emits AFK/HITL/blocked summary | **PASS (live, actual entry command)** | A **production composition root** (`run-loop-prod-deps.ts` — `buildProductionDeps`/`buildIssuesProductionDeps`/`buildLocalCleanRoomDeps`) now assembles the real graph behind the frozen `EngineDeps`, and the entry **executable** (`run-loop-entry.ts`, runnable via `import.meta.main`) drives it. On **2026-06-15** the drain ran through the literal command `node skills/_shared/loop/run-loop-entry.ts issues --yes --repo <dir> --item-file <item.json>` (clean-room local path) against a throwaway repo with one ready item: **REAL `codex exec`** implemented `kebab.js`, the **runner committed** (agent left `.git` read-only — commit `5fd6c96` authored by the repo git user, NOT codex; base `ec86c17`), the exit gate ran real `node -e`/`node --check`/`test -f` → green, **REAL `anthropic-api:opus-4.8`** reviewed the diff (`backend=anthropic-api:opus-4.8`, 0 findings on a clean impl — Opus endpoint independently confirmed HTTP 200, model `claude-opus-4-8`), the verify-gate acted on nothing, and the green gate ⇒ AFK merge. No red merge; no Codex sandbox escape (only the requested file created). Evidence below. |
 
-**T6(a) live-run verbatim evidence (2026-06-15, real Codex + real Opus-4.8):**
-- throwaway repo base commit: `e4bd3d8` · implement+merge commit (runner-authored): `b68289c` ("feat: slugify (clean-room live smoke)", `slugify.js` only, +9 lines)
+**Live-run verbatim evidence (2026-06-15, ACTUAL entry command — real Codex + real Opus-4.8):**
+- entry command: `node skills/_shared/loop/run-loop-entry.ts issues --yes --repo <dir> --item-file <item.json>` (with `RUN_LOOP_ALLOW_EXTERNAL_REVIEW=1` to opt the clean-room into the external Opus reviewer)
 - preview line: `clean-room-1: runner=worktree implement=codex review=anthropic-api:opus-4.8`
-- review backend actually invoked: `anthropic-api` (model `claude-opus-4-8`, 3 findings)
-- verify-gate trace: `triaged=3 reproduce-attempts=3 fixer-calls=0 advisory=3 escalate=false issues-filed=0`
-- run summary: `merged-afk: 1 · opened-awaiting-human: 0 · deferred-blocked: 0 · stop-reason: drained · visited(1): clean-room-1`
+- throwaway repo base commit: `ec86c17` · implement+merge commit (runner-authored): `5fd6c96` ("feat: clean-room-1 (/run-loop)", `kebab.js` + the seeded `item.json`)
+- trace: `implement: codex ok; runner produced 1 commit(s): 5fd6c96…` · `gate: green=true checks={"tests":true,"typecheck":true,"verify":true}` · `review: backend=anthropic-api:opus-4.8 findings=0` · `verify-gate: triaged=0 advisory=0 escalate=false` · `merge: AFK-merged clean-room-1 at 5fd6c96…`
+- run summary: `merged-afk: 1 · opened-awaiting-human: 0 · deferred-blocked: 0 · escalated: 0 · gate-failed: 0 · stop-reason: drained · visited(1): clean-room-1`
 
-The live run assembled the **real production graph** from the Wave 21 modules (`defaultSpawn` → `CodexImplementAdapter`; `ShellGitCommitter`; `runExitGate`; a `fetch`-backed `HttpClient` → `AnthropicReviewBackend`; `dispatchReview`; `runVerifyGate`; the driver's `buildPreview`/`buildSummaryLines` + `RunSummaryBuilder`) — i.e. the same path `/run-loop issues --yes` is intended to drive once a production composition root is wired into the skill body. Keys were sourced into `process.env` only; no key value was printed, logged, or committed.
+This drain ran through committed production code (the composition root + entry executable) — **not** a `/tmp` harness. The earlier 2026-06-15 T6(a) run (via a /tmp harness, commits `e4bd3d8`/`b68289c`, slugify, 3 Opus findings) is superseded by this actual-entry-command run; both are genuine. Keys were sourced into `process.env` only; no key value was printed, logged, or committed.
 
-**Still open (separate from the T6a PASS above):** the live drain via the **`/run-loop` skill itself** still needs a production composition root in the skill body that assembles these real adapters into `drive()` (Wave 21 built + tested the pieces and the driver against injected deps; it did not add the skill-level wiring that builds the real graph). The T6a harness proves the graph runs live; wiring it behind the skill is a follow-up. And **T6(b)** (quickbase-replacement cross-repo) remains operator-gated.
+**Egress note:** external review (Opus/OpenRouter) is default-deny per the data-egress policy — the diff stays local and review downgrades to the local Codex reviewer unless a repo opts in via `.harness-profile` or the explicit env gate `RUN_LOOP_ALLOW_EXTERNAL_REVIEW=1`. The first clean-room drain (without the gate) correctly downgraded to `backend=codex`; the gated re-run used real Opus-4.8.
 
 ## DEFERRED items (live-credential / Docker / cross-repo dependent)
 
-- **T6(a) clean-room live drain** — ✅ **DONE 2026-06-15** (real `codex exec` + real
-  `anthropic-api:opus-4.8`); see the exit-gate evidence above. Wiring the same real graph
-  behind the `/run-loop` skill body (a production composition root) is the remaining
-  follow-up — the harness proved the graph; the skill-level assembly is not yet built.
+- **T6(a) clean-room live drain** — ✅ **DONE 2026-06-15** via the **actual entry command**
+  (`node skills/_shared/loop/run-loop-entry.ts issues --yes …`) driving the committed
+  production composition root (`run-loop-prod-deps.ts`) — real `codex exec` + real
+  `anthropic-api:opus-4.8`; see the exit-gate evidence above. The composition-root
+  follow-up is **closed** (the real graph is now committed and reachable from the entry
+  executable, not just a /tmp harness).
 - **T2 container-lane auth sub-clause** — "a container run authenticates on the mounted
   token and produces a commit visible on the host" needs Docker (up) + the Codex OAuth
   token mounted into the container image. The `ContainerRunner` seam is in place and

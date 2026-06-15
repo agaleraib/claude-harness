@@ -178,6 +178,17 @@ export class ShellGitCommitter implements GitCommitter {
     const out = await this.git(cwd, ['rev-list', '--reverse', `${base}..HEAD`]);
     return out.length === 0 ? [] : out.split('\n');
   }
+  /** The unified diff of `base..HEAD` — the produced diff fed to the reviewer. */
+  async diff(cwd: string, base: string): Promise<string> {
+    const r = await spawnIgnoringStdin(this.spawn, 'git', ['diff', `${base}..HEAD`], {
+      cwd,
+      env: process.env as Record<string, string>,
+    });
+    if (r.exitCode !== 0) {
+      throw new Error(`git diff failed (${r.exitCode}): ${r.stderr.trim()}`);
+    }
+    return r.stdout;
+  }
 }
 
 /**
