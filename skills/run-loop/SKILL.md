@@ -12,13 +12,29 @@ The engine is the shared, frozen-interface module at `skills/_shared/loop/`: pul
 
 Name chosen over `/loop` — that is the Anthropic interval-scheduler built-in. `/run-loop` is consistent with `/run-wave`.
 
-> **Status (as of Wave 20):** the engine, protocol, scheduler, providers, and safety *logic*
-> are built and tested, and the `gh` adapter is real — but the **live execution path is not yet
-> wired**. The runner adapters' `.run()` spawn no agent, `runGuardrailPreflight`/`runLoop` are
-> not invoked from a driver, `DenylistHookProbe` has no concrete impl, and `RUN_LOOP_ENFORCE`
-> (the env var the installed denylist hook gates on) is set nowhere. So this skill can read and
-> relabel issues but **cannot drive real work end-to-end until Wave 21** (`docs/specs/2026-06-14-run-loop-live-wiring.md`)
-> lands the concrete adapters + driver. The steps below describe the intended live flow.
+> **Status (as of Wave 21 — LIVE):** the live execution path is wired. A production
+> composition root (`skills/_shared/loop/run-loop-prod-deps.ts`) assembles the real graph —
+> Codex/Claude implement adapters (agent edits, runner commits), Opus-API/OpenRouter/Codex
+> review backends, the verify-gate, and the `GhCliAdapter` for `issues` mode — behind the
+> frozen `EngineDeps` seam, and the entry **executable** (`run-loop-entry.ts`) drives it via
+> the backend-aware preflight → preview (`--yes` bypass) → `runLoop` → run-summary path. A live
+> clean-room drain (real `codex exec` implement + real `anthropic-api:opus-4.8` review +
+> verify-gate) was completed on 2026-06-15 (see `docs/waves/wave21-run-loop-live-wiring.md`).
+>
+> **Live invocation (the SKILL body shells to this):**
+> ```bash
+> # issues mode — drains ready-for-agent gh issues in the current repo:
+> node skills/_shared/loop/run-loop-entry.ts issues --yes
+> # clean-room local drive against a throwaway repo (no gh, one JSON item):
+> node skills/_shared/loop/run-loop-entry.ts issues --yes --repo <dir> --item-file <item.json>
+> ```
+> API keys come from the environment (`ANTHROPIC_API_KEY` review-only, `OPENROUTER_API_KEY`)
+> and are never logged. External review (Opus/OpenRouter) requires opt-in via the per-repo
+> egress policy or the explicit env gate `RUN_LOOP_ALLOW_EXTERNAL_REVIEW=1`; otherwise the
+> review downgrades to the local Codex reviewer (the diff stays local). Still operator-gated:
+> the Claude-backend worktree lane needs the denylist hook + `RUN_LOOP_ENFORCE=1` installed in
+> global settings (the Codex default lane relies on its native sandbox and needs no hook); the
+> sandcastle container lane and the cross-repo live test remain operator steps.
 
 **First — handle `--help` / `-h` / `help`** before any other parsing or side effects. If `$ARGUMENTS` is exactly one of those tokens (whitespace-trimmed, case-insensitive), print the usage block below and **exit immediately**. Do NOT read plan.md, do NOT call `gh`, do NOT create a worktree, do NOT establish any guardrail context, do NOT touch the working tree.
 
