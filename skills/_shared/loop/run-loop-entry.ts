@@ -60,6 +60,37 @@ export function parseRunLoopArgs(argv: readonly string[]): ParsedRunLoopArgs {
   };
 }
 
+/**
+ * Front-door entry (Wave 21, Task 5). Parses argv, short-circuits `--help` BEFORE any
+ * side effect (printing only the usage), and otherwise delegates the chosen source to
+ * the live driver via the injected `runDrive` callback (so the SKILL.md body / a live
+ * run wires the production driver, and tests assert the short-circuit + delegation
+ * without building real EngineDeps).
+ *
+ * Returns the parsed args' mode so callers know what happened; on `run` it awaits the
+ * delegate. The `--yes` bypass is surfaced to the delegate.
+ */
+export async function runEntry(
+  argv: readonly string[],
+  io: {
+    readonly print: (line: string) => void;
+    readonly runDrive: (source: WorkSourceArg, opts: { readonly yes: boolean }) => Promise<void>;
+  },
+): Promise<ParsedRunLoopArgs> {
+  const parsed = parseRunLoopArgs(argv.filter((a) => a !== '--yes'));
+  if (parsed.mode === 'help') {
+    io.print(RUN_LOOP_USAGE); // short-circuit: nothing else runs.
+    return parsed;
+  }
+  if (parsed.mode === 'error') {
+    io.print(parsed.message);
+    return parsed;
+  }
+  const yes = argv.includes('--yes');
+  await io.runDrive(parsed.source, { yes });
+  return parsed;
+}
+
 /** The usage text printed on --help (no side effects before this). */
 export const RUN_LOOP_USAGE = `/run-loop — drive plan.md waves OR gh issues end-to-end behind the mechanical gate.
 
