@@ -238,7 +238,35 @@ export class ProductionProtocol implements PerItemProtocol {
     this.d = deps;
   }
 
+  /**
+   * Crash-isolation boundary (Wave 22, Task 2 — Bug 2). Any throw from the per-item
+   * work (e.g. UnsupportedContainerRunner.run on an unwired sandcastle lane) is caught
+   * HERE, recorded as `status:'failed'` with the reason surfaced in the note, and the
+   * runner is torn down (best-effort) so the frozen engine's loop continues with the
+   * next item instead of the throw propagating out of runLoop and killing the run. The
+   * frozen `runLoop` is NOT modified — isolation lives in this injected protocol.
+   */
   async run(item: WorkItem, runner: Runner): Promise<ItemResult> {
+    try {
+      return await this.runInner(item, runner);
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err);
+      // Best-effort teardown — never let a teardown failure mask the original cause.
+      try {
+        await runner.teardown();
+      } catch {
+        /* swallow: the loop must continue regardless */
+      }
+      this.d.console.print(`[trace] item ${item.id} threw; isolated + skipped: ${reason}`);
+      return {
+        itemId: item.id,
+        status: 'failed',
+        note: `implement-failed: item threw before a gate ran — ${reason}`,
+      };
+    }
+  }
+
+  private async runInner(item: WorkItem, runner: Runner): Promise<ItemResult> {
     const cwd = this.d.cwdFor(item);
     const lane = resolveRunnerKind(item);
     const log = (m: string) => this.d.console.print(`[trace] ${m}`);
@@ -334,6 +362,12 @@ export interface ProductionDeps {
   readonly readyItems: readonly WorkItem[];
   /** Build the RunSummaryReport from a RunSummary (driver prints it). */
   readonly buildReport: (summary: { readonly visited: readonly string[]; readonly results: readonly ItemResult[] }) => RunSummaryReport;
+  /**
+   * Whether a real sandcastle container runner is wired (Wave 22, Bug 2). False when the
+   * graph fell back to UnsupportedContainerRunner — the driver's preflight then refuses
+   * sandcastle items instead of clearing them to a mid-run crash.
+   */
+  readonly containerLaneWired: boolean;
 }
 
 /** Options for assembling the production graph. */
@@ -360,6 +394,9 @@ export interface BuildProductionDepsOptions {
 export function buildProductionDeps(opts: BuildProductionDepsOptions): ProductionDeps {
   const spawn = opts.seams?.spawn ?? defaultSpawn;
   const http = opts.seams?.http ?? new FetchHttpClient();
+  // The container lane is "wired" only when the caller injected a real ContainerRunner;
+  // the default UnsupportedContainerRunner throws (Bug 2 — preflight refuses sandcastle).
+  const containerLaneWired = opts.seams?.container !== undefined;
   const container = opts.seams?.container ?? new UnsupportedContainerRunner();
   const committer = opts.seams?.committer ?? new ShellGitCommitter(spawn);
   const con = opts.seams?.console ?? { print: (l: string) => console.log(l) };
@@ -446,7 +483,7 @@ export function buildProductionDeps(opts: BuildProductionDepsOptions): Productio
     return builder.build('drained');
   };
 
-  return { engine, config, readyItems: opts.readyItems, buildReport };
+  return { engine, config, readyItems: opts.readyItems, buildReport, containerLaneWired };
 }
 
 /**

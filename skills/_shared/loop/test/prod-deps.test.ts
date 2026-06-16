@@ -177,6 +177,67 @@ test('prod: a red exit gate ⇒ item is failed (never merged)', async (t) => {
   assert.equal(result.status, 'failed');
 });
 
+// --- Wave 22 Bug 2: a throwing lane is crash-ISOLATED; the sibling still runs -------
+
+test('T2: a thrown lane is recorded failed (reason surfaced) and the loop continues', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'prod-isolate-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const git = (...a: string[]) => execFileSync('git', a, { cwd: dir, stdio: 'pipe' });
+  git('init', '-q'); git('config', 'user.email', 't@e.com'); git('config', 'user.name', 'T');
+  writeFileSync(join(dir, 'f'), 'x\n'); git('add', 'f'); git('commit', '-q', '-m', 'base');
+
+  // item1 runs on the sandcastle lane with the DEFAULT (unwired) container ⇒ dispatch
+  // throws. item2 is a healthy worktree/codex item that edits a file.
+  const item1: WorkItem = { id: 'thrower', runner: 'sandcastle', implementBackend: 'codex', body: 'x', gate: {} };
+  const item2: WorkItem = {
+    id: 'healthy', runner: 'worktree', implementBackend: 'codex', body: 'y',
+    gate: { tests: ['true'], typecheck: ['true'], verify: ['true'] },
+  };
+
+  const fakeSpawn: SpawnFn = async (cmd, _argv, opts): Promise<SpawnResult> => {
+    if (cmd === 'codex') { writeFileSync(join(opts.cwd, 'g'), 'y\n'); return { exitCode: 0, stdout: '', stderr: '' }; }
+    return { exitCode: 0, stdout: '', stderr: '' };
+  };
+  const fakeHttp: HttpClient = {
+    async postJson() { return { status: 200, json: { content: [{ type: 'text', text: '[]' }] } }; },
+  };
+
+  // A two-item source (drives both through the production protocol via the engine).
+  class TwoItemSource implements WorkSource {
+    private i = 0;
+    readonly recorded: ItemResult[] = [];
+    private readonly items = [item1, item2];
+    async nextReady(): Promise<WorkItem | null> { return this.i < this.items.length ? this.items[this.i++]! : null; }
+    async isDone(): Promise<boolean> { return false; }
+    async recordResult(_it: WorkItem, r: ItemResult): Promise<void> { this.recorded.push(r); }
+  }
+  const source = new TwoItemSource();
+  const lines: string[] = [];
+  const prod = buildProductionDeps({
+    source,
+    readyItems: [item1, item2],
+    cwdFor: () => dir,
+    config: { allowExternalReview: true, anthropicApiKey: 'rk' },
+    gh: new GhStub(),
+    // NO container seam ⇒ UnsupportedContainerRunner ⇒ the sandcastle dispatch throws.
+    seams: { spawn: fakeSpawn, http: fakeHttp, committer: new ShellGitCommitter(defaultSpawn), console: { print: (l) => lines.push(l) } },
+  });
+
+  const { runLoop } = await import('../engine.ts');
+  const summary = await runLoop(prod.engine);
+
+  // BOTH items were visited — the throw did NOT propagate out of runLoop.
+  assert.deepEqual(summary.visited, ['thrower', 'healthy']);
+  const r1 = source.recorded.find((r) => r.itemId === 'thrower');
+  const r2 = source.recorded.find((r) => r.itemId === 'healthy');
+  assert.equal(r1?.status, 'failed', 'the throwing item is failed');
+  assert.match(r1?.note ?? '', /not wired|threw/i, 'the throw reason is surfaced in the note');
+  assert.equal(r2?.status, 'completed', 'the healthy sibling still ran to completion');
+  assert.ok(lines.some((l) => /isolated \+ skipped/.test(l)), 'the isolation is traced');
+  // The container lane is reported unwired so the driver preflight would refuse it.
+  assert.equal(prod.containerLaneWired, false);
+});
+
 // --- the entry EXECUTABLE reaches the driver (no live call) ------------------------
 
 test('prod: runEntry delegates a valid source to runProduction (reaches the driver)', async () => {

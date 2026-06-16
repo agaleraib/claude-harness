@@ -56,9 +56,22 @@ export interface BackendAwarePreflight {
   readonly hookActive: boolean;
 }
 
+/** Additive preflight options (Wave 22, Task 2 — Bug 2). */
+export interface PreflightOptions {
+  /**
+   * Whether a real sandcastle container runner is wired. When `false` (the local live
+   * path uses UnsupportedContainerRunner), sandcastle items are REFUSED at preflight
+   * — surfaced in the preview — instead of being cleared only to detonate mid-run.
+   * Absent ⇒ `true` (backward-compatible: sandcastle clears as before).
+   */
+  readonly containerLaneWired?: boolean;
+}
+
 /**
  * Backend-aware guardrail preflight. For each ready item:
- *   - sandcastle ⇒ cleared (the container is its boundary);
+ *   - sandcastle ⇒ cleared (the container is its boundary) — UNLESS the container lane
+ *     is unwired (opts.containerLaneWired === false), in which case it is REFUSED so the
+ *     operator sees it in the preview rather than a mid-run crash (Wave 22, Bug 2);
  *   - worktree + codex ⇒ cleared (Codex's native `-s workspace-write` is the boundary);
  *   - worktree + claude ⇒ REQUIRES the denylist hook; refused if it is not active.
  * The hook is probed at most once, and only when a Claude worktree item exists.
@@ -67,7 +80,9 @@ export async function runBackendAwarePreflight(
   items: readonly WorkItem[],
   config: BackendConfig,
   hookProbe: HookProbe,
+  opts: PreflightOptions = {},
 ): Promise<BackendAwarePreflight> {
+  const containerLaneWired = opts.containerLaneWired ?? true;
   const needsHook = items.some(
     (i) => resolveRunnerKind(i) === 'worktree' && resolveImplementBackendId(i, config) === 'claude',
   );
@@ -78,6 +93,17 @@ export async function runBackendAwarePreflight(
   for (const item of items) {
     const kind = resolveRunnerKind(item);
     if (kind === 'sandcastle') {
+      if (!containerLaneWired) {
+        refused.push({
+          itemId: item.id,
+          reason:
+            'sandcastle item but the container lane is not wired (UnsupportedContainerRunner) ' +
+            'on this local live path; refused at preflight instead of detonating mid-run. ' +
+            "Declare the item 'runner: worktree' to run it on the host, or wire a real " +
+            'container runner.',
+        });
+        continue;
+      }
       cleared.push(item);
       continue;
     }
@@ -147,6 +173,12 @@ export interface DriverDeps {
   readonly buildReport: (summary: RunSummary) => RunSummaryReport;
   /** When true, skip the confirm prompt (cron / --yes). */
   readonly yes: boolean;
+  /**
+   * Whether a real sandcastle container runner is wired (Wave 22, Bug 2). Absent ⇒
+   * true. When false, the backend-aware preflight refuses sandcastle items instead of
+   * clearing them.
+   */
+  readonly containerLaneWired?: boolean;
 }
 
 /** Why a drive ended before running the loop (or its summary). */
@@ -164,7 +196,9 @@ export type DriveOutcome =
 export async function drive(deps: DriverDeps): Promise<DriveOutcome> {
   // 1. Backend-aware preflight. A Claude worktree item without the hook is refused;
   //    a Codex item is not. If everything is refused, abort before the loop.
-  const pre = await runBackendAwarePreflight(deps.readyItems, deps.config, deps.hookProbe);
+  const pre = await runBackendAwarePreflight(deps.readyItems, deps.config, deps.hookProbe, {
+    containerLaneWired: deps.containerLaneWired ?? true,
+  });
   for (const r of pre.refused) {
     deps.console.print(`refused: ${r.itemId} — ${r.reason}`);
   }

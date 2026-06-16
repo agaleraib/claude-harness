@@ -161,6 +161,7 @@ export async function runProduction(
       confirm: { async confirm() { return true; } },
       buildReport: (summary) => prod.buildReport(summary),
       yes: opts.yes,
+      containerLaneWired: prod.containerLaneWired,
     });
     return;
   }
@@ -179,6 +180,7 @@ export async function runProduction(
     confirm: { async confirm() { return true; } }, // CLI confirm; --yes also bypasses
     buildReport: (summary) => prod.buildReport(summary),
     yes: opts.yes,
+    containerLaneWired: prod.containerLaneWired,
   });
 }
 
