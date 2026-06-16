@@ -51,9 +51,11 @@ import {
   resolveImplementBackendId,
 } from './dispatch/backends.ts';
 import { type SpawnFn, defaultSpawn } from './dispatch/spawn.ts';
+import { type AttentionRow, AttentionCollector } from './run-loop-attention-report.ts';
 import {
   type ContainerRunner,
   type GitCommitter,
+  type GitOpResult,
   CodexImplementAdapter,
   ClaudeImplementAdapter,
   ShellGitCommitter,
@@ -72,7 +74,17 @@ import {
   type FindingReproducer,
   runVerifyGate,
 } from './protocol/verify-gate.ts';
-import { RunSummaryBuilder, type RunSummaryReport } from './termination.ts';
+import {
+  type RunProgress,
+  type RunStopReason,
+  type TerminationConfig,
+  DEFAULT_TERMINATION,
+  RunSummaryBuilder,
+  type RunSummaryReport,
+  newRunProgress,
+  recordOutcome,
+  shouldStop,
+} from './termination.ts';
 import { type DriverConsole } from './run-loop-driver.ts';
 
 /** Alias kept descriptive at the composition-root layer. */
@@ -255,6 +267,8 @@ export interface ProductionProtocolDeps {
   readonly cwdFor: (item: WorkItem) => string;
   readonly console: DriverConsole;
   readonly reviewLogger?: ReviewLogger;
+  /** Wave 23: collects per-item attention rows (auto-merged vs need-you) for the report. */
+  readonly attention?: AttentionCollector;
 }
 
 /**
@@ -306,20 +320,27 @@ export class ProductionProtocol implements PerItemProtocol {
     const lane = resolveRunnerKind(item);
     const log = (m: string) => this.d.console.print(`[trace] ${m}`);
 
-    // 1. IMPLEMENT — the real agent edits; the runner commits.
-    //
-    // Bug 3 (Wave 22): commit the working-tree edits REGARDLESS of the agent's exit
-    // code. Codex can produce a coherent multi-file impl and still exit non-zero (e.g.
-    // its own post-edit `git` attempt hits the read-only `.git` under -s workspace-write)
-    // — the exact "agent edits, runner commits" case. So: probe the dirty tree; if the
-    // agent exited ok OR the tree is dirty, commit + collect. If commits resulted,
-    // proceed to the gate (the gate is the real arbiter of quality). Only when the agent
-    // FAILED and NO commits resulted do we record `failed`, with the truncated stderr in
-    // the note (prefixed `implement-failed:` for honest bucketing — Bug 4).
+    // Wave 23 — merge-to-head: each item works on an isolated predictable-named temp
+    // branch off HEAD; a GREEN item is merged-then-deleted (HEAD advances only here);
+    // a non-green item's branch is preserved + handed off (push + draft PR). Replaces
+    // the Wave-22 commit-in-place + synthetic `merged at <sha>` behavior.
+    const ops = this.mergeOps();
+    const branch = `run-loop/${item.id}`;
+    const title = typeof item['title'] === 'string' ? (item['title'] as string) : undefined;
+
     const backend = this.d.implementRegistry.resolve(item);
     log(`implement: dispatching ${backend.id} (lane=${lane}) …`);
     await runner.prepare();
+
+    // Isolate: branch off HEAD so commits land on the temp branch, never HEAD.
+    const origBranch = await ops.currentBranch(cwd);
+    await ops.createTempBranch(cwd, branch);
     const base = await this.d.committer.head(cwd);
+
+    // 1. IMPLEMENT — the real agent edits; the runner commits ON THE TEMP BRANCH.
+    //    Bug 3 (Wave 22): commit the working-tree edits REGARDLESS of the agent's exit
+    //    code (codex can produce a coherent impl and still exit non-zero). Probe dirty;
+    //    if the agent exited ok OR the tree is dirty, commit + collect.
     const prompt = this.promptFor(item);
     const result = await backend.dispatch(prompt, { cwd, env: process.env as Record<string, string>, lane });
 
@@ -335,16 +356,18 @@ export class ProductionProtocol implements PerItemProtocol {
     );
 
     if (commits.length === 0) {
+      // No work landed — return to the main line, drop the empty temp branch, no handoff
+      // (nothing to push). `implement-failed:` bucket (the gate never ran — Bug 4).
+      await ops.checkout(cwd, origBranch);
+      await ops.deleteBranch(cwd, branch);
       await runner.teardown();
-      // No work landed. Surface the truncated agent stderr so the WHY is visible, and
-      // tag the note `implement-failed:` (the gate never ran — Bug 4 bucketing).
       const why = !result.ok
         ? `agent ${backend.id} exited ${result.exitCode}; ${truncateStderr(result.stderr)}`
         : 'agent made no edits / no commit produced';
+      this.d.attention?.record({ itemId: item.id, ...(title ? { title } : {}), reason: 'failed-check', detail: `no changes produced — ${why}` });
       return { itemId: item.id, status: 'failed', note: `implement-failed: ${why}` };
     }
     if (!result.ok) {
-      // Edits landed despite a non-zero exit — keep going; the gate decides quality.
       log(`implement: ${backend.id} exited ${result.exitCode} but produced edits; committing + gating anyway`);
     }
 
@@ -352,10 +375,11 @@ export class ProductionProtocol implements PerItemProtocol {
     const gate = await runExitGate(item, this.d.gate(item, cwd));
     log(`gate: green=${gate.green} checks=${JSON.stringify(gate.checks)}`);
     if (!gate.green) {
+      // RED gate: preserve the branch (back to the main line, no merge), hand it off.
+      await ops.checkout(cwd, origBranch);
       await runner.teardown();
-      // The gate RAN and went red — `gate-failed:` bucket (Bug 4), distinct from an
-      // implement failure where no gate ever ran.
-      return { itemId: item.id, status: 'failed', note: `gate-failed: ${gate.note ?? 'exit gate red'}` };
+      const handoff = await this.handoff(item, branch, 'failed-check', title);
+      return { itemId: item.id, status: 'failed', note: `gate-failed: ${gate.note ?? 'exit gate red'}; ${handoff}` };
     }
 
     // 3. REVIEW — a single model judgment on the produced diff.
@@ -385,15 +409,105 @@ export class ProductionProtocol implements PerItemProtocol {
         `escalate=${vg.escalate}`,
     );
 
-    await runner.teardown();
-
-    // 5. MERGE decision. Green gate + no escalation ⇒ completed (merged onto HEAD).
     if (vg.escalate) {
-      return { itemId: item.id, status: 'escalated', note: 'a review finding reproduced + was not fixed within the bound' };
+      // A reproduced review finding — preserve the branch + hand it off (no merge).
+      await ops.checkout(cwd, origBranch);
+      await runner.teardown();
+      const handoff = await this.handoff(item, branch, 'review-finding', title);
+      return { itemId: item.id, status: 'escalated', note: `a review finding reproduced + was not fixed within the bound; ${handoff}` };
     }
+
+    // 5. GREEN + no escalation ⇒ merge-to-head. Back to the main line, then merge.
+    await ops.checkout(cwd, origBranch);
+    const merge = await ops.mergeToHead(cwd, branch);
+    if (!merge.ok) {
+      // escalate-on-conflict: abort (HEAD untouched), preserve the branch, hand it off,
+      // and CONTINUE the loop (skip-and-continue) — do NOT crash.
+      await ops.abortMerge(cwd);
+      await runner.teardown();
+      const handoff = await this.handoff(item, branch, 'merge-conflict', title);
+      log(`merge: CONFLICT on ${item.id}; aborted + preserved ${branch}`);
+      return { itemId: item.id, status: 'escalated', note: `merge-conflict: could not auto-merge ${branch} onto HEAD; ${handoff}` };
+    }
+    await ops.deleteBranch(cwd, branch);
+    await runner.teardown();
     const mergeSha = await this.d.committer.head(cwd);
     log(`merge: AFK-merged ${item.id} at ${mergeSha}`);
+    this.d.attention?.record({ itemId: item.id, ...(title ? { title } : {}), reason: 'auto-merged' });
     return { itemId: item.id, status: 'completed', note: `merged at ${mergeSha}` };
+  }
+
+  /**
+   * The HITL handoff (Wave 23, Task 3): push the preserved branch + open a draft PR via
+   * the GhClient seam, recording an attention row. On a no-remote / no-creds failure
+   * (push or PR-open), degrade to the copy-paste-command fallback — never crash. Returns
+   * a short note fragment (PR url or fallback marker) for the ItemResult.note.
+   */
+  private async handoff(
+    item: WorkItem,
+    branch: string,
+    reason: Exclude<AttentionRow['reason'], 'auto-merged'>,
+    title: string | undefined,
+  ): Promise<string> {
+    const cwd = this.d.cwdFor(item);
+    const ops = this.mergeOps();
+    const titleField = title ? { title } : {};
+    const push = await ops.pushBranch(cwd, branch);
+    if (push.ok) {
+      const pr = await this.d.gh.createPullRequest({
+        head: branch,
+        title: `[run-loop] ${item.id} — ${reason}`,
+        body: `Automated /run-loop handoff: item \`${item.id}\` needs a human (${reason}). Work is on \`${branch}\`. Review, then merge or close.`,
+        draft: true,
+      });
+      if (pr.ok && pr.url !== undefined) {
+        this.d.console.print(`[trace] handoff: pushed ${branch} + opened draft PR ${pr.url}`);
+        this.d.attention?.record({ itemId: item.id, ...titleField, reason, branch, prUrl: pr.url });
+        return `PR ${pr.url}`;
+      }
+    }
+    // No-remote / no-creds fallback: keep the branch local + stash copy-paste commands.
+    const fallbackCommands = [
+      `git push -u origin ${branch}`,
+      `gh pr create --draft --head ${branch} --fill`,
+    ];
+    this.d.console.print(`[trace] handoff: no remote/creds — ${branch} preserved locally with copy-paste commands`);
+    this.d.attention?.record({ itemId: item.id, ...titleField, reason, branch, fallbackCommands });
+    return `no-remote: branch ${branch} preserved (see attention report)`;
+  }
+
+  /**
+   * The committer's merge-to-head ops (Wave 23), surfaced via the structural
+   * `ShellGitCommitterLike` (the `diff?`/`dirty?` precedent). Production always injects
+   * a `ShellGitCommitter` (which has them); a committer lacking them is a test/wiring
+   * bug, surfaced with a clear error rather than a silent commit-in-place regression.
+   */
+  private mergeOps(): {
+    currentBranch(cwd: string): Promise<string>;
+    checkout(cwd: string, branch: string): Promise<void>;
+    createTempBranch(cwd: string, name: string): Promise<void>;
+    mergeToHead(cwd: string, branch: string): Promise<{ readonly ok: boolean }>;
+    abortMerge(cwd: string): Promise<void>;
+    deleteBranch(cwd: string, branch: string): Promise<void>;
+    pushBranch(cwd: string, branch: string): Promise<{ readonly ok: boolean }>;
+  } {
+    const c = this.d.committer as ShellGitCommitterLike;
+    if (
+      c.currentBranch === undefined || c.checkout === undefined || c.createTempBranch === undefined ||
+      c.mergeToHead === undefined || c.abortMerge === undefined || c.deleteBranch === undefined ||
+      c.pushBranch === undefined
+    ) {
+      throw new Error('run-loop: the committer does not support the merge-to-head lifecycle (Wave 23)');
+    }
+    return {
+      currentBranch: (cwd) => c.currentBranch!(cwd),
+      checkout: (cwd, b) => c.checkout!(cwd, b),
+      createTempBranch: (cwd, n) => c.createTempBranch!(cwd, n),
+      mergeToHead: (cwd, b) => c.mergeToHead!(cwd, b),
+      abortMerge: (cwd) => c.abortMerge!(cwd),
+      deleteBranch: (cwd, b) => c.deleteBranch!(cwd, b),
+      pushBranch: (cwd, b) => c.pushBranch!(cwd, b),
+    };
   }
 
   private promptFor(item: WorkItem): string {
@@ -440,6 +554,14 @@ function truncateStderr(stderr: string, max = 280): string {
 interface ShellGitCommitterLike extends GitCommitter {
   diff?(cwd: string, base: string): Promise<string>;
   dirty?(cwd: string): Promise<boolean>;
+  // merge-to-head lifecycle (Wave 23) — additive concrete methods, surfaced structurally.
+  currentBranch?(cwd: string): Promise<string>;
+  checkout?(cwd: string, branch: string): Promise<void>;
+  createTempBranch?(cwd: string, name: string): Promise<void>;
+  mergeToHead?(cwd: string, branch: string): Promise<GitOpResult>;
+  abortMerge?(cwd: string): Promise<void>;
+  deleteBranch?(cwd: string, branch: string): Promise<void>;
+  pushBranch?(cwd: string, branch: string, remote?: string): Promise<GitOpResult>;
 }
 
 /** The production EngineDeps + the resolved config + the source's ready items. */
@@ -455,6 +577,8 @@ export interface ProductionDeps {
    * sandcastle items instead of clearing them to a mid-run crash.
    */
   readonly containerLaneWired: boolean;
+  /** Wave 23: the per-run attention-row collector (the driver renders + writes it). */
+  readonly attention: AttentionCollector;
 }
 
 /** Options for assembling the production graph. */
@@ -469,6 +593,12 @@ export interface BuildProductionDepsOptions {
   readonly config: BackendConfig;
   readonly seams?: ProductionSeams;
   readonly gh: GhClient;
+  /**
+   * Wave 23: the real `RunStopReason` for the printed report. The termination-aware
+   * source wrapper knows whether the run stopped on a cap/stall vs draining; absent ⇒
+   * `drained` (the frozen `runLoop` only ever sees a drained source).
+   */
+  readonly stopReason?: () => RunStopReason;
 }
 
 /**
@@ -511,6 +641,7 @@ export function buildProductionDeps(opts: BuildProductionDepsOptions): Productio
 
   const gate = (_item: WorkItem, cwd: string): GateRunner => new ShellGateRunner(spawn, cwd);
 
+  const attention = new AttentionCollector();
   const protocol = new ProductionProtocol({
     implementRegistry,
     reviewRegistry,
@@ -521,6 +652,7 @@ export function buildProductionDeps(opts: BuildProductionDepsOptions): Productio
     gate,
     cwdFor: opts.cwdFor,
     console: con,
+    attention,
   });
 
   // T2 adapters for the DefaultRunnerFactory. The implement step is driven by the
@@ -574,10 +706,10 @@ export function buildProductionDeps(opts: BuildProductionDepsOptions): Productio
         }
       }
     }
-    return builder.build('drained');
+    return builder.build(opts.stopReason?.() ?? 'drained');
   };
 
-  return { engine, config, readyItems: opts.readyItems, buildReport, containerLaneWired };
+  return { engine, config, readyItems: opts.readyItems, buildReport, containerLaneWired, attention };
 }
 
 /**
@@ -603,16 +735,21 @@ export async function buildIssuesProductionDeps(
   // successful AFK merge transitions its issue ONLY when RUN_LOOP_TRANSITION_ISSUES=1.
   const transitionHook = buildTerminalTransitionHook(source.terminalTransitions());
   const gatedSource = new ReadinessGatedSource(source, readyItems, transitionHook);
+  // Wave 23 Task 5: enforce the termination caps (iteration 20 / stall 3) in the
+  // composition layer — the wrapper returns null from nextReady() once a cap fires, so
+  // the frozen runLoop stops as `drained` while stopReason() surfaces the real reason.
+  const termSource = new TerminationGatedSource(gatedSource);
   // Task 6 knob: the per-run --implement/--review overrides (flag-then-env) land on
   // config.implementDefault / config.reviewDefault here.
   const config = buildBackendConfigFromEnv(process.env, overrides);
   const repoCwd = process.cwd();
   return buildProductionDeps({
-    source: gatedSource,
+    source: termSource,
     readyItems,
     cwdFor: () => repoCwd,
     config,
     gh,
+    stopReason: () => termSource.stopReason(),
     ...(seams !== undefined ? { seams } : {}),
   });
 }
@@ -652,6 +789,70 @@ export async function buildIssuesProductionDeps(
  */
 export interface TerminalTransitionHook {
   onResult(item: WorkItem, result: ItemResult): Promise<void>;
+}
+
+/**
+ * Termination-cap enforcement (Wave 23, Task 5). A `WorkSource` wrapper composing with
+ * `ReadinessGatedSource`: it folds each outcome into `RunProgress` and, before yielding
+ * the next item, consults `shouldStop`. When a cap (iteration ≥ 20) or stall (3
+ * consecutive failures) hits, `nextReady()` returns `null` — the frozen `runLoop` stops
+ * as if drained — while `stopReason()` surfaces the REAL reason for the printed report.
+ * `engine.ts` is NOT modified; the cap lives entirely in this composition layer.
+ */
+export class TerminationGatedSource implements WorkSource {
+  private readonly inner: WorkSource;
+  private readonly config: TerminationConfig;
+  private readonly now: () => number;
+  private readonly progress: RunProgress;
+  private stopped: RunStopReason | null = null;
+
+  constructor(inner: WorkSource, config: TerminationConfig = DEFAULT_TERMINATION, now: () => number = () => Date.now()) {
+    this.inner = inner;
+    this.config = config;
+    this.now = now;
+    this.progress = newRunProgress(now());
+  }
+
+  /** The real stop reason: a cap/stall when one fired, else `drained`. */
+  stopReason(): RunStopReason {
+    return this.stopped ?? 'drained';
+  }
+
+  async nextReady(): Promise<WorkItem | null> {
+    const reason = shouldStop(this.progress, this.config, this.now());
+    if (reason !== null) {
+      this.stopped = reason;
+      return null;
+    }
+    return this.inner.nextReady();
+  }
+
+  async isDone(item: WorkItem): Promise<boolean> {
+    return this.inner.isDone(item);
+  }
+
+  async recordResult(item: WorkItem, result: ItemResult): Promise<void> {
+    recordOutcome(this.progress, terminationOutcome(result));
+    await this.inner.recordResult(item, result);
+  }
+}
+
+/** Map an ItemResult onto the termination-controller's outcome vocabulary. */
+function terminationOutcome(
+  result: ItemResult,
+): 'gate-failed' | 'merged' | 'escalated' | 'awaiting-human' | 'deferred' {
+  switch (result.status) {
+    case 'completed':
+      return 'merged';
+    case 'escalated':
+      return 'escalated';
+    case 'skipped':
+      return 'deferred';
+    case 'failed':
+    default:
+      // Both gate-failed and implement-failed count as a failure for the stall streak.
+      return 'gate-failed';
+  }
 }
 
 export class ReadinessGatedSource implements WorkSource {
@@ -828,6 +1029,7 @@ export function buildLocalCleanRoomDeps(opts: {
     async comment() { return 'noop'; },
     async closeIssue() {},
     async createIssue() { return -1; },
+    async createPullRequest() { return { ok: false, error: 'no-remote (clean-room)' }; },
   };
   return buildProductionDeps({
     source: new LocalItemWorkSource(opts.item),

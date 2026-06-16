@@ -1,3 +1,7 @@
+// status: KEEP (Wave 23) — the pickup-time AFK/HITL relabel path. Invoked when issue
+// transitions are enabled (RUN_LOOP_TRANSITION_ISSUES); the default read-only drive
+// skips it. Retained, not retired.
+//
 // Loop pickup-time classifier reconciliation (Wave 20, Task 12).
 //
 // At pickup, once an item's runner is resolved, the loop reconciles the issue's

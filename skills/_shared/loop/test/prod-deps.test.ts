@@ -15,6 +15,7 @@ import { execFileSync } from 'node:child_process';
 import {
   ReadinessGatedSource,
   ShellGateRunner,
+  TerminationGatedSource,
   buildBackendConfigFromEnv,
   buildProductionDeps,
   buildTerminalTransitionHook,
@@ -230,6 +231,14 @@ class FakeCommitter {
   }
   async diff(): Promise<string> { return 'fake diff'; }
   async dirty(): Promise<boolean> { return this.opts.dirtyTree; }
+  // Wave 23 merge-to-head ops (no-op fakes; merge always succeeds).
+  async currentBranch(): Promise<string> { return 'main'; }
+  async checkout(): Promise<void> {}
+  async createTempBranch(): Promise<void> {}
+  async mergeToHead(): Promise<{ ok: boolean; exitCode: number | null; stderr: string }> { return { ok: true, exitCode: 0, stderr: '' }; }
+  async abortMerge(): Promise<void> {}
+  async deleteBranch(): Promise<void> {}
+  async pushBranch(): Promise<{ ok: boolean; exitCode: number | null; stderr: string }> { return { ok: true, exitCode: 0, stderr: '' }; }
 }
 
 function backendReturning(res: { ok: boolean; exitCode: number | null; stderr: string }) {
@@ -436,4 +445,210 @@ test('prod: runProduction(waves) is a graceful no-op for the local path (no cras
   const lines: string[] = [];
   await runProduction('waves', { yes: true, print: (l) => lines.push(l) });
   assert.ok(lines.some((l) => /not wired for the local path/.test(l)));
+});
+
+// --- Wave 23 Tasks 2-3: merge-to-head + HITL handoff (fake committer + fake GhClient) ---
+
+// A merge-to-head committer that records the lifecycle calls and lets a test force a
+// merge conflict (mergeOk=false) or a no-remote push failure (pushOk=false).
+class MergeRecordingCommitter {
+  readonly calls: string[] = [];
+  private readonly opts: { mergeOk?: boolean; pushOk?: boolean; commits: readonly string[] };
+  constructor(opts: { mergeOk?: boolean; pushOk?: boolean; commits: readonly string[] }) {
+    this.opts = opts;
+  }
+  async head(): Promise<string> { return 'MERGESHA'; }
+  async commitAll(): Promise<void> { this.calls.push('commitAll'); }
+  async collectCommits(): Promise<readonly string[]> { return this.opts.commits; }
+  async diff(): Promise<string> { return 'd'; }
+  async dirty(): Promise<boolean> { return true; }
+  async currentBranch(): Promise<string> { return 'main'; }
+  async checkout(): Promise<void> { this.calls.push('checkout'); }
+  async createTempBranch(_c: string, n: string): Promise<void> { this.calls.push(`createTempBranch:${n}`); }
+  async mergeToHead(_c: string, b: string): Promise<{ ok: boolean; exitCode: number | null; stderr: string }> {
+    this.calls.push(`mergeToHead:${b}`);
+    return { ok: this.opts.mergeOk ?? true, exitCode: this.opts.mergeOk === false ? 1 : 0, stderr: '' };
+  }
+  async abortMerge(): Promise<void> { this.calls.push('abortMerge'); }
+  async deleteBranch(_c: string, b: string): Promise<void> { this.calls.push(`deleteBranch:${b}`); }
+  async pushBranch(_c: string, b: string): Promise<{ ok: boolean; exitCode: number | null; stderr: string }> {
+    this.calls.push(`pushBranch:${b}`);
+    return { ok: this.opts.pushOk ?? true, exitCode: this.opts.pushOk === false ? 128 : 0, stderr: '' };
+  }
+}
+
+const passSpawn: SpawnFn = async (cmd): Promise<SpawnResult> =>
+  cmd === 'false' ? { exitCode: 1, stdout: '', stderr: '' } : { exitCode: 0, stdout: '', stderr: '' };
+const reviewHttp: HttpClient = { async postJson() { return { status: 200, json: { content: [{ type: 'text', text: '[]' }] } }; } };
+
+test('T3: a RED-gate item is preserved on its branch, pushed, and a draft PR is opened', async () => {
+  const item: WorkItem = { id: 'issue-9', runner: 'worktree', implementBackend: 'codex', body: 'x', gate: { tests: ['false'] } };
+  const committer = new MergeRecordingCommitter({ commits: ['sha1'] });
+  const gh = new GhStub();
+  const prod = buildProductionDeps({
+    source: new OneItemSource(item), readyItems: [item], cwdFor: () => '/repo',
+    config: { anthropicApiKey: 'rk' }, gh,
+    seams: { spawn: passSpawn, http: reviewHttp, committer: committer as unknown as ShellGitCommitter, console: { print: () => {} } },
+  });
+  const result = await prod.engine.protocol.run(item, prod.engine.runnerFactory.create(item, 'worktree'));
+  assert.equal(result.status, 'failed');
+  // The branch is created + preserved (no deleteBranch), pushed, never merged.
+  assert.ok(committer.calls.includes('createTempBranch:run-loop/issue-9'));
+  assert.ok(committer.calls.includes('pushBranch:run-loop/issue-9'));
+  assert.ok(!committer.calls.some((c) => c.startsWith('mergeToHead')), 'a red item is never merged');
+  assert.ok(!committer.calls.some((c) => c.startsWith('deleteBranch')), 'a red item branch is preserved');
+  // A draft PR was opened and its url is in the note + the attention row.
+  assert.ok(gh.calls.includes('createPullRequest(run-loop/issue-9,draft=true)'));
+  assert.match(result.note ?? '', /PR https:\/\/github\.com/);
+  const row = prod.attention.rows.find((r) => r.itemId === 'issue-9');
+  assert.equal(row?.reason, 'failed-check');
+  assert.ok(row?.prUrl?.startsWith('https://github.com/'));
+});
+
+test('T3: a merge conflict aborts, preserves the branch, hands off, and does NOT crash', async () => {
+  const item: WorkItem = { id: 'issue-7', runner: 'worktree', implementBackend: 'codex', body: 'x', gate: { tests: ['true'] } };
+  const committer = new MergeRecordingCommitter({ mergeOk: false, commits: ['sha1'] });
+  const gh = new GhStub();
+  const prod = buildProductionDeps({
+    source: new OneItemSource(item), readyItems: [item], cwdFor: () => '/repo',
+    config: { anthropicApiKey: 'rk' }, gh,
+    seams: { spawn: passSpawn, http: reviewHttp, committer: committer as unknown as ShellGitCommitter, console: { print: () => {} } },
+  });
+  const result = await prod.engine.protocol.run(item, prod.engine.runnerFactory.create(item, 'worktree'));
+  assert.equal(result.status, 'escalated');
+  assert.match(result.note ?? '', /^merge-conflict:/);
+  assert.ok(committer.calls.includes('mergeToHead:run-loop/issue-7'));
+  assert.ok(committer.calls.includes('abortMerge'), 'conflict ⇒ abort (HEAD untouched)');
+  assert.ok(!committer.calls.some((c) => c.startsWith('deleteBranch')), 'conflict ⇒ branch preserved');
+  assert.equal(prod.attention.rows.find((r) => r.itemId === 'issue-7')?.reason, 'merge-conflict');
+});
+
+// --- Wave 23 Task 5: termination caps enforced in the composition layer ------------
+
+// A stub source that yields N identical ready items, then drains.
+class NItemSource implements WorkSource {
+  readonly recorded: ItemResult[] = [];
+  private n: number;
+  constructor(n: number) { this.n = n; }
+  async nextReady(): Promise<WorkItem | null> {
+    if (this.n <= 0) return null;
+    this.n -= 1;
+    return { id: `i${this.n}` };
+  }
+  async isDone(): Promise<boolean> { return false; }
+  async recordResult(_i: WorkItem, r: ItemResult): Promise<void> { this.recorded.push(r); }
+}
+
+// Drive a source through the frozen runLoop with a protocol that returns `status`.
+async function driveWith(source: WorkSource, status: ItemResult['status']): Promise<readonly string[]> {
+  const { runLoop } = await import('../engine.ts');
+  const { DefaultRunnerFactory } = await import('../runners.ts');
+  const visited: string[] = [];
+  const engine = {
+    source,
+    protocol: { async run(item: WorkItem) { visited.push(item.id); return { itemId: item.id, status }; } },
+    runnerFactory: new DefaultRunnerFactory({
+      sandcastle: { async prepare() {}, async run() {}, async collectCommits() { return []; }, async teardown() {} },
+      worktree: { async prepare() {}, async run() {}, async collectCommits() { return []; }, async teardown() {} },
+    }),
+  };
+  await runLoop(engine as unknown as Parameters<typeof runLoop>[0]);
+  return visited;
+}
+
+test('T5: the iteration cap stops the drive after exactly 20 visited items', async () => {
+  const term = new TerminationGatedSource(new NItemSource(25)); // default cap 20
+  const visited = await driveWith(term, 'completed');
+  assert.equal(visited.length, 20, 'stops at the iteration cap');
+  assert.equal(term.stopReason(), 'iteration-cap');
+});
+
+test('T5: 3 consecutive failures trip the stall stop (no 4th attempt)', async () => {
+  const term = new TerminationGatedSource(new NItemSource(10));
+  const visited = await driveWith(term, 'failed'); // every item fails the gate
+  assert.equal(visited.length, 3, 'stops after the stall threshold');
+  assert.equal(term.stopReason(), 'stall');
+});
+
+test('T5: a clean small run drains (no cap/stall fired)', async () => {
+  const term = new TerminationGatedSource(new NItemSource(4));
+  const visited = await driveWith(term, 'completed');
+  assert.equal(visited.length, 4);
+  assert.equal(term.stopReason(), 'drained');
+});
+
+test('T3: no remote ⇒ the handoff falls back to copy-paste commands (no PR, no throw)', async () => {
+  const item: WorkItem = { id: 'issue-5', runner: 'worktree', implementBackend: 'codex', body: 'x', gate: { tests: ['false'] } };
+  const committer = new MergeRecordingCommitter({ pushOk: false, commits: ['sha1'] });
+  const gh = new GhStub();
+  const prod = buildProductionDeps({
+    source: new OneItemSource(item), readyItems: [item], cwdFor: () => '/repo',
+    config: { anthropicApiKey: 'rk' }, gh,
+    seams: { spawn: passSpawn, http: reviewHttp, committer: committer as unknown as ShellGitCommitter, console: { print: () => {} } },
+  });
+  const result = await prod.engine.protocol.run(item, prod.engine.runnerFactory.create(item, 'worktree'));
+  assert.equal(result.status, 'failed');
+  assert.ok(committer.calls.includes('pushBranch:run-loop/issue-5'));
+  assert.ok(!gh.calls.some((c) => c.startsWith('createPullRequest')), 'no PR open when push fails');
+  const row = prod.attention.rows.find((r) => r.itemId === 'issue-5');
+  assert.ok((row?.fallbackCommands?.length ?? 0) > 0, 'fallback copy-paste commands recorded');
+  assert.match(result.note ?? '', /no-remote/);
+});
+
+// --- Wave 23 Task 6: merge-to-head proof against REAL git (throwaway repo) ----------
+
+function realRepo(t: { after: (fn: () => void) => void }): string {
+  const dir = mkdtempSync(join(tmpdir(), 'mth-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const git = (...a: string[]) => execFileSync('git', a, { cwd: dir, stdio: 'pipe' });
+  git('init', '-q'); git('config', 'user.email', 't@e.com'); git('config', 'user.name', 'T');
+  writeFileSync(join(dir, 'base'), 'x\n'); git('add', 'base'); git('commit', '-q', '-m', 'base');
+  return dir;
+}
+
+test('T6: a GREEN drive fast-forward merges into HEAD and deletes the temp branch (real git)', async (t) => {
+  const dir = realRepo(t);
+  const preHead = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: dir }).toString().trim();
+  const fakeSpawn: SpawnFn = async (cmd, _a, opts): Promise<SpawnResult> => {
+    if (cmd === 'codex') { writeFileSync(join(opts.cwd, 'feature.txt'), 'done\n'); return { exitCode: 0, stdout: '', stderr: '' }; }
+    return { exitCode: 0, stdout: '', stderr: '' };
+  };
+  const item: WorkItem = { id: 'issue-2', runner: 'worktree', implementBackend: 'codex', body: 'x', gate: { tests: ['true'] } };
+  const prod = buildProductionDeps({
+    source: new OneItemSource(item), readyItems: [item], cwdFor: () => dir,
+    config: { anthropicApiKey: 'rk' }, gh: new GhStub(),
+    seams: { spawn: fakeSpawn, http: reviewHttp, committer: new ShellGitCommitter(defaultSpawn), console: { print: () => {} } },
+  });
+  const result = await prod.engine.protocol.run(item, prod.engine.runnerFactory.create(item, 'worktree'));
+  assert.equal(result.status, 'completed');
+  const postHead = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: dir }).toString().trim();
+  assert.notEqual(postHead, preHead, 'HEAD advanced via the merge');
+  assert.equal(readFileSync(join(dir, 'feature.txt'), 'utf8'), 'done\n', 'merged work is on HEAD');
+  const branches = execFileSync('git', ['branch', '--list', 'run-loop/*'], { cwd: dir }).toString().trim();
+  assert.equal(branches, '', 'the temp branch is deleted after a green merge');
+});
+
+test('T6: a RED drive preserves the branch, leaves HEAD unchanged, and falls back (no remote, real git)', async (t) => {
+  const dir = realRepo(t);
+  const preHead = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: dir }).toString().trim();
+  const fakeSpawn: SpawnFn = async (cmd, _a, opts): Promise<SpawnResult> => {
+    if (cmd === 'codex') { writeFileSync(join(opts.cwd, 'g.txt'), 'y\n'); return { exitCode: 0, stdout: '', stderr: '' }; }
+    if (cmd === 'false') return { exitCode: 1, stdout: '', stderr: '' };
+    return { exitCode: 0, stdout: '', stderr: '' };
+  };
+  const item: WorkItem = { id: 'issue-9', runner: 'worktree', implementBackend: 'codex', body: 'x', gate: { tests: ['false'] } };
+  const prod = buildProductionDeps({
+    source: new OneItemSource(item), readyItems: [item], cwdFor: () => dir,
+    config: { anthropicApiKey: 'rk' }, gh: new GhStub(),
+    seams: { spawn: fakeSpawn, http: reviewHttp, committer: new ShellGitCommitter(defaultSpawn), console: { print: () => {} } },
+  });
+  const result = await prod.engine.protocol.run(item, prod.engine.runnerFactory.create(item, 'worktree'));
+  assert.equal(result.status, 'failed');
+  const postHead = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: dir }).toString().trim();
+  assert.equal(postHead, preHead, 'HEAD is unchanged on a red item');
+  const branches = execFileSync('git', ['branch', '--list', 'run-loop/*'], { cwd: dir }).toString().trim();
+  assert.match(branches, /run-loop\/issue-9/, 'the temp branch is preserved');
+  // The throwaway repo has no remote → the real `git push` fails → no-remote fallback.
+  const row = prod.attention.rows.find((r) => r.itemId === 'issue-9');
+  assert.ok((row?.fallbackCommands?.length ?? 0) > 0, 'no-remote fallback wrote copy-paste commands');
 });

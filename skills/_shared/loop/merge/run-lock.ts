@@ -1,3 +1,8 @@
+// status: RETIRED-until-concurrency (Wave 23) — built + unit-tested but NOT wired. The
+// serial merge-to-head live drive needs no lock; this activates only with concurrent
+// merges (paired with merge-contract.ts; OQ-1 in
+// docs/specs/2026-06-16-run-loop-merge-to-head.md).
+//
 // Repo-level run lock (Wave 19, Task 8a, step 1).
 //
 // `.harness-state/run-loop.lock` holds run-id + PID + timestamp. The loop refuses

@@ -5,7 +5,7 @@
 // label-filtered lists, tracks per-issue labels + comments + open/closed state,
 // and appends every mutating call to `calls` so tests can assert exact ordering.
 
-import { type GhClient, type GhComment, type GhIssue } from '../gh-seam.ts';
+import { type GhClient, type GhComment, type GhIssue, type PullRequestResult } from '../gh-seam.ts';
 
 interface MutableIssue {
   number: number;
@@ -156,5 +156,15 @@ export class GhStub implements GhClient {
     });
     this.record(`createIssue(${number},${input.labels.join('+')})`);
     return number;
+  }
+
+  async createPullRequest(input: {
+    head: string;
+    title: string;
+    body: string;
+    draft: boolean;
+  }): Promise<PullRequestResult> {
+    this.record(`createPullRequest(${input.head},draft=${input.draft})`);
+    return { ok: true, url: `https://github.com/owner/repo/pull/${++this.nextNumber}` };
   }
 }

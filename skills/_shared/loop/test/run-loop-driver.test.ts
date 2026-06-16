@@ -154,6 +154,39 @@ test('T5: drive runs the loop and the engine preflight fires BEFORE the first it
   assert.ok(lines.some((l) => /merged-afk:\s+1/.test(l)));
 });
 
+test('T4: drive writes the attention report at run end and prints a pointer', async () => {
+  const source = new StubWorkSource([{ id: 'i1' }]);
+  const protocol = {
+    async run(item: WorkItem, _r: unknown) {
+      return { itemId: item.id, status: 'completed' as const };
+    },
+  };
+  const engine: EngineDeps = {
+    source,
+    protocol: protocol as unknown as NoopProtocol,
+    runnerFactory: new StubRunnerFactory(),
+  };
+  const { console: con, lines } = recordingConsole();
+  const written: { path: string; body: string }[] = [];
+  await drive({
+    engine,
+    config: EMPTY_CONFIG,
+    readyItems: [{ id: 'i1' }],
+    hookProbe: hook(true),
+    console: con,
+    confirm: { async confirm() { return true; } },
+    buildReport: () => REPORT,
+    yes: true,
+    attention: { rows: [{ itemId: 'i1', reason: 'auto-merged' }, { itemId: 'i2', reason: 'merge-conflict', branch: 'run-loop/i2', prUrl: 'https://x/pull/1' }] },
+    attentionSink: { write: (path, body) => written.push({ path, body }) },
+    attentionDate: '2026-06-16',
+  });
+  assert.equal(written.length, 1, 'the report is written exactly once');
+  assert.equal(written[0]?.path, '.harness-state/run-loop-2026-06-16-attention.md');
+  assert.match(written[0]?.body ?? '', /1 need you ↓/);
+  assert.ok(lines.some((l) => /attention report \(1 need you\): \.harness-state\/run-loop-2026-06-16-attention\.md/.test(l)));
+});
+
 test('T5: drive aborts before the loop when every item is refused at preflight', async () => {
   let loopRan = false;
   const engine: EngineDeps = {

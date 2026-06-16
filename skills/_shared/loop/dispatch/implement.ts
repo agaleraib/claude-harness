@@ -30,6 +30,17 @@ import {
 import { type SpawnFn, spawnIgnoringStdin, stripClaudeMarkers, stripOpenAiApiKey } from './spawn.ts';
 
 /**
+ * Result of a git op that can legitimately fail without it being a bug (merge-to-head
+ * conflict; push with no remote / no creds). Returned instead of throwing so the
+ * merge-to-head caller can abort / fall back to the HITL handoff (Wave 23).
+ */
+export interface GitOpResult {
+  readonly ok: boolean;
+  readonly exitCode: number | null;
+  readonly stderr: string;
+}
+
+/**
  * Container-lane seam. The real impl runs the agentic CLI inside a container with the
  * appropriate auth mounted (Codex: ~/.codex ro→writable CODEX_HOME; Claude: token/key)
  * and the workspace bind-mounted so commits land on the host. Stubbed in tests; the
@@ -209,6 +220,67 @@ export class ShellGitCommitter implements GitCommitter {
       throw new Error(`git diff failed (${r.exitCode}): ${r.stderr.trim()}`);
     }
     return r.stdout;
+  }
+
+  // --- merge-to-head lifecycle (Wave 23, Task 1) ---------------------------------
+  //
+  // Additive concrete methods (the `dirty()`/`diff()` precedent — the frozen
+  // `GitCommitter` interface is NOT widened; they're surfaced structurally via
+  // `ShellGitCommitterLike`). Each item works on a predictable-named temp branch off
+  // HEAD; a GREEN item's branch is merged-then-deleted, a non-green item's branch is
+  // preserved for the HITL handoff. The two ops that can legitimately fail without it
+  // being a bug — `mergeToHead` (conflict) and `pushBranch` (no remote / no creds) —
+  // return a typed `GitOpResult` so the caller can abort/fall back instead of crashing.
+
+  /** The name of the currently-checked-out branch (`git rev-parse --abbrev-ref HEAD`). */
+  async currentBranch(cwd: string): Promise<string> {
+    return this.git(cwd, ['rev-parse', '--abbrev-ref', 'HEAD']);
+  }
+
+  /** Check out an existing branch (`git checkout <branch>`). */
+  async checkout(cwd: string, branch: string): Promise<void> {
+    await this.git(cwd, ['checkout', branch]);
+  }
+
+  /** Create + checkout `name` off the current HEAD (`git checkout -b <name>`). */
+  async createTempBranch(cwd: string, name: string): Promise<void> {
+    await this.git(cwd, ['checkout', '-b', name]);
+  }
+
+  /**
+   * Merge `branch` into the host's current branch (`git merge <branch>`), fast-forward
+   * where possible. A non-zero exit (conflict) is returned as `{ok:false}` — NOT thrown
+   * — so the caller can `abortMerge` + run the HITL handoff.
+   */
+  async mergeToHead(cwd: string, branch: string): Promise<GitOpResult> {
+    const r = await spawnIgnoringStdin(this.spawn, 'git', ['merge', branch], {
+      cwd,
+      env: process.env as Record<string, string>,
+    });
+    return { ok: r.exitCode === 0, exitCode: r.exitCode, stderr: r.stderr };
+  }
+
+  /** Abort an in-progress merge (`git merge --abort`), leaving HEAD untouched. */
+  async abortMerge(cwd: string): Promise<void> {
+    await this.git(cwd, ['merge', '--abort']);
+  }
+
+  /** Delete `branch` (`git branch -D <branch>`) — used after a GREEN merge. */
+  async deleteBranch(cwd: string, branch: string): Promise<void> {
+    await this.git(cwd, ['branch', '-D', branch]);
+  }
+
+  /**
+   * Push `branch` to `remote` (`git push -u <remote> <branch>`). A non-zero exit
+   * (missing remote / no creds) is returned as `{ok:false}` — NOT thrown — so the
+   * caller can fall back to the no-remote copy-paste-command handoff.
+   */
+  async pushBranch(cwd: string, branch: string, remote = 'origin'): Promise<GitOpResult> {
+    const r = await spawnIgnoringStdin(this.spawn, 'git', ['push', '-u', remote, branch], {
+      cwd,
+      env: process.env as Record<string, string>,
+    });
+    return { ok: r.exitCode === 0, exitCode: r.exitCode, stderr: r.stderr };
   }
 }
 

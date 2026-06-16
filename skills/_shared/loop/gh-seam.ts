@@ -22,6 +22,17 @@ export interface GhComment {
 }
 
 /**
+ * Result of opening a PR (Wave 23 HITL handoff). `ok:false` (no creds / no remote)
+ * is returned, NOT thrown, so the caller falls back to the no-remote copy-paste
+ * handoff instead of crashing the run.
+ */
+export interface PullRequestResult {
+  readonly ok: boolean;
+  readonly url?: string;
+  readonly error?: string;
+}
+
+/**
  * The injected gh boundary. Every method maps to one `gh` invocation. Mutations
  * are intentionally fine-grained so the two-phase state machine can order them
  * exactly and a stub can record call order.
@@ -60,4 +71,16 @@ export interface GhClient {
     readonly body: string;
     readonly labels: readonly string[];
   }): Promise<number>;
+  /**
+   * `gh pr create --draft --head <branch> ...` — the Wave-23 HITL handoff. Opens a
+   * draft PR for a preserved `run-loop/*` branch (assumed already pushed). Returns a
+   * typed `PullRequestResult` — a no-creds/no-remote failure is `{ok:false}`, NOT a
+   * throw, so the caller can fall back to the copy-paste-command handoff.
+   */
+  createPullRequest(input: {
+    readonly head: string;
+    readonly title: string;
+    readonly body: string;
+    readonly draft: boolean;
+  }): Promise<PullRequestResult>;
 }

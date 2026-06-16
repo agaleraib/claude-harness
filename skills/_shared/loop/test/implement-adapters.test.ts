@@ -222,3 +222,56 @@ test('T3: ShellGitCommitter.dirty() is false on a clean tree and true after an e
   await committer.commitAll(dir, 'feat: x');
   assert.equal(await committer.dirty(dir), false, 'committed ⇒ clean again');
 });
+
+// --- Wave 23 Task 1: merge-to-head lifecycle on the committer ----------------------
+
+test('T1: createTempBranch / abortMerge / deleteBranch issue the expected git argv', async () => {
+  const { spawn, calls } = recordingSpawn();
+  const committer = new ShellGitCommitter(spawn);
+  await committer.createTempBranch('/wt', 'run-loop/issue-2');
+  await committer.abortMerge('/wt');
+  await committer.deleteBranch('/wt', 'run-loop/issue-2');
+  assert.deepEqual(calls.map((c) => c.argv), [
+    ['checkout', '-b', 'run-loop/issue-2'],
+    ['merge', '--abort'],
+    ['branch', '-D', 'run-loop/issue-2'],
+  ]);
+  assert.deepEqual(calls.map((c) => c.cmd), ['git', 'git', 'git']);
+  // stdin is ignored on every dispatched git op (the non-negotiable invariant).
+  assert.deepEqual(calls[0]?.stdio, ['ignore', 'pipe', 'pipe']);
+});
+
+test('T1: mergeToHead returns a typed conflict (not a throw) on a non-zero merge', async () => {
+  let argv: readonly string[] | undefined;
+  const conflictSpawn: SpawnFn = async (_cmd, a) => {
+    argv = a;
+    return { exitCode: 1, stdout: 'CONFLICT (content): Merge conflict in x', stderr: 'merge failed' };
+  };
+  const committer = new ShellGitCommitter(conflictSpawn);
+  const r = await committer.mergeToHead('/wt', 'run-loop/issue-2');
+  assert.deepEqual(argv, ['merge', 'run-loop/issue-2']);
+  assert.equal(r.ok, false);
+  assert.equal(r.exitCode, 1);
+  assert.match(r.stderr, /merge failed/);
+});
+
+test('T1: mergeToHead returns ok on a clean merge', async () => {
+  const { spawn } = recordingSpawn();
+  const committer = new ShellGitCommitter(spawn);
+  const r = await committer.mergeToHead('/wt', 'run-loop/issue-2');
+  assert.equal(r.ok, true);
+  assert.equal(r.exitCode, 0);
+});
+
+test('T1: pushBranch returns a typed failure (not a throw) when there is no remote', async () => {
+  let argv: readonly string[] | undefined;
+  const noRemoteSpawn: SpawnFn = async (_cmd, a) => {
+    argv = a;
+    return { exitCode: 128, stdout: '', stderr: "fatal: 'origin' does not appear to be a git repository" };
+  };
+  const committer = new ShellGitCommitter(noRemoteSpawn);
+  const r = await committer.pushBranch('/wt', 'run-loop/issue-2');
+  assert.deepEqual(argv, ['push', '-u', 'origin', 'run-loop/issue-2']);
+  assert.equal(r.ok, false);
+  assert.equal(r.exitCode, 128);
+});
