@@ -42,7 +42,9 @@ import { IssueWorkSource } from './providers/issue-provider.ts';
 import {
   type AgentBackend,
   type BackendConfig,
+  type ImplementBackendId,
   type ReviewBackend,
+  IMPLEMENT_BACKENDS,
   ImplementBackendRegistry,
   ReviewBackendRegistry,
   loadBackendConfig,
@@ -140,9 +142,21 @@ export interface ProductionSeams {
   readonly console?: DriverConsole;
 }
 
-/** Build the BackendConfig from process.env (+ optional profile fields). */
+/**
+ * Per-run backend-direction overrides (Wave 22, Task 6 knob). Parsed from the
+ * `--implement`/`--review` CLI flags (flag wins over env) and validated BEFORE any
+ * drive side effect; threaded here so they land as `config.implementDefault` /
+ * `config.reviewDefault`. Absent ⇒ fall back to env then the hardcoded defaults.
+ */
+export interface BackendDirectionOverrides {
+  readonly implementDefault?: string;
+  readonly reviewDefault?: string;
+}
+
+/** Build the BackendConfig from process.env (+ optional per-run direction overrides). */
 export function buildBackendConfigFromEnv(
   env: Readonly<Record<string, string | undefined>> = process.env,
+  overrides: BackendDirectionOverrides = {},
 ): BackendConfig {
   // .harness-profile parsing for the loop knobs lands with the SKILL.md wiring; the
   // env keys (API keys) are the security-relevant inputs and come from env here.
@@ -152,11 +166,32 @@ export function buildBackendConfigFromEnv(
   // / trusted run into the external Opus/OpenRouter reviewer via the explicit env gate
   // RUN_LOOP_ALLOW_EXTERNAL_REVIEW=1 — surfaced, not silent, and operator-controlled.
   const base = loadBackendConfig(env);
+
+  // Backend-direction knob (Task 6): the resolved override (flag-then-env) wins over the
+  // profile/hardcoded default. The caller has already validated the values; we only
+  // place them onto the config. Egress is unchanged: review=codex is local (no gate);
+  // anthropic-api / openrouter still require RUN_LOOP_ALLOW_EXTERNAL_REVIEW below.
+  const implementRaw =
+    overrides.implementDefault ?? env['RUN_LOOP_IMPLEMENT_BACKEND'] ?? base.implementDefault;
+  // Narrow to the known implement-backend set; an unrecognized value (e.g. a stray env
+  // string that bypassed the entry's validation) is dropped so the per-item codex
+  // default applies — never widen `implementDefault` to an arbitrary string.
+  const implementDefault: ImplementBackendId | undefined =
+    implementRaw !== undefined && IMPLEMENT_BACKENDS.includes(implementRaw as ImplementBackendId)
+      ? (implementRaw as ImplementBackendId)
+      : undefined;
+  const reviewDefault =
+    overrides.reviewDefault ?? env['RUN_LOOP_REVIEW_BACKEND'] ?? base.reviewDefault;
+
   const allow = env['RUN_LOOP_ALLOW_EXTERNAL_REVIEW'];
-  if (allow === '1' || allow === 'true') {
-    return { ...base, allowExternalReview: true };
-  }
-  return base;
+  const allowExternalReview = allow === '1' || allow === 'true' ? true : base.allowExternalReview;
+
+  return {
+    ...base,
+    ...(implementDefault !== undefined ? { implementDefault } : {}),
+    ...(reviewDefault !== undefined ? { reviewDefault } : {}),
+    ...(allowExternalReview !== undefined ? { allowExternalReview } : {}),
+  };
 }
 
 /**
@@ -238,28 +273,79 @@ export class ProductionProtocol implements PerItemProtocol {
     this.d = deps;
   }
 
+  /**
+   * Crash-isolation boundary (Wave 22, Task 2 — Bug 2). Any throw from the per-item
+   * work (e.g. UnsupportedContainerRunner.run on an unwired sandcastle lane) is caught
+   * HERE, recorded as `status:'failed'` with the reason surfaced in the note, and the
+   * runner is torn down (best-effort) so the frozen engine's loop continues with the
+   * next item instead of the throw propagating out of runLoop and killing the run. The
+   * frozen `runLoop` is NOT modified — isolation lives in this injected protocol.
+   */
   async run(item: WorkItem, runner: Runner): Promise<ItemResult> {
+    try {
+      return await this.runInner(item, runner);
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err);
+      // Best-effort teardown — never let a teardown failure mask the original cause.
+      try {
+        await runner.teardown();
+      } catch {
+        /* swallow: the loop must continue regardless */
+      }
+      this.d.console.print(`[trace] item ${item.id} threw; isolated + skipped: ${reason}`);
+      return {
+        itemId: item.id,
+        status: 'failed',
+        note: `implement-failed: item threw before a gate ran — ${reason}`,
+      };
+    }
+  }
+
+  private async runInner(item: WorkItem, runner: Runner): Promise<ItemResult> {
     const cwd = this.d.cwdFor(item);
     const lane = resolveRunnerKind(item);
     const log = (m: string) => this.d.console.print(`[trace] ${m}`);
 
     // 1. IMPLEMENT — the real agent edits; the runner commits.
+    //
+    // Bug 3 (Wave 22): commit the working-tree edits REGARDLESS of the agent's exit
+    // code. Codex can produce a coherent multi-file impl and still exit non-zero (e.g.
+    // its own post-edit `git` attempt hits the read-only `.git` under -s workspace-write)
+    // — the exact "agent edits, runner commits" case. So: probe the dirty tree; if the
+    // agent exited ok OR the tree is dirty, commit + collect. If commits resulted,
+    // proceed to the gate (the gate is the real arbiter of quality). Only when the agent
+    // FAILED and NO commits resulted do we record `failed`, with the truncated stderr in
+    // the note (prefixed `implement-failed:` for honest bucketing — Bug 4).
     const backend = this.d.implementRegistry.resolve(item);
     log(`implement: dispatching ${backend.id} (lane=${lane}) …`);
     await runner.prepare();
     const base = await this.d.committer.head(cwd);
     const prompt = this.promptFor(item);
     const result = await backend.dispatch(prompt, { cwd, env: process.env as Record<string, string>, lane });
-    if (!result.ok) {
-      await runner.teardown();
-      return { itemId: item.id, status: 'failed', note: `implement backend ${backend.id} exited ${result.exitCode}` };
+
+    const treeDirty = await this.dirtyTree(cwd);
+    let commits: readonly string[] = [];
+    if (result.ok || treeDirty) {
+      await this.d.committer.commitAll(cwd, `feat: ${item.id} (/run-loop)`);
+      commits = await this.d.committer.collectCommits(cwd, base);
     }
-    await this.d.committer.commitAll(cwd, `feat: ${item.id} (/run-loop)`);
-    const commits = await this.d.committer.collectCommits(cwd, base);
-    log(`implement: ${backend.id} ok; runner produced ${commits.length} commit(s): ${commits.join(', ')}`);
+    log(
+      `implement: ${backend.id} exit=${result.exitCode} ok=${result.ok} dirty=${treeDirty}; ` +
+        `runner produced ${commits.length} commit(s): ${commits.join(', ')}`,
+    );
+
     if (commits.length === 0) {
       await runner.teardown();
-      return { itemId: item.id, status: 'failed', note: 'agent made no edits / no commit produced' };
+      // No work landed. Surface the truncated agent stderr so the WHY is visible, and
+      // tag the note `implement-failed:` (the gate never ran — Bug 4 bucketing).
+      const why = !result.ok
+        ? `agent ${backend.id} exited ${result.exitCode}; ${truncateStderr(result.stderr)}`
+        : 'agent made no edits / no commit produced';
+      return { itemId: item.id, status: 'failed', note: `implement-failed: ${why}` };
+    }
+    if (!result.ok) {
+      // Edits landed despite a non-zero exit — keep going; the gate decides quality.
+      log(`implement: ${backend.id} exited ${result.exitCode} but produced edits; committing + gating anyway`);
     }
 
     // 2. EXIT GATE — authoritative for merge.
@@ -267,7 +353,9 @@ export class ProductionProtocol implements PerItemProtocol {
     log(`gate: green=${gate.green} checks=${JSON.stringify(gate.checks)}`);
     if (!gate.green) {
       await runner.teardown();
-      return { itemId: item.id, status: 'failed', note: gate.note ?? 'exit gate red' };
+      // The gate RAN and went red — `gate-failed:` bucket (Bug 4), distinct from an
+      // implement failure where no gate ever ran.
+      return { itemId: item.id, status: 'failed', note: `gate-failed: ${gate.note ?? 'exit gate red'}` };
     }
 
     // 3. REVIEW — a single model judgment on the produced diff.
@@ -320,11 +408,38 @@ export class ProductionProtocol implements PerItemProtocol {
     const r = await (this.d.committer as ShellGitCommitterLike).diff?.(cwd, base);
     return r ?? '';
   }
+
+  /**
+   * Probe the working tree for uncommitted edits (Bug 3). Uses the committer's additive
+   * `dirty()` when present (ShellGitCommitter); a committer without it reports false (so
+   * the pre-Bug-3 ok-only commit path is preserved for a minimal fake committer).
+   */
+  private async dirtyTree(cwd: string): Promise<boolean> {
+    const probe = (this.d.committer as ShellGitCommitterLike).dirty;
+    if (probe === undefined) {
+      return false;
+    }
+    return probe.call(this.d.committer, cwd);
+  }
 }
 
-/** Structural type: a committer that can also produce a diff (ShellGitCommitter does). */
+/** Truncate captured stderr to a short tail for the note/trace (never the env). */
+function truncateStderr(stderr: string, max = 280): string {
+  const s = stderr.trim();
+  if (s.length === 0) {
+    return '(no stderr)';
+  }
+  return s.length <= max ? s : `…${s.slice(s.length - max)}`;
+}
+
+/**
+ * Structural type: a committer that can also produce a diff + probe a dirty tree
+ * (ShellGitCommitter does both). Both are additive on the concrete impl — the frozen
+ * `GitCommitter` interface is untouched (Wave 22, Bug 3).
+ */
 interface ShellGitCommitterLike extends GitCommitter {
   diff?(cwd: string, base: string): Promise<string>;
+  dirty?(cwd: string): Promise<boolean>;
 }
 
 /** The production EngineDeps + the resolved config + the source's ready items. */
@@ -334,6 +449,12 @@ export interface ProductionDeps {
   readonly readyItems: readonly WorkItem[];
   /** Build the RunSummaryReport from a RunSummary (driver prints it). */
   readonly buildReport: (summary: { readonly visited: readonly string[]; readonly results: readonly ItemResult[] }) => RunSummaryReport;
+  /**
+   * Whether a real sandcastle container runner is wired (Wave 22, Bug 2). False when the
+   * graph fell back to UnsupportedContainerRunner — the driver's preflight then refuses
+   * sandcastle items instead of clearing them to a mid-run crash.
+   */
+  readonly containerLaneWired: boolean;
 }
 
 /** Options for assembling the production graph. */
@@ -360,6 +481,9 @@ export interface BuildProductionDepsOptions {
 export function buildProductionDeps(opts: BuildProductionDepsOptions): ProductionDeps {
   const spawn = opts.seams?.spawn ?? defaultSpawn;
   const http = opts.seams?.http ?? new FetchHttpClient();
+  // The container lane is "wired" only when the caller injected a real ContainerRunner;
+  // the default UnsupportedContainerRunner throws (Bug 2 — preflight refuses sandcastle).
+  const containerLaneWired = opts.seams?.container !== undefined;
   const container = opts.seams?.container ?? new UnsupportedContainerRunner();
   const committer = opts.seams?.committer ?? new ShellGitCommitter(spawn);
   const con = opts.seams?.console ?? { print: (l: string) => console.log(l) };
@@ -433,7 +557,14 @@ export function buildProductionDeps(opts: BuildProductionDepsOptions): Productio
           builder.recordEscalated(r.itemId);
           break;
         case 'failed':
-          builder.recordGateFailed(r.itemId);
+          // Bug 4: route by the machine-readable note prefix the protocol set —
+          // `implement-failed:` (no gate ran) vs `gate-failed:` (gate ran red). An
+          // unprefixed failure defaults to gate-failed (pre-Wave-22 behavior).
+          if ((r.note ?? '').startsWith('implement-failed:')) {
+            builder.recordImplementFailed(r.itemId);
+          } else {
+            builder.recordGateFailed(r.itemId);
+          }
           break;
         case 'skipped':
           break;
@@ -446,7 +577,7 @@ export function buildProductionDeps(opts: BuildProductionDepsOptions): Productio
     return builder.build('drained');
   };
 
-  return { engine, config, readyItems: opts.readyItems, buildReport };
+  return { engine, config, readyItems: opts.readyItems, buildReport, containerLaneWired };
 }
 
 /**
@@ -456,21 +587,195 @@ export function buildProductionDeps(opts: BuildProductionDepsOptions): Productio
  * remote, a caller can instead build a local WorkSource and call buildProductionDeps
  * directly (see the live-test runbook / smoke harness).
  */
-export async function buildIssuesProductionDeps(seams?: ProductionSeams): Promise<ProductionDeps> {
+export async function buildIssuesProductionDeps(
+  seams?: ProductionSeams,
+  overrides: BackendDirectionOverrides = {},
+): Promise<ProductionDeps> {
   const command = seams?.command ?? new ExecFileCommandRunner();
   const gh = new GhCliAdapter(command);
   const source = new IssueWorkSource({ gh, journal: new InMemoryJournal(), runId: `run-${Date.now()}` });
   const readyItems = await source.allItems();
-  const config = buildBackendConfigFromEnv();
+  // Bug 1 (Task 1): gate the drive on blocked-by readiness. The frozen engine pulls in
+  // source order; the readiness gate lives in this composition layer so blockers run
+  // before blocked items and a blocked item is withheld until its blockers are done.
+  //
+  // Bug 5 (Task 5): wire the env-gated GitHub terminal transition (default-off). A
+  // successful AFK merge transitions its issue ONLY when RUN_LOOP_TRANSITION_ISSUES=1.
+  const transitionHook = buildTerminalTransitionHook(source.terminalTransitions());
+  const gatedSource = new ReadinessGatedSource(source, readyItems, transitionHook);
+  // Task 6 knob: the per-run --implement/--review overrides (flag-then-env) land on
+  // config.implementDefault / config.reviewDefault here.
+  const config = buildBackendConfigFromEnv(process.env, overrides);
   const repoCwd = process.cwd();
   return buildProductionDeps({
-    source,
+    source: gatedSource,
     readyItems,
     cwdFor: () => repoCwd,
     config,
     gh,
     ...(seams !== undefined ? { seams } : {}),
   });
+}
+
+/**
+ * Readiness-gated WorkSource wrapper (Wave 22, Task 1 — Bug 1).
+ *
+ * The frozen `engine.ts` pulls items in source order with no readiness check and throws
+ * if a source ever re-yields an id it already saw this run. So the readiness gate lives
+ * HERE, in the issues-mode source composition, NOT in the engine: this wrapper holds the
+ * full ready-item set up front and, on each `nextReady()`, yields the next not-yet-
+ * yielded item whose blockers are ALL done — processing blockers before blocked items.
+ *
+ * "Done" for a blocker (OQ-3, resolved — the UNION):
+ *   - recorded `completed` THIS run (via recordResult), OR
+ *   - the blocker's issue carries a terminal state (inner.isDone() ⇒ closed / terminal
+ *     marker).
+ * Either satisfies readiness. With `RUN_LOOP_TRANSITION_ISSUES` default-off, a blocker
+ * AFK-merged locally never transitions its issue, so the recorded-this-run arm is what
+ * unblocks its dependents inside a single drive — exactly the intended "defer #3 until
+ * #2 is done" behavior.
+ *
+ * Blockers referencing ids NOT in this run's ready set are ignored (dangling-edge rule,
+ * mirroring `scheduler/dag.ts`'s `blockersOf`): a blocker that is already closed is not
+ * in the ready-for-agent queue, so it does not gate.
+ *
+ * When no remaining item is currently ready (its blockers are not yet done), `nextReady`
+ * returns `null` — the source is drained for this drive. The engine then stops; a
+ * re-run (resume) re-evaluates against the now-updated issue state.
+ */
+/**
+ * Optional terminal-transition hook (Wave 22, Task 5 — Bug 5). Invoked by the issues-
+ * mode drive AFTER a result is recorded, to transition the item's GitHub issue
+ * (complete / escalate) — only when the operator opts in via `RUN_LOOP_TRANSITION_ISSUES`.
+ * Default-off ⇒ the drive stays GitHub-read-only (local commits only), preserving the
+ * reversible throwaway-branch posture.
+ */
+export interface TerminalTransitionHook {
+  onResult(item: WorkItem, result: ItemResult): Promise<void>;
+}
+
+export class ReadinessGatedSource implements WorkSource {
+  private readonly inner: WorkSource;
+  private readonly items: readonly WorkItem[];
+  private readonly inSet: ReadonlySet<string>;
+  private readonly yielded = new Set<string>();
+  /** Ids recorded `completed` this run (the in-run "done" arm of the union). */
+  private readonly completedThisRun = new Set<string>();
+  private readonly transition: TerminalTransitionHook | undefined;
+  private initialized = false;
+
+  constructor(inner: WorkSource, items: readonly WorkItem[], transition?: TerminalTransitionHook) {
+    this.inner = inner;
+    this.items = items;
+    this.inSet = new Set(items.map((i) => i.id));
+    this.transition = transition;
+  }
+
+  /** Blockers present in this run's ready set (dangling edges ignored). */
+  private blockersOf(item: WorkItem): readonly string[] {
+    const raw = item.blockedBy ?? [];
+    return raw.filter((id) => this.inSet.has(id));
+  }
+
+  /** A blocker is done iff completed-this-run OR its issue is terminal (inner.isDone). */
+  private async blockerDone(blockerId: string): Promise<boolean> {
+    if (this.completedThisRun.has(blockerId)) {
+      return true;
+    }
+    const blocker = this.items.find((i) => i.id === blockerId);
+    if (blocker === undefined) {
+      return true; // not in the set ⇒ does not gate (dangling edge).
+    }
+    return this.inner.isDone(blocker);
+  }
+
+  async nextReady(): Promise<WorkItem | null> {
+    if (!this.initialized) {
+      // Touch the inner source's init path (its allItems()/nextReady warms the queue);
+      // we already hold the ready set, so we only need the inner for isDone/recordResult.
+      this.initialized = true;
+    }
+    for (const item of this.items) {
+      if (this.yielded.has(item.id)) {
+        continue;
+      }
+      const blockers = this.blockersOf(item);
+      let ready = true;
+      for (const b of blockers) {
+        if (!(await this.blockerDone(b))) {
+          ready = false;
+          break;
+        }
+      }
+      if (ready) {
+        this.yielded.add(item.id);
+        return item;
+      }
+    }
+    // No remaining item is ready this drive (blockers not yet done) ⇒ drained.
+    return null;
+  }
+
+  async isDone(item: WorkItem): Promise<boolean> {
+    return this.inner.isDone(item);
+  }
+
+  async recordResult(item: WorkItem, result: ItemResult): Promise<void> {
+    if (result.status === 'completed') {
+      this.completedThisRun.add(item.id);
+    }
+    await this.inner.recordResult(item, result);
+    // Bug 5: env-gated GitHub terminal transition (default-off ⇒ read-only). The hook
+    // itself owns the env check + idempotency; the source just forwards every result.
+    if (this.transition !== undefined) {
+      await this.transition.onResult(item, result);
+    }
+  }
+}
+
+/**
+ * Build the env-gated terminal-transition hook (Wave 22, Task 5 — Bug 5). Returns
+ * `undefined` unless `RUN_LOOP_TRANSITION_ISSUES` is set to `1`/`true` — so a default
+ * drive performs ZERO GitHub mutation and stays a reversible local-commit run. When
+ * enabled, a `completed` item is run through `completeItem` (PR-link comment + close +
+ * terminal marker) and an `escalated` item through `escalateItem`; the two-phase machine
+ * is idempotent (existing terminal markers ⇒ no-op), so a re-drive is safe.
+ */
+export function buildTerminalTransitionHook(
+  transitions: IssueTransitionMachine,
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): TerminalTransitionHook | undefined {
+  const gate = env['RUN_LOOP_TRANSITION_ISSUES'];
+  if (gate !== '1' && gate !== 'true') {
+    return undefined; // default-off ⇒ no GitHub mutation.
+  }
+  return {
+    async onResult(item: WorkItem, result: ItemResult): Promise<void> {
+      const issueNumber = issueNumberOf(item);
+      if (issueNumber === undefined) {
+        return; // not a gh-issue item (e.g. a local clean-room item) ⇒ nothing to transition.
+      }
+      if (result.status === 'completed') {
+        const prLink = typeof item['prLink'] === 'string' ? (item['prLink'] as string) : undefined;
+        await transitions.completeItem({ issueNumber, ...(prLink !== undefined ? { prLink } : {}) });
+      } else if (result.status === 'escalated') {
+        await transitions.escalateItem({ issueNumber });
+      }
+      // `failed`/`skipped` ⇒ leave the issue in the ready queue (no transition).
+    },
+  };
+}
+
+/** The subset of TerminalTransitions the hook drives (structural — no import cycle). */
+export interface IssueTransitionMachine {
+  completeItem(input: { readonly issueNumber: number; readonly prLink?: string }): Promise<void>;
+  escalateItem(input: { readonly issueNumber: number }): Promise<void>;
+}
+
+/** Recover the gh issue number from an item id (`issue-<n>`), or undefined. */
+function issueNumberOf(item: WorkItem): number | undefined {
+  const n = Number.parseInt(String(item.id).replace(/^issue-/, ''), 10);
+  return Number.isInteger(n) && /^issue-\d+$/.test(String(item.id)) ? n : undefined;
 }
 
 /**

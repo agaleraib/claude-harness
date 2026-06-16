@@ -32,6 +32,7 @@ const REPORT: RunSummaryReport = {
   deferredBlockedOnHuman: 0,
   escalated: 0,
   gateFailed: 0,
+  implementFailed: 0,
   deepestBlockedSubtree: 0,
   stopReason: 'drained',
   visited: ['i1'],
@@ -67,6 +68,30 @@ test('T5: a sandcastle item always clears (container is its boundary), hook neve
   assert.equal(probed, false, 'no Claude WORKTREE item ⇒ the hook is not probed');
 });
 
+// --- Wave 22 Bug 2: preflight REFUSES sandcastle when the container lane is unwired --
+
+test('T2: an unwired container lane REFUSES a sandcastle item (was: cleared)', async () => {
+  const items: WorkItem[] = [{ id: 'sc', runner: 'sandcastle' }];
+  const pre = await runBackendAwarePreflight(items, EMPTY_CONFIG, hook(true), {
+    containerLaneWired: false,
+  });
+  assert.equal(pre.cleared.length, 0, 'sandcastle item is NOT cleared when the lane is unwired');
+  assert.equal(pre.refused.length, 1);
+  assert.equal(pre.refused[0]?.itemId, 'sc');
+  assert.match(pre.refused[0]?.reason ?? '', /container lane is not wired/);
+});
+
+test('T2: a wired container lane (default) still clears a sandcastle item', async () => {
+  const items: WorkItem[] = [{ id: 'sc', runner: 'sandcastle' }];
+  const wired = await runBackendAwarePreflight(items, EMPTY_CONFIG, hook(true), {
+    containerLaneWired: true,
+  });
+  assert.deepEqual(wired.cleared.map((i) => i.id), ['sc']);
+  // And the option is backward-compatible: omitting it clears (the pre-Wave-22 default).
+  const omitted = await runBackendAwarePreflight(items, EMPTY_CONFIG, hook(true));
+  assert.deepEqual(omitted.cleared.map((i) => i.id), ['sc']);
+});
+
 // --- preview + summary text -------------------------------------------------------
 
 test('T5: the preview lists each item with its resolved runner + backends', () => {
@@ -83,6 +108,14 @@ test('T5: the summary prints the AFK/HITL/blocked metric alongside the frozen Ru
   assert.ok(lines.some((l) => /opened-awaiting-human:/.test(l)));
   assert.ok(lines.some((l) => /deferred-blocked:/.test(l)));
   assert.ok(lines.some((l) => /frozen RunSummary/.test(l)));
+});
+
+test('T4: buildSummaryLines prints BOTH the implement-failed and gate-failed buckets', () => {
+  const frozen: RunSummary = { stopReason: 'drained', visited: [], results: [] };
+  const report: RunSummaryReport = { ...REPORT, implementFailed: 2, gateFailed: 1 };
+  const lines = buildSummaryLines(report, frozen);
+  assert.ok(lines.some((l) => /implement-failed:\s+2/.test(l)), 'implement-failed bucket printed');
+  assert.ok(lines.some((l) => /gate-failed:\s+1/.test(l)), 'gate-failed bucket printed');
 });
 
 // --- drive(): preflight invoked before first item, --yes bypass, summary ----------

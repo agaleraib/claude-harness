@@ -13,10 +13,14 @@ import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 
 import {
+  ReadinessGatedSource,
   ShellGateRunner,
   buildBackendConfigFromEnv,
   buildProductionDeps,
+  buildTerminalTransitionHook,
 } from '../run-loop-prod-deps.ts';
+import { IssueWorkSource, READY_FOR_AGENT, terminalKey } from '../providers/issue-provider.ts';
+import { InMemoryJournal } from '../state-journal.ts';
 import { runEntry, runProduction } from '../run-loop-entry.ts';
 import { type SpawnFn, type SpawnResult } from '../dispatch/spawn.ts';
 import { type HttpClient } from '../dispatch/review.ts';
@@ -52,6 +56,38 @@ test('prod: buildBackendConfigFromEnv reads API keys from env, never logs them',
   assert.equal('implementDefault' in cfg, false);
   // external review is default-deny unless the explicit env gate is set.
   assert.notEqual(cfg.allowExternalReview, true);
+});
+
+// --- Wave 22 Task 6: the per-run backend-direction knob → config -------------------
+
+test('T6: --implement/--review overrides set config.implementDefault/reviewDefault', () => {
+  const cfg = buildBackendConfigFromEnv({}, { implementDefault: 'claude', reviewDefault: 'codex' });
+  assert.equal(cfg.implementDefault, 'claude');
+  assert.equal(cfg.reviewDefault, 'codex');
+});
+
+test('T6: env-only RUN_LOOP_IMPLEMENT_BACKEND/REVIEW_BACKEND set the same config', () => {
+  const cfg = buildBackendConfigFromEnv({
+    RUN_LOOP_IMPLEMENT_BACKEND: 'claude',
+    RUN_LOOP_REVIEW_BACKEND: 'codex',
+  });
+  assert.equal(cfg.implementDefault, 'claude');
+  assert.equal(cfg.reviewDefault, 'codex');
+});
+
+test('T6: the flag override WINS over the env value', () => {
+  const cfg = buildBackendConfigFromEnv(
+    { RUN_LOOP_IMPLEMENT_BACKEND: 'codex', RUN_LOOP_REVIEW_BACKEND: 'anthropic-api:opus-4.8' },
+    { implementDefault: 'claude', reviewDefault: 'codex' },
+  );
+  assert.equal(cfg.implementDefault, 'claude', 'flag implement wins over env');
+  assert.equal(cfg.reviewDefault, 'codex', 'flag review wins over env');
+});
+
+test('T6: no knob ⇒ config carries no implement/review default (hardcoded defaults used)', () => {
+  const cfg = buildBackendConfigFromEnv({});
+  assert.equal('implementDefault' in cfg, false);
+  assert.equal('reviewDefault' in cfg, false);
 });
 
 test('prod: RUN_LOOP_ALLOW_EXTERNAL_REVIEW env gate opts into external review', () => {
@@ -175,6 +211,213 @@ test('prod: a red exit gate ⇒ item is failed (never merged)', async (t) => {
   });
   const result = await prod.engine.protocol.run(item, prod.engine.runnerFactory.create(item, 'worktree'));
   assert.equal(result.status, 'failed');
+});
+
+// --- Wave 22 Bug 3: commit edits regardless of exit code; surface stderr -----------
+
+// A fake committer with a controllable dirty-tree + commit count. `dirty` is the Bug-3
+// additive probe; `commitAll`/`collectCommits` model the runner-commits step.
+class FakeCommitter {
+  private committed = false;
+  private readonly opts: { dirtyTree: boolean; commitsAfter: readonly string[] };
+  constructor(opts: { dirtyTree: boolean; commitsAfter: readonly string[] }) {
+    this.opts = opts;
+  }
+  async head(): Promise<string> { return 'BASE'; }
+  async commitAll(): Promise<void> { this.committed = true; }
+  async collectCommits(): Promise<readonly string[]> {
+    return this.committed ? this.opts.commitsAfter : [];
+  }
+  async diff(): Promise<string> { return 'fake diff'; }
+  async dirty(): Promise<boolean> { return this.opts.dirtyTree; }
+}
+
+function backendReturning(res: { ok: boolean; exitCode: number | null; stderr: string }) {
+  return {
+    id: 'codex' as const,
+    async dispatch() {
+      return { ok: res.ok, exitCode: res.exitCode, stdout: '', stderr: res.stderr };
+    },
+  };
+}
+
+test('T3: a non-zero exit WITH a dirty tree commits + gates (NOT failed-at-implement)', async () => {
+  const item: WorkItem = { id: 'edits-nonzero', runner: 'worktree', implementBackend: 'codex', body: 'x', gate: { tests: ['true'] } };
+  const committer = new FakeCommitter({ dirtyTree: true, commitsAfter: ['sha1'] });
+  const lines: string[] = [];
+  const fakeHttp: HttpClient = {
+    async postJson() { return { status: 200, json: { content: [{ type: 'text', text: '[]' }] } }; },
+  };
+  // gate spawn: every declared command passes (exit 0).
+  const gateSpawn: SpawnFn = async (): Promise<SpawnResult> => ({ exitCode: 0, stdout: '', stderr: '' });
+  const prod = buildProductionDeps({
+    source: new OneItemSource(item),
+    readyItems: [item],
+    cwdFor: () => '/repo',
+    config: { allowExternalReview: true, anthropicApiKey: 'rk' },
+    gh: new GhStub(),
+    seams: { spawn: gateSpawn, http: fakeHttp, committer: committer as unknown as ShellGitCommitter, console: { print: (l) => lines.push(l) } },
+  });
+  // Swap the implement backend for one that exits non-zero (index.lock case).
+  const protocol = prod.engine.protocol as unknown as { d: { implementRegistry: { resolve: () => unknown } } };
+  protocol.d.implementRegistry.resolve = () => backendReturning({ ok: false, exitCode: 1, stderr: 'index.lock: Operation not permitted' });
+
+  const result = await prod.engine.protocol.run(item, prod.engine.runnerFactory.create(item, 'worktree'));
+  assert.notEqual(result.status, 'failed', 'edits-on-non-zero-exit must NOT fail at implement');
+  assert.equal(result.status, 'completed', 'committed + green gate + advisory-only ⇒ completed');
+  assert.ok(lines.some((l) => /exited 1 but produced edits/.test(l)), 'the commit-anyway path is traced');
+});
+
+test('T3: a non-zero exit with a CLEAN tree / no commits ⇒ failed with truncated stderr', async () => {
+  const item: WorkItem = { id: 'no-edits', runner: 'worktree', implementBackend: 'codex', body: 'x', gate: { tests: ['true'] } };
+  const committer = new FakeCommitter({ dirtyTree: false, commitsAfter: [] });
+  const prod = buildProductionDeps({
+    source: new OneItemSource(item),
+    readyItems: [item],
+    cwdFor: () => '/repo',
+    config: { anthropicApiKey: 'rk' },
+    gh: new GhStub(),
+    seams: { committer: committer as unknown as ShellGitCommitter, console: { print: () => {} } },
+  });
+  const protocol = prod.engine.protocol as unknown as { d: { implementRegistry: { resolve: () => unknown } } };
+  protocol.d.implementRegistry.resolve = () => backendReturning({ ok: false, exitCode: 2, stderr: 'fatal: real codex error tail' });
+
+  const result = await prod.engine.protocol.run(item, prod.engine.runnerFactory.create(item, 'worktree'));
+  assert.equal(result.status, 'failed');
+  assert.match(result.note ?? '', /implement-failed:/, 'no-commit failure is the implement-failed bucket');
+  assert.match(result.note ?? '', /real codex error tail/, 'the truncated codex stderr is surfaced');
+});
+
+// --- Wave 22 Bug 5: env-gated terminal transition on the issues drive --------------
+
+test('T5: with RUN_LOOP_TRANSITION_ISSUES=1, a completed item transitions its issue', async () => {
+  const gh = new GhStub([{ number: 2, labels: [READY_FOR_AGENT], state: 'open' }]);
+  const runId = 'run-t5';
+  const source = new IssueWorkSource({ gh, journal: new InMemoryJournal(), runId });
+  const items = await source.allItems();
+  const hook = buildTerminalTransitionHook(source.terminalTransitions(), { RUN_LOOP_TRANSITION_ISSUES: '1' });
+  assert.notEqual(hook, undefined, 'the gate env enables the hook');
+
+  const gated = new ReadinessGatedSource(source, items, hook);
+  const item = items.find((i) => i.id === 'issue-2')!;
+  await gated.recordResult(item, { itemId: 'issue-2', status: 'completed', note: 'merged at sha' });
+
+  // completeItem ran: a PR-link comment, the issue closed, the terminal marker written.
+  assert.equal(gh.peek(2)?.state, 'closed', 'the issue was closed');
+  const comments = await gh.listComments(2);
+  assert.ok(comments.some((c) => c.body.includes('pr-link')), 'PR-link comment posted');
+  assert.ok(
+    comments.some((c) => c.body.includes(terminalKey(runId, 'issue-2', 'completed'))),
+    'terminal completed marker written',
+  );
+
+  // Idempotent: a second drive over the same item is a no-op (no new close mutation).
+  const closesBefore = gh.calls.filter((c) => c.startsWith('closeIssue')).length;
+  await gated.recordResult(item, { itemId: 'issue-2', status: 'completed', note: 'merged at sha' });
+  const closesAfter = gh.calls.filter((c) => c.startsWith('closeIssue')).length;
+  assert.equal(closesAfter, closesBefore, 'a re-drive performs no second close (idempotent)');
+});
+
+test('T5: with the env UNSET, a completed item performs NO gh mutation (read-only)', async () => {
+  const gh = new GhStub([{ number: 2, labels: [READY_FOR_AGENT], state: 'open' }]);
+  const source = new IssueWorkSource({ gh, journal: new InMemoryJournal(), runId: 'run-t5b' });
+  const items = await source.allItems();
+  // No RUN_LOOP_TRANSITION_ISSUES ⇒ the hook is undefined ⇒ the drive stays read-only.
+  const hook = buildTerminalTransitionHook(source.terminalTransitions(), {});
+  assert.equal(hook, undefined, 'default-off ⇒ no hook');
+
+  const gated = new ReadinessGatedSource(source, items, hook);
+  const mutationsBefore = gh.calls.length;
+  const item = items.find((i) => i.id === 'issue-2')!;
+  await gated.recordResult(item, { itemId: 'issue-2', status: 'completed', note: 'merged' });
+  assert.equal(gh.calls.length, mutationsBefore, 'no gh mutation when the transition gate is off');
+  assert.equal(gh.peek(2)?.state, 'open', 'the issue stays open');
+});
+
+// --- Wave 22 Bug 4: buildReport routes failures to the honest bucket by note prefix -
+
+test('T4: buildReport routes implement-failed: vs gate-failed: notes to distinct buckets', () => {
+  const item: WorkItem = { id: 'x' };
+  const prod = buildProductionDeps({
+    source: new OneItemSource(item),
+    readyItems: [item],
+    cwdFor: () => '/repo',
+    config: {},
+    gh: new GhStub(),
+    seams: { console: { print: () => {} } },
+  });
+  const report = prod.buildReport({
+    visited: ['a', 'b', 'c'],
+    results: [
+      { itemId: 'a', status: 'failed', note: 'implement-failed: agent codex exited 1; index.lock' },
+      { itemId: 'b', status: 'failed', note: 'gate-failed: exit gate red' },
+      { itemId: 'c', status: 'completed', note: 'merged at deadbeef' },
+    ],
+  });
+  assert.equal(report.implementFailed, 1, 'implement-failed: note ⇒ implement-failed bucket');
+  assert.equal(report.gateFailed, 1, 'gate-failed: note ⇒ gate-failed bucket');
+  assert.equal(report.mergedAfk, 1);
+});
+
+// --- Wave 22 Bug 2: a throwing lane is crash-ISOLATED; the sibling still runs -------
+
+test('T2: a thrown lane is recorded failed (reason surfaced) and the loop continues', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'prod-isolate-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const git = (...a: string[]) => execFileSync('git', a, { cwd: dir, stdio: 'pipe' });
+  git('init', '-q'); git('config', 'user.email', 't@e.com'); git('config', 'user.name', 'T');
+  writeFileSync(join(dir, 'f'), 'x\n'); git('add', 'f'); git('commit', '-q', '-m', 'base');
+
+  // item1 runs on the sandcastle lane with the DEFAULT (unwired) container ⇒ dispatch
+  // throws. item2 is a healthy worktree/codex item that edits a file.
+  const item1: WorkItem = { id: 'thrower', runner: 'sandcastle', implementBackend: 'codex', body: 'x', gate: {} };
+  const item2: WorkItem = {
+    id: 'healthy', runner: 'worktree', implementBackend: 'codex', body: 'y',
+    gate: { tests: ['true'], typecheck: ['true'], verify: ['true'] },
+  };
+
+  const fakeSpawn: SpawnFn = async (cmd, _argv, opts): Promise<SpawnResult> => {
+    if (cmd === 'codex') { writeFileSync(join(opts.cwd, 'g'), 'y\n'); return { exitCode: 0, stdout: '', stderr: '' }; }
+    return { exitCode: 0, stdout: '', stderr: '' };
+  };
+  const fakeHttp: HttpClient = {
+    async postJson() { return { status: 200, json: { content: [{ type: 'text', text: '[]' }] } }; },
+  };
+
+  // A two-item source (drives both through the production protocol via the engine).
+  class TwoItemSource implements WorkSource {
+    private i = 0;
+    readonly recorded: ItemResult[] = [];
+    private readonly items = [item1, item2];
+    async nextReady(): Promise<WorkItem | null> { return this.i < this.items.length ? this.items[this.i++]! : null; }
+    async isDone(): Promise<boolean> { return false; }
+    async recordResult(_it: WorkItem, r: ItemResult): Promise<void> { this.recorded.push(r); }
+  }
+  const source = new TwoItemSource();
+  const lines: string[] = [];
+  const prod = buildProductionDeps({
+    source,
+    readyItems: [item1, item2],
+    cwdFor: () => dir,
+    config: { allowExternalReview: true, anthropicApiKey: 'rk' },
+    gh: new GhStub(),
+    // NO container seam ⇒ UnsupportedContainerRunner ⇒ the sandcastle dispatch throws.
+    seams: { spawn: fakeSpawn, http: fakeHttp, committer: new ShellGitCommitter(defaultSpawn), console: { print: (l) => lines.push(l) } },
+  });
+
+  const { runLoop } = await import('../engine.ts');
+  const summary = await runLoop(prod.engine);
+
+  // BOTH items were visited — the throw did NOT propagate out of runLoop.
+  assert.deepEqual(summary.visited, ['thrower', 'healthy']);
+  const r1 = source.recorded.find((r) => r.itemId === 'thrower');
+  const r2 = source.recorded.find((r) => r.itemId === 'healthy');
+  assert.equal(r1?.status, 'failed', 'the throwing item is failed');
+  assert.match(r1?.note ?? '', /not wired|threw/i, 'the throw reason is surfaced in the note');
+  assert.equal(r2?.status, 'completed', 'the healthy sibling still ran to completion');
+  assert.ok(lines.some((l) => /isolated \+ skipped/.test(l)), 'the isolation is traced');
+  // The container lane is reported unwired so the driver preflight would refuse it.
+  assert.equal(prod.containerLaneWired, false);
 });
 
 // --- the entry EXECUTABLE reaches the driver (no live call) ------------------------

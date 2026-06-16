@@ -99,6 +99,13 @@ Usage:
   /run-loop issues       # drive ready-for-agent gh issues
   /run-loop --help       # print this and exit
 
+Per-run backend direction (Wave 22 knob; flag WINS over env):
+  --implement <codex|claude>                        (env RUN_LOOP_IMPLEMENT_BACKEND)
+  --review <anthropic-api:opus-4.8|codex|openrouter:<model>>  (env RUN_LOOP_REVIEW_BACKEND)
+  Defaults: implement=codex, review=anthropic-api:opus-4.8. An unknown value errors
+  before any drive runs. Egress is unchanged: review=codex is local (no gate);
+  review=anthropic-api / openrouter require RUN_LOOP_ALLOW_EXTERNAL_REVIEW=1.
+
 Behavior:
   - Selects the work-source provider (wave / issue) and invokes the shared
     /run-loop engine: pull next ready item -> resolve runner -> per-item
@@ -139,18 +146,25 @@ export async function runProduction(
     /** Clean-room local drive: a throwaway repo dir + a JSON item file (no gh). */
     readonly localRepo?: string;
     readonly localItemFile?: string;
+    /** Per-run backend-direction overrides (Task 6 knob; already validated). */
+    readonly implement?: string;
+    readonly review?: string;
   },
 ): Promise<void> {
   const print = opts.print ?? ((l: string) => console.log(l));
   const { drive } = await import('./run-loop-driver.ts');
   const prodMod = await import('./run-loop-prod-deps.ts');
+  const overrides = {
+    ...(opts.implement !== undefined ? { implementDefault: opts.implement } : {}),
+    ...(opts.review !== undefined ? { reviewDefault: opts.review } : {}),
+  };
 
   // Clean-room local path (committed): --repo + --item-file drive the SAME production
   // graph against a throwaway repo with one local item — no `gh`, no GitHub mutation.
   if (opts.localRepo !== undefined && opts.localItemFile !== undefined) {
     const { readFileSync } = await import('node:fs');
     const item = JSON.parse(readFileSync(opts.localItemFile, 'utf8')) as Record<string, unknown> & { id: string };
-    const config = prodMod.buildBackendConfigFromEnv();
+    const config = prodMod.buildBackendConfigFromEnv(process.env, overrides);
     const prod = prodMod.buildLocalCleanRoomDeps({ repoDir: opts.localRepo, item, config, seams: { console: { print } } });
     await drive({
       engine: prod.engine,
@@ -161,6 +175,7 @@ export async function runProduction(
       confirm: { async confirm() { return true; } },
       buildReport: (summary) => prod.buildReport(summary),
       yes: opts.yes,
+      containerLaneWired: prod.containerLaneWired,
     });
     return;
   }
@@ -169,7 +184,7 @@ export async function runProduction(
     print('/run-loop: `waves` live drive is not wired for the local path yet; use `issues`.');
     return;
   }
-  const prod = await prodMod.buildIssuesProductionDeps();
+  const prod = await prodMod.buildIssuesProductionDeps(undefined, overrides);
   await drive({
     engine: prod.engine,
     config: prod.config,
@@ -179,6 +194,7 @@ export async function runProduction(
     confirm: { async confirm() { return true; } }, // CLI confirm; --yes also bypasses
     buildReport: (summary) => prod.buildReport(summary),
     yes: opts.yes,
+    containerLaneWired: prod.containerLaneWired,
   });
 }
 
@@ -194,6 +210,44 @@ export async function main(argv: readonly string[]): Promise<void> {
   };
   const localRepo = flagValue('--repo');
   const localItemFile = flagValue('--item-file');
+
+  // --help / unknown-source still short-circuit FIRST (no knob validation, no side
+  // effect) — the documented contract. parseRunLoopArgs ignores the knob flags.
+  const pre = parseRunLoopArgs(argv.filter((a) => a !== '--yes'));
+  if (pre.mode !== 'run') {
+    await runEntry(argv, { print: (l) => console.log(l), runDrive: async () => {} });
+    return;
+  }
+
+  // Task 6 knob: resolve the per-run backend direction (flag WINS over env), VALIDATE it
+  // before any drive side effect (mirror the --help / unknown-source short-circuit), and
+  // thread it into runProduction. An unknown value prints a clear error and returns —
+  // the drive never starts. Egress is unchanged + composes (validated downstream).
+  const { validateImplementBackendId, parseReviewBackendId } = await import('./dispatch/backends.ts');
+  const implementSel = flagValue('--implement') ?? process.env['RUN_LOOP_IMPLEMENT_BACKEND'];
+  const reviewSel = flagValue('--review') ?? process.env['RUN_LOOP_REVIEW_BACKEND'];
+  let implement: string | undefined;
+  let review: string | undefined;
+  try {
+    if (implementSel !== undefined) {
+      implement = validateImplementBackendId(implementSel);
+    }
+    if (reviewSel !== undefined) {
+      // parseReviewBackendId throws on an unknown kind / missing model — the validation.
+      parseReviewBackendId(reviewSel);
+      review = reviewSel;
+    }
+  } catch (err) {
+    console.log(err instanceof Error ? err.message : String(err));
+    return; // short-circuit BEFORE any drive side effect.
+  }
+  if (implement !== undefined || review !== undefined) {
+    console.log(
+      `/run-loop direction: implement=${implement ?? 'codex (default)'} ` +
+        `review=${review ?? 'anthropic-api:opus-4.8 (default)'}`,
+    );
+  }
+
   await runEntry(argv, {
     print: (l) => console.log(l),
     runDrive: (src, o) =>
@@ -201,6 +255,8 @@ export async function main(argv: readonly string[]): Promise<void> {
         yes: o.yes,
         ...(localRepo !== undefined ? { localRepo } : {}),
         ...(localItemFile !== undefined ? { localItemFile } : {}),
+        ...(implement !== undefined ? { implement } : {}),
+        ...(review !== undefined ? { review } : {}),
       }),
   });
 }

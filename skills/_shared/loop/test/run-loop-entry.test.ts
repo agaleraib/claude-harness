@@ -7,7 +7,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { parseRunLoopArgs, VALID_SOURCES } from '../run-loop-entry.ts';
+import { main, parseRunLoopArgs, VALID_SOURCES } from '../run-loop-entry.ts';
 import {
   GhCliAdapter,
   parseIssueJson,
@@ -53,6 +53,56 @@ test('T16: an unknown source errors with the valid set', () => {
 
 test('T16: a missing source errors (not a crash)', () => {
   assert.equal(parseRunLoopArgs([]).mode, 'error');
+});
+
+// --- Wave 22 Task 6: the per-run backend-direction knob (validate-before-side-effect) -
+
+/** Run `fn` with console.log captured; restore on return. */
+async function captureLog(fn: () => Promise<void>): Promise<string[]> {
+  const lines: string[] = [];
+  const orig = console.log;
+  console.log = (...a: unknown[]) => { lines.push(a.map(String).join(' ')); };
+  try {
+    await fn();
+  } finally {
+    console.log = orig;
+  }
+  return lines;
+}
+
+test('T6: an unknown --implement errors and NEVER starts a drive', async () => {
+  const lines = await captureLog(() => main(['issues', '--implement', 'gpt5']));
+  assert.ok(lines.some((l) => /unknown implement backend "gpt5"/.test(l)), 'the error is printed');
+  // The drive never started: no direction line, no preview, no summary.
+  assert.equal(lines.some((l) => /\/run-loop direction:/.test(l)), false);
+  assert.equal(lines.some((l) => /preview|summary|refused/.test(l)), false, 'no drive side effect');
+});
+
+test('T6: an unknown --review errors and NEVER starts a drive', async () => {
+  const lines = await captureLog(() => main(['issues', '--review', 'bogus:x']));
+  assert.ok(lines.some((l) => /unknown review backend "bogus:x"/.test(l)), 'the error is printed');
+  assert.equal(lines.some((l) => /\/run-loop direction:|preview|summary/.test(l)), false, 'no drive side effect');
+});
+
+test('T6: an unknown value from the ENV var also short-circuits before any drive', async () => {
+  const prev = process.env['RUN_LOOP_IMPLEMENT_BACKEND'];
+  process.env['RUN_LOOP_IMPLEMENT_BACKEND'] = 'nope';
+  try {
+    const lines = await captureLog(() => main(['issues']));
+    assert.ok(lines.some((l) => /unknown implement backend "nope"/.test(l)));
+    assert.equal(lines.some((l) => /preview|summary/.test(l)), false, 'no drive side effect');
+  } finally {
+    if (prev === undefined) delete process.env['RUN_LOOP_IMPLEMENT_BACKEND'];
+    else process.env['RUN_LOOP_IMPLEMENT_BACKEND'] = prev;
+  }
+});
+
+test('T6: --help short-circuits BEFORE the knob is validated (usage prints; no knob error)', async () => {
+  const lines = await captureLog(() => main(['issues', '--implement', 'gpt5', '--help']));
+  // --help is the documented no-side-effect short-circuit: usage prints and the invalid
+  // knob is NEVER validated (no error, no drive).
+  assert.ok(lines.some((l) => /\/run-loop —/.test(l)), 'usage printed');
+  assert.equal(lines.some((l) => /unknown implement backend/.test(l)), false, 'knob not validated under --help');
 });
 
 // --- real gh adapter: argv construction + JSON parsing via a stub CommandRunner ---

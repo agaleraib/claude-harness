@@ -231,3 +231,22 @@ test('T9(ii): crash after escalation issue exists, before transitioning cleared 
     'no second escalation on resume',
   );
 });
+
+// --- Wave 22 Bug 4: a distinct implement-failed bucket -----------------------------
+
+test('T4: recordImplementFailed increments implementFailed, NOT gateFailed', () => {
+  const b = new RunSummaryBuilder();
+  b.recordImplementFailed('issue-2');
+  b.recordGateFailed('issue-3');
+  const report = b.build('drained');
+  assert.equal(report.implementFailed, 1, 'implement-failed item lands in its own bucket');
+  assert.equal(report.gateFailed, 1, 'gate-red item lands in gate-failed');
+  // Both visited, in record order.
+  assert.deepEqual(report.visited, ['issue-2', 'issue-3']);
+});
+
+test('T4: a report with neither failure type reports zero in both buckets', () => {
+  const report = new RunSummaryBuilder().build('drained');
+  assert.equal(report.implementFailed, 0);
+  assert.equal(report.gateFailed, 0);
+});
