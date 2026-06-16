@@ -337,104 +337,125 @@ export class ProductionProtocol implements PerItemProtocol {
     await ops.createTempBranch(cwd, branch);
     const base = await this.d.committer.head(cwd);
 
-    // 1. IMPLEMENT — the real agent edits; the runner commits ON THE TEMP BRANCH.
-    //    Bug 3 (Wave 22): commit the working-tree edits REGARDLESS of the agent's exit
-    //    code (codex can produce a coherent impl and still exit non-zero). Probe dirty;
-    //    if the agent exited ok OR the tree is dirty, commit + collect.
-    const prompt = this.promptFor(item);
-    const result = await backend.dispatch(prompt, { cwd, env: process.env as Record<string, string>, lane });
+    // Everything after the temp branch exists is wrapped so a THROW (e.g. an unwired
+    // sandcastle lane, or a gate/review subprocess error) never strands the repo on the
+    // temp branch: the catch restores the integration branch, drops the temp branch if no
+    // commit landed (preserves it if real work was committed), then re-throws so the outer
+    // crash-isolation records the failure.
+    let committedToBranch = false;
+    try {
+      // 1. IMPLEMENT — the real agent edits; the runner commits ON THE TEMP BRANCH.
+      //    Bug 3 (Wave 22): commit the working-tree edits REGARDLESS of the agent's exit
+      //    code (codex can produce a coherent impl and still exit non-zero). Probe dirty;
+      //    if the agent exited ok OR the tree is dirty, commit + collect.
+      const prompt = this.promptFor(item);
+      const result = await backend.dispatch(prompt, { cwd, env: process.env as Record<string, string>, lane });
 
-    const treeDirty = await this.dirtyTree(cwd);
-    let commits: readonly string[] = [];
-    if (result.ok || treeDirty) {
-      await this.d.committer.commitAll(cwd, `feat: ${item.id} (/run-loop)`);
-      commits = await this.d.committer.collectCommits(cwd, base);
-    }
-    log(
-      `implement: ${backend.id} exit=${result.exitCode} ok=${result.ok} dirty=${treeDirty}; ` +
-        `runner produced ${commits.length} commit(s): ${commits.join(', ')}`,
-    );
+      const treeDirty = await this.dirtyTree(cwd);
+      let commits: readonly string[] = [];
+      if (result.ok || treeDirty) {
+        await this.d.committer.commitAll(cwd, `feat: ${item.id} (/run-loop)`);
+        commits = await this.d.committer.collectCommits(cwd, base);
+      }
+      committedToBranch = commits.length > 0;
+      log(
+        `implement: ${backend.id} exit=${result.exitCode} ok=${result.ok} dirty=${treeDirty}; ` +
+          `runner produced ${commits.length} commit(s): ${commits.join(', ')}`,
+      );
 
-    if (commits.length === 0) {
-      // No work landed — return to the main line, drop the empty temp branch, no handoff
-      // (nothing to push). `implement-failed:` bucket (the gate never ran — Bug 4).
+      if (commits.length === 0) {
+        // No work landed — return to the main line, drop the empty temp branch, no handoff
+        // (nothing to push). `implement-failed:` bucket (the gate never ran — Bug 4).
+        await ops.checkout(cwd, origBranch);
+        await ops.deleteBranch(cwd, branch);
+        await runner.teardown();
+        const why = !result.ok
+          ? `agent ${backend.id} exited ${result.exitCode}; ${truncateStderr(result.stderr)}`
+          : 'agent made no edits / no commit produced';
+        this.d.attention?.record({ itemId: item.id, ...(title ? { title } : {}), reason: 'failed-check', detail: `no changes produced — ${why}` });
+        return { itemId: item.id, status: 'failed', note: `implement-failed: ${why}` };
+      }
+      if (!result.ok) {
+        log(`implement: ${backend.id} exited ${result.exitCode} but produced edits; committing + gating anyway`);
+      }
+
+      // 2. EXIT GATE — authoritative for merge.
+      const gate = await runExitGate(item, this.d.gate(item, cwd));
+      log(`gate: green=${gate.green} checks=${JSON.stringify(gate.checks)}`);
+      if (!gate.green) {
+        // RED gate: preserve the branch (back to the main line, no merge), hand it off.
+        await ops.checkout(cwd, origBranch);
+        await runner.teardown();
+        const handoff = await this.handoff(item, branch, 'failed-check', title);
+        return { itemId: item.id, status: 'failed', note: `gate-failed: ${gate.note ?? 'exit gate red'}; ${handoff}` };
+      }
+
+      // 3. REVIEW — a single model judgment on the produced diff.
+      const diff = await this.diffFor(cwd, base);
+      log(`review: dispatching review on the diff …`);
+      const review = await dispatchReview({
+        item,
+        diff,
+        registry: this.d.reviewRegistry,
+        config: this.d.config,
+        ctx: { context: `/run-loop item ${item.id}`, env: process.env as Record<string, string> },
+        localFallback: this.d.localReviewFallback,
+        ...(this.d.reviewLogger !== undefined ? { logger: this.d.reviewLogger } : {}),
+      });
+      log(`review: backend=${review.backend} findings=${review.findings.length}`);
+
+      // 4. VERIFY-GATE — reviewer proposes, the gate decides. A finding "reproduces" iff
+      //    it makes the gate go red; nothing here acts on a raw assertion.
+      const gateRunner = this.d.gate(item, cwd);
+      const reproducer: FindingReproducer = {
+        reproduce: async () => !(await runExitGate(item, gateRunner)).green,
+      };
+      const fixer: FindingFixer = { fix: async () => { /* no auto-fix on the local path */ } };
+      const vg = await runVerifyGate(item, review.findings, { reproducer, fixer, gh: this.d.gh, maxFixRounds: 1 });
+      log(
+        `verify-gate: triaged=${vg.triaged.length} advisory=${vg.advisory.length} ` +
+          `escalate=${vg.escalate}`,
+      );
+
+      if (vg.escalate) {
+        // A reproduced review finding — preserve the branch + hand it off (no merge).
+        await ops.checkout(cwd, origBranch);
+        await runner.teardown();
+        const handoff = await this.handoff(item, branch, 'review-finding', title);
+        return { itemId: item.id, status: 'escalated', note: `a review finding reproduced + was not fixed within the bound; ${handoff}` };
+      }
+
+      // 5. GREEN + no escalation ⇒ merge-to-head. Back to the main line, then merge.
       await ops.checkout(cwd, origBranch);
+      const merge = await ops.mergeToHead(cwd, branch);
+      if (!merge.ok) {
+        // escalate-on-conflict: abort (HEAD untouched), preserve the branch, hand it off,
+        // and CONTINUE the loop (skip-and-continue) — do NOT crash.
+        await ops.abortMerge(cwd);
+        await runner.teardown();
+        const handoff = await this.handoff(item, branch, 'merge-conflict', title);
+        log(`merge: CONFLICT on ${item.id}; aborted + preserved ${branch}`);
+        return { itemId: item.id, status: 'escalated', note: `merge-conflict: could not auto-merge ${branch} onto HEAD; ${handoff}` };
+      }
       await ops.deleteBranch(cwd, branch);
       await runner.teardown();
-      const why = !result.ok
-        ? `agent ${backend.id} exited ${result.exitCode}; ${truncateStderr(result.stderr)}`
-        : 'agent made no edits / no commit produced';
-      this.d.attention?.record({ itemId: item.id, ...(title ? { title } : {}), reason: 'failed-check', detail: `no changes produced — ${why}` });
-      return { itemId: item.id, status: 'failed', note: `implement-failed: ${why}` };
+      const mergeSha = await this.d.committer.head(cwd);
+      log(`merge: AFK-merged ${item.id} at ${mergeSha}`);
+      this.d.attention?.record({ itemId: item.id, ...(title ? { title } : {}), reason: 'auto-merged' });
+      return { itemId: item.id, status: 'completed', note: `merged at ${mergeSha}` };
+    } catch (err) {
+      // Restore the integration branch so a throw never strands the repo on the temp
+      // branch; drop the temp branch only when no commit landed (preserve real work).
+      try {
+        await ops.checkout(cwd, origBranch);
+        if (!committedToBranch) {
+          await ops.deleteBranch(cwd, branch);
+        }
+      } catch {
+        /* best-effort cleanup — never mask the original throw */
+      }
+      throw err;
     }
-    if (!result.ok) {
-      log(`implement: ${backend.id} exited ${result.exitCode} but produced edits; committing + gating anyway`);
-    }
-
-    // 2. EXIT GATE — authoritative for merge.
-    const gate = await runExitGate(item, this.d.gate(item, cwd));
-    log(`gate: green=${gate.green} checks=${JSON.stringify(gate.checks)}`);
-    if (!gate.green) {
-      // RED gate: preserve the branch (back to the main line, no merge), hand it off.
-      await ops.checkout(cwd, origBranch);
-      await runner.teardown();
-      const handoff = await this.handoff(item, branch, 'failed-check', title);
-      return { itemId: item.id, status: 'failed', note: `gate-failed: ${gate.note ?? 'exit gate red'}; ${handoff}` };
-    }
-
-    // 3. REVIEW — a single model judgment on the produced diff.
-    const diff = await this.diffFor(cwd, base);
-    log(`review: dispatching review on the diff …`);
-    const review = await dispatchReview({
-      item,
-      diff,
-      registry: this.d.reviewRegistry,
-      config: this.d.config,
-      ctx: { context: `/run-loop item ${item.id}`, env: process.env as Record<string, string> },
-      localFallback: this.d.localReviewFallback,
-      ...(this.d.reviewLogger !== undefined ? { logger: this.d.reviewLogger } : {}),
-    });
-    log(`review: backend=${review.backend} findings=${review.findings.length}`);
-
-    // 4. VERIFY-GATE — reviewer proposes, the gate decides. A finding "reproduces" iff
-    //    it makes the gate go red; nothing here acts on a raw assertion.
-    const gateRunner = this.d.gate(item, cwd);
-    const reproducer: FindingReproducer = {
-      reproduce: async () => !(await runExitGate(item, gateRunner)).green,
-    };
-    const fixer: FindingFixer = { fix: async () => { /* no auto-fix on the local path */ } };
-    const vg = await runVerifyGate(item, review.findings, { reproducer, fixer, gh: this.d.gh, maxFixRounds: 1 });
-    log(
-      `verify-gate: triaged=${vg.triaged.length} advisory=${vg.advisory.length} ` +
-        `escalate=${vg.escalate}`,
-    );
-
-    if (vg.escalate) {
-      // A reproduced review finding — preserve the branch + hand it off (no merge).
-      await ops.checkout(cwd, origBranch);
-      await runner.teardown();
-      const handoff = await this.handoff(item, branch, 'review-finding', title);
-      return { itemId: item.id, status: 'escalated', note: `a review finding reproduced + was not fixed within the bound; ${handoff}` };
-    }
-
-    // 5. GREEN + no escalation ⇒ merge-to-head. Back to the main line, then merge.
-    await ops.checkout(cwd, origBranch);
-    const merge = await ops.mergeToHead(cwd, branch);
-    if (!merge.ok) {
-      // escalate-on-conflict: abort (HEAD untouched), preserve the branch, hand it off,
-      // and CONTINUE the loop (skip-and-continue) — do NOT crash.
-      await ops.abortMerge(cwd);
-      await runner.teardown();
-      const handoff = await this.handoff(item, branch, 'merge-conflict', title);
-      log(`merge: CONFLICT on ${item.id}; aborted + preserved ${branch}`);
-      return { itemId: item.id, status: 'escalated', note: `merge-conflict: could not auto-merge ${branch} onto HEAD; ${handoff}` };
-    }
-    await ops.deleteBranch(cwd, branch);
-    await runner.teardown();
-    const mergeSha = await this.d.committer.head(cwd);
-    log(`merge: AFK-merged ${item.id} at ${mergeSha}`);
-    this.d.attention?.record({ itemId: item.id, ...(title ? { title } : {}), reason: 'auto-merged' });
-    return { itemId: item.id, status: 'completed', note: `merged at ${mergeSha}` };
   }
 
   /**

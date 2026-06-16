@@ -523,6 +523,27 @@ test('T3: a merge conflict aborts, preserves the branch, hands off, and does NOT
   assert.equal(prod.attention.rows.find((r) => r.itemId === 'issue-7')?.reason, 'merge-conflict');
 });
 
+test('T3: a throw after the temp branch is created restores the branch + drops the empty temp branch', async () => {
+  // A backend that throws at dispatch (mirrors an unwired sandcastle lane).
+  const item: WorkItem = { id: 'issue-3', runner: 'worktree', implementBackend: 'codex', body: 'x', gate: { tests: ['true'] } };
+  const committer = new MergeRecordingCommitter({ commits: [] });
+  const prod = buildProductionDeps({
+    source: new OneItemSource(item), readyItems: [item], cwdFor: () => '/repo',
+    config: { anthropicApiKey: 'rk' }, gh: new GhStub(),
+    seams: { spawn: passSpawn, http: reviewHttp, committer: committer as unknown as ShellGitCommitter, console: { print: () => {} } },
+  });
+  // Force the implement backend to throw (UnsupportedContainerRunner-style).
+  const protocol = prod.engine.protocol as unknown as { d: { implementRegistry: { resolve: () => unknown } } };
+  protocol.d.implementRegistry.resolve = () => ({ id: 'codex', async dispatch() { throw new Error('container lane not wired'); } });
+
+  const result = await prod.engine.protocol.run(item, prod.engine.runnerFactory.create(item, 'worktree'));
+  // The outer crash-isolation records failed (the loop continues), and the cleanup ran:
+  assert.equal(result.status, 'failed');
+  assert.ok(committer.calls.includes('createTempBranch:run-loop/issue-3'));
+  assert.ok(committer.calls.includes('checkout'), 'restored the integration branch on throw');
+  assert.ok(committer.calls.includes('deleteBranch:run-loop/issue-3'), 'dropped the empty temp branch on throw');
+});
+
 // --- Wave 23 Task 5: termination caps enforced in the composition layer ------------
 
 // A stub source that yields N identical ready items, then drains.
