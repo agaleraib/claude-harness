@@ -213,3 +213,50 @@ visible on the host" needs Docker + the Codex OAuth token mounted into the conta
 (`~/.codex` ro seed → writable `CODEX_HOME` copy). The `ContainerRunner` seam is in
 place and unit-asserted; the live container auth is operator-run (Docker is up, but the
 container image + mount wiring is an operator step, not a session action).
+
+---
+
+## Wave 23 — merge-to-head + HITL handoff live re-drain (T8)
+
+**Procedure** (codex implement + local-codex review, no external key):
+```bash
+cd <quickbase-replacement clone>
+git fetch origin -q && git checkout -B run-loop-t8-merge2head origin/main   # throwaway off main
+# claude-harness checkout must be on the wave-23 branch (the loop runs THAT code):
+node /Users/agalera/workspace/claude-harness/skills/_shared/loop/run-loop-entry.ts issues --yes
+# inspect:
+git log --graph --oneline -3
+git branch --list 'run-loop/*'        # expect empty after a green merge
+git rev-parse HEAD                     # expect == the run's reported merge SHA
+cat .harness-state/run-loop-*-attention.md
+gh pr list --draft                     # expect none on the happy path
+```
+
+**Captured result (2026-06-16, branch `run-loop-t8-merge2head`):**
+- #3 refused at preflight (sandcastle, no container lane).
+- #2 drained end-to-end via REAL merge-to-head: `run-loop/issue-2` created → codex
+  implemented (8 files: distinct-values route + DB migration `0024i` + rollback + query
+  lib + 2 tests + component/route edits) → gate GREEN (tests/typecheck/verify) →
+  local-codex review 0 findings → fast-forward `git merge` into HEAD (`4f3ed3f`, ==
+  reported merge SHA) → temp branch deleted. No commit-in-place, no synthetic note, no
+  HEAD push, no PR.
+- Attention report: `1 items: 1 auto-merged ✓ · 0 need you ↓`.
+
+**Captured trace:**
+```
+[trace] implement: codex exit=0 ok=true dirty=true; runner produced 1 commit(s): 4f3ed3f…
+[trace] gate: green=true checks={"tests":true,"typecheck":true,"verify":true}
+[trace] review: backend=codex findings=0
+[trace] verify-gate: triaged=0 advisory=0 escalate=false
+[trace] merge: AFK-merged issue-2 at 4f3ed3f…
+/run-loop summary: merged-afk:1 / implement-failed:1 (the refused #3) / drained
+/run-loop attention report (0 need you): .harness-state/run-loop-2026-06-16-attention.md
+```
+
+**Bug found + fixed (`a14974f`):** #3 (preflight-refused but still pulled by the engine —
+the Wave-22 "refused item still attempted" follow-up) threw at its sandcastle dispatch
+AFTER its temp branch was created; the crash-isolation left the repo stranded on an empty
+`run-loop/issue-3`. Fix: `runInner` now restores the integration branch + drops the empty
+temp branch on any throw-after-`createTempBranch` (re-throws so the outer isolation still
+records `failed`). Regression-tested. **GOTCHA:** run from a throwaway/feature branch —
+merge-to-head merges into the currently-checked-out branch of the target repo.
