@@ -1,3 +1,8 @@
+// status: KEEP (Wave 23) — the plan.md tick + §4.2 receipt path. Not wired into the
+// issues-mode live drive yet (which is GitHub-read-only by default); wire behind the
+// existing `RUN_LOOP_TRANSITION_ISSUES` gate when waves-mode post-merge effects go live.
+// Retained, not retired.
+//
 // Post-merge downstream effects (Wave 20, Task 13) — reuse /close-wave's tick +
 // §4.2 receipts.
 //

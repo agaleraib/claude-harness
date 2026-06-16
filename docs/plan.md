@@ -29,7 +29,19 @@ Navigator-style active board. Per v2 §6, the file has exactly four sections —
 
 ## Next
 
-(none)
+### Wave 23 — /run-loop adopt merge-to-head + PR handoff + attention report
+
+- depends-on: Wave 22 merged (✓ cb8d098); live backend + gh creds re-provided per run for T8; quickbase-replacement #2/#3 seeded
+- spec: docs/specs/2026-06-16-run-loop-merge-to-head.md
+- status: ready
+- done-when: happy path = gate green → auto-merge to HEAD (per-item predictable-named temp branch off HEAD → gate → on GREEN host-side `git merge` + delete branch; no PR, no human); the HITL minority (conflict / red gate / escalated review) gets its named branch pushed + a draft PR opened via the GhClient seam, with a graceful no-remote fallback to copy-paste commands; every run writes a persistent `.harness-state/run-loop-<date>-attention.md` to-do list (N auto-merged ✓ · M need you ↓, each need-you item = reason + branch + PR link + next step) and the summary points at it; escalate-on-conflict aborts + preserves + hands off + continues (no crash); NO loop_merge_policy knob; termination caps (iter 20 / stall 3) stop the drive with an honest stop reason; built-but-unwired modules dispositioned in SKILL.md; throwaway-repo integration test proves real merge/abort/preserve + the no-remote report fallback; 223 baseline + new tests green; tsc 0; no `any`; zero frozen Phase-1 interface change; a live #2→merge→#3 re-drain shows a real merge SHA + deleted branch (+ a draft PR for any escalation)
+- exit gate: the spec's `## Exit gate` — happy-path auto-merge to HEAD (real ff-merge + branch delete on GREEN); HITL handoff (push + draft PR via GhClient, no-remote fallback to copy-paste); persistent attention report + summary pointer; escalate-on-conflict abort + preserve + no-crash; NO loop_merge_policy knob; termination caps honest; tests green; tsc 0; no `any`; zero frozen Phase-1 interface change
+- next-concrete-action: Dispatch Task 1 (temp-branch + push lifecycle on ShellGitCommitter)
+- Runner: worktree   # classifier: ready-for-human; T8 mutates live gh (draft PR + env-gated transition) + needs host creds; T1–T7 are sandcastle-able
+
+**Tasks (8):** T1 (temp-branch + push lifecycle on the committer), T2 (protocol drives merge-to-head on green + preserve-named-branch otherwise), T3 (HITL handoff push + draft PR + no-remote fallback, folded with escalate-on-conflict), T4 (persistent attention report writer + summary pointer), T5 (termination caps in the drive), T6 (merge-to-head + no-remote-handoff proof in the throwaway-repo integration test), T7 (built-but-unwired module disposition + SKILL.md narrative), T8 (live merge-to-head + handoff re-drain of #2/#3). T1 unblocks T2/T3/T4/T6; T5/T7 independent; T8 after T1–T7.
+
+**Estimate:** ~0.5–1 operator-day (6 code/doc tasks + 1 operator-gated live re-drain).
 
 ## Blocked
 

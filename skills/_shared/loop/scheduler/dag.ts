@@ -1,3 +1,9 @@
+// status: RETIRED-deferred (Wave 23) — built + unit-tested but NOT wired into the live
+// drive. Serial `ReadinessGatedSource` (run-loop-prod-deps.ts) is the chosen sequencing;
+// this AFK-frontier DAG scheduler is deferred-until-parallel-execution (OQ-1 in
+// docs/specs/2026-06-16-run-loop-merge-to-head.md). Kept in-tree as the future
+// concurrent-scheduling path; do not wire without a concurrency-activation decision.
+//
 // DAG readiness + AFK-frontier-first scheduling (Wave 19, Task 8).
 //
 // Builds the dependency DAG from the providers' `blockedBy` edges and classifies

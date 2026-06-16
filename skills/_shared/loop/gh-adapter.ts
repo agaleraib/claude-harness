@@ -9,7 +9,7 @@
 // Each GhClient method maps to exactly one `gh` invocation, matching the seam's
 // fine-grained shape so the two-phase state machine can order calls precisely.
 
-import { type GhClient, type GhComment, type GhIssue } from './gh-seam.ts';
+import { type GhClient, type GhComment, type GhIssue, type PullRequestResult } from './gh-seam.ts';
 
 /** The process seam: run a command with argv, return stdout (throws on non-zero). */
 export interface CommandRunner {
@@ -177,6 +177,27 @@ export class GhCliAdapter implements GhClient {
       throw new Error(`gh-adapter: could not parse created issue number from "${out.trim()}"`);
     }
     return Number.parseInt(m[1], 10);
+  }
+
+  async createPullRequest(input: {
+    readonly head: string;
+    readonly title: string;
+    readonly body: string;
+    readonly draft: boolean;
+  }): Promise<PullRequestResult> {
+    const args = ['pr', 'create', '--head', input.head, '--title', input.title, '--body', input.body];
+    if (input.draft) {
+      args.push('--draft');
+    }
+    try {
+      // gh prints the PR URL on success; surface it as the handoff link.
+      const out = await this.runner.run('gh', args);
+      return { ok: true, url: out.trim() };
+    } catch (err) {
+      // No creds / no remote / push-not-done — a typed failure so the caller falls
+      // back to the no-remote copy-paste handoff instead of crashing the run.
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
   }
 
   private parseList(stdout: string): readonly GhIssue[] {

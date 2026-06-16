@@ -99,9 +99,20 @@ Before the first item runs, run the guardrail preflight (`skills/_shared/loop/sa
 
 ## Step 4: Drive the engine
 
-Hand the selected provider + per-item protocol + runner factory to the shared engine (`runLoop`). The scheduler (`skills/_shared/loop/scheduler/dag.ts`) classifies items AFK-frontier-first: drain every item whose entire ancestry is AFK-or-merged; a ready `worktree`/HITL item opens a PR and is marked awaiting-human while the run continues with other AFK items; items under an un-merged HITL ancestor defer to `blocked-on-human`.
+Hand the selected provider + per-item protocol + runner factory to the shared engine (`runLoop`). Dependent items are sequenced **serially** by `ReadinessGatedSource`: a blocked item is withheld until its blockers are recorded done this run, so item B branches off item A's already-merged HEAD (sandcastle's serial-off-HEAD model — see `sandcastle_mattpocock_architecture.md`). Termination caps (iteration 20 / stall-after-3) are enforced by a composing `WorkSource` wrapper.
 
-Auto-merges go through the atomic-merge contract (`skills/_shared/loop/merge/merge-contract.ts`): run lock → per-item claim → base-SHA record → rebase-onto-head → **final gate rerun on the exact merge commit** → ff-only/CAS merge → outbox-keyed downstream effects. Post-merge, `skills/_shared/loop/post-merge.ts` ticks `plan.md` (`[ ]`→`[x]` + Recently Shipped) and writes §4.2 receipts, idempotently keyed by the merge SHA.
+**Merge model — `merge-to-head` (Wave 23).** Each item works on an isolated, predictably-named temp branch off HEAD (`run-loop/issue-<n>` / `run-loop/<item-id>`); the agent edits there, the runner commits on the branch, and the mechanical gate runs. On a GREEN gate with no surviving escalation, the loop **auto-merges the branch into HEAD** (host-side `git merge`, fast-forward in the serial case) and deletes the branch — **no PR, no `git push`, no human**. A non-green item's commits stay on its branch and **never touch HEAD**.
+
+**HITL handoff (the rare exception).** When an item needs a human — a merge conflict (`git merge --abort`, HEAD untouched), a red gate, or a reproduced review finding — the loop preserves the named branch, **pushes it, and opens a draft PR** via the `GhClient` seam, then **continues** (skip-and-continue; it never crashes). If there is no remote / no `gh` creds it falls back to writing the exact copy-paste `git push`/`gh pr create` commands. Either way, every run writes a persistent **attention report** at `.harness-state/run-loop-<date>-attention.md` (`N auto-merged ✓ · M need you ↓`, each need-you item = reason + branch + PR link / commands + next step) and the run summary points at it — so nothing is lost.
+
+### Module status (built-but-unwired disposition, Wave 23)
+
+| Module | Status |
+|---|---|
+| `scheduler/dag.ts` | **RETIRED-deferred** — serial `ReadinessGatedSource` is the live sequencing; the AFK-frontier DAG is deferred-until-parallel-execution. |
+| `merge/merge-contract.ts` + `merge/run-lock.ts` | **RETIRED-until-concurrency** — serial merge-to-head needs no run-lock/CAS; these activate only for concurrent merges. |
+| `post-merge.ts` | **KEEP** — the plan.md-tick / §4.2-receipt path; wire behind the `RUN_LOOP_TRANSITION_ISSUES` gate for waves-mode post-merge effects. |
+| `classifier-reconcile.ts` | **KEEP** — the pickup-time AFK/HITL relabel path; runs when issue transitions are enabled. |
 
 ## Step 5: Run summary
 
@@ -112,7 +123,7 @@ The loop ends with a summary — the HARD requirement. Because the frozen `RunSu
 1. **`--help` short-circuits before any side effect.** No plan.md read, no `gh`, no worktree, no guardrail context.
 2. **The denylist hook is a hard gate for worktree items.** Absent ⇒ refuse worktree items; sandcastle items still drain.
 3. **Secret-bearing worktree items are never run unattended without controls (A)-(C).** No egress mechanism / no pre-approval ⇒ deferred, not executed.
-4. **Risk-proportional merge.** Only sandcastle AFK items with all blockers merged auto-merge; worktree/HITL items open a PR and await a human.
+4. **Auto-merge by default; PR only for the HITL exception.** Every gate-green item auto-merges to HEAD (merge-to-head) with no PR and no human — that is the loop's reason to exist. A PR is opened ONLY for an item that genuinely needs a human (merge conflict, red gate, or a reproduced review finding), as the handoff; it is never the per-item default.
 5. **Resume is re-run.** The loop is idempotent: done items are skipped, mid-transition issues are reconciled, merged-but-unticked rows are repaired.
 6. **The board is the single source of truth.** No parallel state machine — post-merge effects are reconciliation-driven, keyed by merge SHA.
 

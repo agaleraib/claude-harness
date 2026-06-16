@@ -24,6 +24,13 @@ import {
   resolveReviewBackendId,
 } from './dispatch/backends.ts';
 import { type RunSummaryReport } from './termination.ts';
+import {
+  type AttentionRow,
+  type AttentionSink,
+  attentionReportPath,
+  defaultAttentionSink,
+  renderAttentionReport,
+} from './run-loop-attention-report.ts';
 
 /** Probe whether the Claude-backend denylist hook is active (Wave-20 guardrail). */
 export interface HookProbe {
@@ -180,6 +187,14 @@ export interface DriverDeps {
    * clearing them.
    */
   readonly containerLaneWired?: boolean;
+  /**
+   * Wave 23: the per-run attention rows (auto-merged ✓ / need-you ↓). When present, the
+   * driver renders + writes `.harness-state/run-loop-<date>-attention.md` at run end and
+   * prints a pointer line. `attentionSink`/`attentionDate` are injectable for tests.
+   */
+  readonly attention?: { readonly rows: readonly AttentionRow[] };
+  readonly attentionSink?: AttentionSink;
+  readonly attentionDate?: string;
 }
 
 /** Why a drive ended before running the loop (or its summary). */
@@ -228,5 +243,17 @@ export async function drive(deps: DriverDeps): Promise<DriveOutcome> {
   for (const line of buildSummaryLines(report, summary)) {
     deps.console.print(line);
   }
+
+  // 5. Attention report (Wave 23) — the persistent need-you to-do list. Written even
+  //    when zero items need a human (header-only) so the operator always has latest state.
+  if (deps.attention !== undefined) {
+    const date = deps.attentionDate ?? new Date().toISOString().slice(0, 10);
+    const path = attentionReportPath(date);
+    const body = renderAttentionReport(deps.attention.rows, date);
+    (deps.attentionSink ?? defaultAttentionSink).write(path, body);
+    const needYou = deps.attention.rows.filter((r) => r.reason !== 'auto-merged').length;
+    deps.console.print(`/run-loop attention report (${needYou} need you): ${path}`);
+  }
+
   return { status: 'ran', summary, report };
 }

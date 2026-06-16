@@ -180,6 +180,7 @@ export async function runProduction(
       buildReport: (summary) => prod.buildReport(summary),
       yes: opts.yes,
       containerLaneWired: prod.containerLaneWired,
+      attention: prod.attention,
     });
     return;
   }
@@ -199,6 +200,7 @@ export async function runProduction(
     buildReport: (summary) => prod.buildReport(summary),
     yes: opts.yes,
     containerLaneWired: prod.containerLaneWired,
+    attention: prod.attention,
   });
 }
 

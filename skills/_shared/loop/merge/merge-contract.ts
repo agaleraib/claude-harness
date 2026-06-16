@@ -1,3 +1,9 @@
+// status: RETIRED-until-concurrency (Wave 23) — built + unit-tested but NOT wired into
+// the live drive. Pure-serial merge-to-head (run-loop-prod-deps.ts) needs no run-lock or
+// base-SHA CAS; this atomic-merge contract activates ONLY for concurrent merges (OQ-1 in
+// docs/specs/2026-06-16-run-loop-merge-to-head.md). Kept in-tree; do not wire until the
+// loop runs items concurrently.
+//
 // Concurrency + atomic-merge contract (Wave 19, Task 8a) — HARD BLOCKER.
 //
 // Enforced for every AFK auto-merge before the merge lands:
