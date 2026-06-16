@@ -66,6 +66,100 @@ Expected: #2 is implemented + merged/PR'd behind the mechanical gate (Codex impl
 Opus review + verify-gate); #3 is DEFERRED until #2 merges; the run summary emits the
 AFK-merged / HITL-waiting / blocked-on-human metric (the Option-C workability verdict).
 
+## Wave 22 — dual-direction live re-drain of quickbase-replacement #2/#3 (T7, F-021) — OPERATOR-RUN
+
+> **DO NOT EXECUTE FROM A SESSION.** Needs live `gh` + backend auth (keys re-provided per
+> run, never stored), a real external repo (`agaleraib/quickbase-replacement`), and
+> human-judgment acceptance. Do NOT mutate quickbase-replacement from the claude-harness
+> worktree. This is the deferred **T6b verdict**, now run in BOTH backend directions.
+
+### What Wave 22 fixed (why this re-drain is expected to pass where T6b failed)
+
+The first T6b run (2026-06-15) surfaced four integration bugs; all are fixed + unit-proven:
+
+| Bug | Wave 22 fix | Regression test |
+|-----|-------------|-----------------|
+| 1 — #3 ran before #2 (readiness not enforced) | `ReadinessGatedSource` gates the issues drive; blockers run first, blocked items withheld until done (recorded-completed-this-run OR issue-terminal) | `test/readiness-drive.test.ts` |
+| 2 — unsupported lane crashed the loop | `ProductionProtocol.run` try/catch (skip-and-continue) + preflight refuses unwired sandcastle | `test/prod-deps.test.ts`, `test/run-loop-driver.test.ts` |
+| 3 — non-zero codex exit discarded real edits | commit-on-dirty-tree regardless of exit code; truncated stderr surfaced; `ShellGitCommitter.dirty()` probe | `test/prod-deps.test.ts`, `test/implement-adapters.test.ts` |
+| 4 — implement failure mis-bucketed as gate-failed | additive `implementFailed` bucket; `implement-failed:`/`gate-failed:` note prefixes route the report | `test/termination.test.ts`, `test/prod-deps.test.ts` |
+| 5 (scope) — issue never transitioned | env-gated `RUN_LOOP_TRANSITION_ISSUES=1` terminal transition (default-off = read-only) | `test/prod-deps.test.ts` |
+
+Plus the **per-run backend-direction knob** (`--implement`/`--review` + env; flag wins;
+unknown errors before any side effect) enables Direction B.
+
+### Operator preconditions (per run; nothing stored)
+
+1. Live `gh` creds for `agaleraib/quickbase-replacement`; issues #2 (ready) and #3
+   (`## Blocked by #2`, ready) labeled `ready-for-agent`.
+2. Live backend auth re-provided into `process.env` only:
+   - `~/.codex` ChatGPT OAuth (codex implement + codex review);
+   - `ANTHROPIC_API_KEY` review-only (Direction A Opus review);
+   - `OPENROUTER_API_KEY` (only if a `--review openrouter:<model>` variant is run).
+3. A throwaway branch in the quickbase-replacement checkout (reversible).
+4. Decide whether to flip `RUN_LOOP_TRANSITION_ISSUES=1` (mutates real issues —
+   relabel/close). Default-off keeps the run local-commit-only + reversible.
+
+### Direction A — Codex implement → Opus-4.8 review (external; the original acceptance)
+
+```bash
+# From inside the agaleraib/quickbase-replacement throwaway-branch checkout:
+RUN_LOOP_ALLOW_EXTERNAL_REVIEW=1 \
+  node <path-to>/skills/_shared/loop/run-loop-entry.ts issues \
+  --implement codex --review anthropic-api:opus-4.8 --yes
+```
+
+### Direction B — Claude implement → Codex review (local review; no egress flag)
+
+```bash
+# Local review ⇒ NO RUN_LOOP_ALLOW_EXTERNAL_REVIEW needed.
+node <path-to>/skills/_shared/loop/run-loop-entry.ts issues \
+  --implement claude --review codex --yes
+```
+
+**Honest caveats for Direction B (record alongside the result):**
+- `ClaudeImplementAdapter` is spike-validated but never live-run — this is its FIRST live proof.
+- `CodexReviewBackend` is unit-tested but never live-run — also its FIRST live proof.
+- `implement=claude` is metered at full Claude API rates post-2026-06-15 (deliberate, not the cheap default).
+
+### Acceptance (each direction must satisfy ALL)
+
+- #2 drains end-to-end: implement → **runner commits EVEN on a non-zero-with-edits codex exit** → exit gate green → review → verify-gate → done/transition;
+- **#3 is DEFERRED** until #2 reaches a done state (readiness gate);
+- **no unsupported-lane crash** (skip-and-continue or preflight-refuse);
+- the run summary emits the **AFK-merged / HITL-waiting / blocked** metric with an **honest implement-failed bucket** distinct from gate-failed;
+- no red merge; no sandbox escape / denylist violation.
+
+### Captured-summaries template (paste the REAL printed output)
+
+```text
+# Direction A — codex → anthropic-api:opus-4.8   (run <UTC timestamp>)
+/run-loop direction: implement=codex review=anthropic-api:opus-4.8
+/run-loop preview: <N> ready item(s).
+  - issue-2: runner=… implement=codex review=anthropic-api:opus-4.8
+  - issue-3: <deferred — blocked by #2>            ← assert #3 not processed before #2
+… (trace: implement / commit / gate / review / verify-gate / merge) …
+/run-loop summary:
+  merged-afk:            <n>
+  opened-awaiting-human: <n>
+  deferred-blocked:      <n>            ← #3 expected here until #2 done
+  escalated:             <n>
+  implement-failed:      <n>            ← honest bucket (Bug 4)
+  gate-failed:           <n>
+  stop-reason:           drained
+  visited (<k>): issue-2[, …]
+
+# Direction B — claude → codex   (run <UTC timestamp>)
+/run-loop direction: implement=claude review=codex
+… (same shape; note: FIRST live proof of ClaudeImplementAdapter + CodexReviewBackend) …
+/run-loop summary:
+  …
+
+# Verdict (human judgment):
+#   Direction A: PASS / FAIL — <one line>
+#   Direction B: PASS / FAIL — <one line; is claude→codex a recommended config or documented-but-discouraged?>
+```
+
 ## Container-lane (Docker) auth check — DEFERRED sub-clause of T2
 
 The T2 Verify "a container run authenticates on the mounted token and produces a commit
