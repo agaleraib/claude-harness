@@ -154,6 +154,10 @@ export async function runProduction(
   const print = opts.print ?? ((l: string) => console.log(l));
   const { drive } = await import('./run-loop-driver.ts');
   const prodMod = await import('./run-loop-prod-deps.ts');
+  const { InstalledDenylistHookProbe } = await import('./safety/hook-probe.ts');
+  // Real probe: a Claude worktree item clears the preflight only when the global denylist
+  // hook is installed AND RUN_LOOP_ENFORCE=1. Codex items never reach this (native sandbox).
+  const hookProbe = new InstalledDenylistHookProbe();
   const overrides = {
     ...(opts.implement !== undefined ? { implementDefault: opts.implement } : {}),
     ...(opts.review !== undefined ? { reviewDefault: opts.review } : {}),
@@ -170,7 +174,7 @@ export async function runProduction(
       engine: prod.engine,
       config: prod.config,
       readyItems: prod.readyItems,
-      hookProbe: { async isActive() { return false; } },
+      hookProbe,
       console: { print },
       confirm: { async confirm() { return true; } },
       buildReport: (summary) => prod.buildReport(summary),
@@ -189,7 +193,7 @@ export async function runProduction(
     engine: prod.engine,
     config: prod.config,
     readyItems: prod.readyItems,
-    hookProbe: { async isActive() { return false; } }, // Codex worktree needs no hook
+    hookProbe, // real probe — Codex worktree clears w/o it; Claude worktree needs the hook active
     console: { print },
     confirm: { async confirm() { return true; } }, // CLI confirm; --yes also bypasses
     buildReport: (summary) => prod.buildReport(summary),
