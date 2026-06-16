@@ -2,8 +2,8 @@
 wave_number: 23
 slug: run-loop-merge-to-head
 spec_path: docs/specs/2026-06-16-run-loop-merge-to-head.md
-merge_sha:
-closed_at:
+merge_sha: 11733200f8d4af15536b8c0d0935d5582acb0324
+closed_at: 2026-06-16T17:51:12Z
 ---
 
 # Wave 23 — /run-loop adopt merge-to-head + HITL PR handoff + attention report
