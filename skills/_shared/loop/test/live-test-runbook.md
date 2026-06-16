@@ -160,6 +160,52 @@ node <path-to>/skills/_shared/loop/run-loop-entry.ts issues \
 #   Direction B: PASS / FAIL — <one line; is claude→codex a recommended config or documented-but-discouraged?>
 ```
 
+### CAPTURED RESULTS — both directions PASS (2026-06-16)
+
+Run live against `agaleraib/quickbase-replacement` #2/#3 on throwaway branches. **Both directions
+drained #2 end-to-end; #3 deferred-then-isolated; honest summaries.** This is the T6b verdict, met.
+
+| Direction | Implement | Review | Commit | Summary |
+|-----------|-----------|--------|--------|---------|
+| **A — codex→Opus** | codex gpt-5.5, 730 lines / 8 files | `anthropic-api:opus-4.8`, **0 findings** | `e360fe8` | `merged-afk:1 implement-failed:1 (issue-3 isolated) drained visited(2)` |
+| **B — claude→codex** | claude, 633 lines / 5 files | `codex` gpt-5.5, **2 findings** → verify-gate triaged → both advisory (unreproduced), escalate=false | `83eb002` | `merged-afk:1 implement-failed:1 drained visited(2)` |
+
+Both runs exercised every Wave-22 fix live (T1 readiness deferred #3 then unblocked it in-run; T2
+refused #3 at preflight AND isolated its sandcastle throw; T3 committed edits; T4 honest
+implement-failed bucket; T6 knob selected the direction). Direction B is the **first live proof** of
+`ClaudeImplementAdapter` + `CodexReviewBackend` (cross-model adversarial review working). No GitHub
+mutation (`RUN_LOOP_TRANSITION_ISSUES` left default-off; A's Opus review returned 0 findings, B's 2
+findings were unreproduced advisories — nothing filed). **Verdict: A PASS, B PASS — claude→codex is a
+viable cross-model config (codex surfaced 2 real review points; the verify-gate correctly gated them).**
+
+> **OPERATOR GOTCHA — codex auth (cost us a long detour; bake into any codex run):**
+> codex uses its ChatGPT-subscription gpt-5.5 ONLY when there is **no competing OpenAI API key**.
+> If `OPENAI_API_KEY` is in the env OR an `api_key` sits under `[providers.openai]` in
+> `~/.codex/config.toml`, codex enters a broken **mixed-auth** state (`codex doctor` warns
+> "mixed auth signals") and fails with misleading `usage limit` / `revoked token` /
+> `Missing bearer` errors — NOT a real cap. Fix: remove the `api_key` line from
+> `~/.codex/config.toml` and run codex with `OPENAI_API_KEY` UNSET. The exact runs above used:
+>
+> ```bash
+> # Direction A (Opus review needs ANTHROPIC_API_KEY; codex needs OPENAI_API_KEY UNSET):
+> set -a; source <env-with-ANTHROPIC_API_KEY>; set +a
+> unset OPENAI_API_KEY
+> RUN_LOOP_ALLOW_EXTERNAL_REVIEW=1 node <path>/run-loop-entry.ts issues \
+>   --implement codex --review anthropic-api:opus-4.8 --yes
+>
+> # Direction B (claude implement = host login; codex review = sub; no anthropic key needed):
+> unset OPENAI_API_KEY
+> RUN_LOOP_ENFORCE=1 node <path>/run-loop-entry.ts issues \
+>   --implement claude --review codex --yes
+> ```
+>
+> Direction B's claude-WORKTREE lane also requires the global denylist hook active —
+> `RUN_LOOP_ENFORCE=1` + the installed `~/.claude/settings.json` PreToolUse hook, detected by the
+> `InstalledDenylistHookProbe` wired in `fix(loop): wire real denylist hookProbe` (`c29ef37`).
+> (Codex worktree items don't need it — native sandbox is their boundary.)
+> Follow-up candidate: have the codex adapters strip `OPENAI_API_KEY` from the child env in sub mode
+> so this footgun can't recur (analogous to `ClaudeImplementAdapter` stripping `CLAUDECODE`).
+
 ## Container-lane (Docker) auth check — DEFERRED sub-clause of T2
 
 The T2 Verify "a container run authenticates on the mounted token and produces a commit
