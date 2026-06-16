@@ -2,8 +2,8 @@
 wave_number: 22
 slug: run-loop-live-drain-fixes
 spec_path: docs/specs/2026-06-15-run-loop-live-drain-fixes.md
-merge_sha: null   # set by /close-wave on the --no-ff merge to master (not done from this worktree)
-closed_at: null   # set by /close-wave
+merge_sha: cb8d098
+closed_at: 2026-06-16
 ---
 
 # Wave 22 — /run-loop issues live-drain fixes (T6b verdict)
