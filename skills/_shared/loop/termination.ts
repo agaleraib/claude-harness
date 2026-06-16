@@ -104,6 +104,13 @@ export interface RunSummaryReport {
   readonly deferredBlockedOnHuman: number;
   readonly escalated: number;
   readonly gateFailed: number;
+  /**
+   * Items that failed BEFORE any gate ran (Wave 22, Bug 4) — an implement/commit
+   * failure or a thrown lane. Distinct from `gateFailed` (the gate ran and went red),
+   * so the summary is honest about where the failure happened. Additive field —
+   * `RunSummaryReport` is NOT a frozen Phase-1 interface.
+   */
+  readonly implementFailed: number;
   /** Deepest blocked subtree depth (from the scheduler — Task 8). */
   readonly deepestBlockedSubtree: number;
   readonly stopReason: RunStopReason;
@@ -118,6 +125,7 @@ export class RunSummaryBuilder {
   private deferredBlockedOnHuman = 0;
   private escalated = 0;
   private gateFailed = 0;
+  private implementFailed = 0;
   private deepestBlockedSubtree = 0;
   private readonly visited: string[] = [];
 
@@ -140,6 +148,11 @@ export class RunSummaryBuilder {
     this.gateFailed += 1;
     this.visited.push(itemId);
   }
+  /** Record an item that failed BEFORE any gate ran (Wave 22, Bug 4). */
+  recordImplementFailed(itemId: string): void {
+    this.implementFailed += 1;
+    this.visited.push(itemId);
+  }
   noteDeepestBlockedSubtree(depth: number): void {
     this.deepestBlockedSubtree = Math.max(this.deepestBlockedSubtree, depth);
   }
@@ -151,6 +164,7 @@ export class RunSummaryBuilder {
       deferredBlockedOnHuman: this.deferredBlockedOnHuman,
       escalated: this.escalated,
       gateFailed: this.gateFailed,
+      implementFailed: this.implementFailed,
       deepestBlockedSubtree: this.deepestBlockedSubtree,
       stopReason,
       visited: [...this.visited],

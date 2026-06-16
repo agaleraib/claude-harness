@@ -151,6 +151,7 @@ export function buildSummaryLines(report: RunSummaryReport, frozen: RunSummary):
     `  opened-awaiting-human: ${report.openedAwaitingHuman}`,
     `  deferred-blocked:      ${report.deferredBlockedOnHuman}`,
     `  escalated:             ${report.escalated}`,
+    `  implement-failed:      ${report.implementFailed}`,
     `  gate-failed:           ${report.gateFailed}`,
     `  stop-reason:           ${report.stopReason}`,
     `  visited (${report.visited.length}): ${report.visited.join(', ')}`,

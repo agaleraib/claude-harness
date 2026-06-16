@@ -32,6 +32,7 @@ const REPORT: RunSummaryReport = {
   deferredBlockedOnHuman: 0,
   escalated: 0,
   gateFailed: 0,
+  implementFailed: 0,
   deepestBlockedSubtree: 0,
   stopReason: 'drained',
   visited: ['i1'],
@@ -107,6 +108,14 @@ test('T5: the summary prints the AFK/HITL/blocked metric alongside the frozen Ru
   assert.ok(lines.some((l) => /opened-awaiting-human:/.test(l)));
   assert.ok(lines.some((l) => /deferred-blocked:/.test(l)));
   assert.ok(lines.some((l) => /frozen RunSummary/.test(l)));
+});
+
+test('T4: buildSummaryLines prints BOTH the implement-failed and gate-failed buckets', () => {
+  const frozen: RunSummary = { stopReason: 'drained', visited: [], results: [] };
+  const report: RunSummaryReport = { ...REPORT, implementFailed: 2, gateFailed: 1 };
+  const lines = buildSummaryLines(report, frozen);
+  assert.ok(lines.some((l) => /implement-failed:\s+2/.test(l)), 'implement-failed bucket printed');
+  assert.ok(lines.some((l) => /gate-failed:\s+1/.test(l)), 'gate-failed bucket printed');
 });
 
 // --- drive(): preflight invoked before first item, --yes bypass, summary ----------

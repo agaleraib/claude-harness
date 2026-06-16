@@ -252,6 +252,31 @@ test('T3: a non-zero exit with a CLEAN tree / no commits ⇒ failed with truncat
   assert.match(result.note ?? '', /real codex error tail/, 'the truncated codex stderr is surfaced');
 });
 
+// --- Wave 22 Bug 4: buildReport routes failures to the honest bucket by note prefix -
+
+test('T4: buildReport routes implement-failed: vs gate-failed: notes to distinct buckets', () => {
+  const item: WorkItem = { id: 'x' };
+  const prod = buildProductionDeps({
+    source: new OneItemSource(item),
+    readyItems: [item],
+    cwdFor: () => '/repo',
+    config: {},
+    gh: new GhStub(),
+    seams: { console: { print: () => {} } },
+  });
+  const report = prod.buildReport({
+    visited: ['a', 'b', 'c'],
+    results: [
+      { itemId: 'a', status: 'failed', note: 'implement-failed: agent codex exited 1; index.lock' },
+      { itemId: 'b', status: 'failed', note: 'gate-failed: exit gate red' },
+      { itemId: 'c', status: 'completed', note: 'merged at deadbeef' },
+    ],
+  });
+  assert.equal(report.implementFailed, 1, 'implement-failed: note ⇒ implement-failed bucket');
+  assert.equal(report.gateFailed, 1, 'gate-failed: note ⇒ gate-failed bucket');
+  assert.equal(report.mergedAfk, 1);
+});
+
 // --- Wave 22 Bug 2: a throwing lane is crash-ISOLATED; the sibling still runs -------
 
 test('T2: a thrown lane is recorded failed (reason surfaced) and the loop continues', async (t) => {

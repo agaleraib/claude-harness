@@ -522,7 +522,14 @@ export function buildProductionDeps(opts: BuildProductionDepsOptions): Productio
           builder.recordEscalated(r.itemId);
           break;
         case 'failed':
-          builder.recordGateFailed(r.itemId);
+          // Bug 4: route by the machine-readable note prefix the protocol set —
+          // `implement-failed:` (no gate ran) vs `gate-failed:` (gate ran red). An
+          // unprefixed failure defaults to gate-failed (pre-Wave-22 behavior).
+          if ((r.note ?? '').startsWith('implement-failed:')) {
+            builder.recordImplementFailed(r.itemId);
+          } else {
+            builder.recordGateFailed(r.itemId);
+          }
           break;
         case 'skipped':
           break;
