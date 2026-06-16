@@ -560,7 +560,11 @@ export async function buildIssuesProductionDeps(seams?: ProductionSeams): Promis
   // Bug 1 (Task 1): gate the drive on blocked-by readiness. The frozen engine pulls in
   // source order; the readiness gate lives in this composition layer so blockers run
   // before blocked items and a blocked item is withheld until its blockers are done.
-  const gatedSource = new ReadinessGatedSource(source, readyItems);
+  //
+  // Bug 5 (Task 5): wire the env-gated GitHub terminal transition (default-off). A
+  // successful AFK merge transitions its issue ONLY when RUN_LOOP_TRANSITION_ISSUES=1.
+  const transitionHook = buildTerminalTransitionHook(source.terminalTransitions());
+  const gatedSource = new ReadinessGatedSource(source, readyItems, transitionHook);
   const config = buildBackendConfigFromEnv();
   const repoCwd = process.cwd();
   return buildProductionDeps({
@@ -599,6 +603,17 @@ export async function buildIssuesProductionDeps(seams?: ProductionSeams): Promis
  * returns `null` — the source is drained for this drive. The engine then stops; a
  * re-run (resume) re-evaluates against the now-updated issue state.
  */
+/**
+ * Optional terminal-transition hook (Wave 22, Task 5 — Bug 5). Invoked by the issues-
+ * mode drive AFTER a result is recorded, to transition the item's GitHub issue
+ * (complete / escalate) — only when the operator opts in via `RUN_LOOP_TRANSITION_ISSUES`.
+ * Default-off ⇒ the drive stays GitHub-read-only (local commits only), preserving the
+ * reversible throwaway-branch posture.
+ */
+export interface TerminalTransitionHook {
+  onResult(item: WorkItem, result: ItemResult): Promise<void>;
+}
+
 export class ReadinessGatedSource implements WorkSource {
   private readonly inner: WorkSource;
   private readonly items: readonly WorkItem[];
@@ -606,12 +621,14 @@ export class ReadinessGatedSource implements WorkSource {
   private readonly yielded = new Set<string>();
   /** Ids recorded `completed` this run (the in-run "done" arm of the union). */
   private readonly completedThisRun = new Set<string>();
+  private readonly transition: TerminalTransitionHook | undefined;
   private initialized = false;
 
-  constructor(inner: WorkSource, items: readonly WorkItem[]) {
+  constructor(inner: WorkSource, items: readonly WorkItem[], transition?: TerminalTransitionHook) {
     this.inner = inner;
     this.items = items;
     this.inSet = new Set(items.map((i) => i.id));
+    this.transition = transition;
   }
 
   /** Blockers present in this run's ready set (dangling edges ignored). */
@@ -668,7 +685,57 @@ export class ReadinessGatedSource implements WorkSource {
       this.completedThisRun.add(item.id);
     }
     await this.inner.recordResult(item, result);
+    // Bug 5: env-gated GitHub terminal transition (default-off ⇒ read-only). The hook
+    // itself owns the env check + idempotency; the source just forwards every result.
+    if (this.transition !== undefined) {
+      await this.transition.onResult(item, result);
+    }
   }
+}
+
+/**
+ * Build the env-gated terminal-transition hook (Wave 22, Task 5 — Bug 5). Returns
+ * `undefined` unless `RUN_LOOP_TRANSITION_ISSUES` is set to `1`/`true` — so a default
+ * drive performs ZERO GitHub mutation and stays a reversible local-commit run. When
+ * enabled, a `completed` item is run through `completeItem` (PR-link comment + close +
+ * terminal marker) and an `escalated` item through `escalateItem`; the two-phase machine
+ * is idempotent (existing terminal markers ⇒ no-op), so a re-drive is safe.
+ */
+export function buildTerminalTransitionHook(
+  transitions: IssueTransitionMachine,
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): TerminalTransitionHook | undefined {
+  const gate = env['RUN_LOOP_TRANSITION_ISSUES'];
+  if (gate !== '1' && gate !== 'true') {
+    return undefined; // default-off ⇒ no GitHub mutation.
+  }
+  return {
+    async onResult(item: WorkItem, result: ItemResult): Promise<void> {
+      const issueNumber = issueNumberOf(item);
+      if (issueNumber === undefined) {
+        return; // not a gh-issue item (e.g. a local clean-room item) ⇒ nothing to transition.
+      }
+      if (result.status === 'completed') {
+        const prLink = typeof item['prLink'] === 'string' ? (item['prLink'] as string) : undefined;
+        await transitions.completeItem({ issueNumber, ...(prLink !== undefined ? { prLink } : {}) });
+      } else if (result.status === 'escalated') {
+        await transitions.escalateItem({ issueNumber });
+      }
+      // `failed`/`skipped` ⇒ leave the issue in the ready queue (no transition).
+    },
+  };
+}
+
+/** The subset of TerminalTransitions the hook drives (structural — no import cycle). */
+export interface IssueTransitionMachine {
+  completeItem(input: { readonly issueNumber: number; readonly prLink?: string }): Promise<void>;
+  escalateItem(input: { readonly issueNumber: number }): Promise<void>;
+}
+
+/** Recover the gh issue number from an item id (`issue-<n>`), or undefined. */
+function issueNumberOf(item: WorkItem): number | undefined {
+  const n = Number.parseInt(String(item.id).replace(/^issue-/, ''), 10);
+  return Number.isInteger(n) && /^issue-\d+$/.test(String(item.id)) ? n : undefined;
 }
 
 /**

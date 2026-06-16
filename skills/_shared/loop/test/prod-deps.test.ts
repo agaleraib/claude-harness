@@ -13,10 +13,14 @@ import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 
 import {
+  ReadinessGatedSource,
   ShellGateRunner,
   buildBackendConfigFromEnv,
   buildProductionDeps,
+  buildTerminalTransitionHook,
 } from '../run-loop-prod-deps.ts';
+import { IssueWorkSource, READY_FOR_AGENT, terminalKey } from '../providers/issue-provider.ts';
+import { InMemoryJournal } from '../state-journal.ts';
 import { runEntry, runProduction } from '../run-loop-entry.ts';
 import { type SpawnFn, type SpawnResult } from '../dispatch/spawn.ts';
 import { type HttpClient } from '../dispatch/review.ts';
@@ -250,6 +254,52 @@ test('T3: a non-zero exit with a CLEAN tree / no commits ⇒ failed with truncat
   assert.equal(result.status, 'failed');
   assert.match(result.note ?? '', /implement-failed:/, 'no-commit failure is the implement-failed bucket');
   assert.match(result.note ?? '', /real codex error tail/, 'the truncated codex stderr is surfaced');
+});
+
+// --- Wave 22 Bug 5: env-gated terminal transition on the issues drive --------------
+
+test('T5: with RUN_LOOP_TRANSITION_ISSUES=1, a completed item transitions its issue', async () => {
+  const gh = new GhStub([{ number: 2, labels: [READY_FOR_AGENT], state: 'open' }]);
+  const runId = 'run-t5';
+  const source = new IssueWorkSource({ gh, journal: new InMemoryJournal(), runId });
+  const items = await source.allItems();
+  const hook = buildTerminalTransitionHook(source.terminalTransitions(), { RUN_LOOP_TRANSITION_ISSUES: '1' });
+  assert.notEqual(hook, undefined, 'the gate env enables the hook');
+
+  const gated = new ReadinessGatedSource(source, items, hook);
+  const item = items.find((i) => i.id === 'issue-2')!;
+  await gated.recordResult(item, { itemId: 'issue-2', status: 'completed', note: 'merged at sha' });
+
+  // completeItem ran: a PR-link comment, the issue closed, the terminal marker written.
+  assert.equal(gh.peek(2)?.state, 'closed', 'the issue was closed');
+  const comments = await gh.listComments(2);
+  assert.ok(comments.some((c) => c.body.includes('pr-link')), 'PR-link comment posted');
+  assert.ok(
+    comments.some((c) => c.body.includes(terminalKey(runId, 'issue-2', 'completed'))),
+    'terminal completed marker written',
+  );
+
+  // Idempotent: a second drive over the same item is a no-op (no new close mutation).
+  const closesBefore = gh.calls.filter((c) => c.startsWith('closeIssue')).length;
+  await gated.recordResult(item, { itemId: 'issue-2', status: 'completed', note: 'merged at sha' });
+  const closesAfter = gh.calls.filter((c) => c.startsWith('closeIssue')).length;
+  assert.equal(closesAfter, closesBefore, 'a re-drive performs no second close (idempotent)');
+});
+
+test('T5: with the env UNSET, a completed item performs NO gh mutation (read-only)', async () => {
+  const gh = new GhStub([{ number: 2, labels: [READY_FOR_AGENT], state: 'open' }]);
+  const source = new IssueWorkSource({ gh, journal: new InMemoryJournal(), runId: 'run-t5b' });
+  const items = await source.allItems();
+  // No RUN_LOOP_TRANSITION_ISSUES ⇒ the hook is undefined ⇒ the drive stays read-only.
+  const hook = buildTerminalTransitionHook(source.terminalTransitions(), {});
+  assert.equal(hook, undefined, 'default-off ⇒ no hook');
+
+  const gated = new ReadinessGatedSource(source, items, hook);
+  const mutationsBefore = gh.calls.length;
+  const item = items.find((i) => i.id === 'issue-2')!;
+  await gated.recordResult(item, { itemId: 'issue-2', status: 'completed', note: 'merged' });
+  assert.equal(gh.calls.length, mutationsBefore, 'no gh mutation when the transition gate is off');
+  assert.equal(gh.peek(2)?.state, 'open', 'the issue stays open');
 });
 
 // --- Wave 22 Bug 4: buildReport routes failures to the honest bucket by note prefix -
