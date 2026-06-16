@@ -272,22 +272,45 @@ export class ProductionProtocol implements PerItemProtocol {
     const log = (m: string) => this.d.console.print(`[trace] ${m}`);
 
     // 1. IMPLEMENT — the real agent edits; the runner commits.
+    //
+    // Bug 3 (Wave 22): commit the working-tree edits REGARDLESS of the agent's exit
+    // code. Codex can produce a coherent multi-file impl and still exit non-zero (e.g.
+    // its own post-edit `git` attempt hits the read-only `.git` under -s workspace-write)
+    // — the exact "agent edits, runner commits" case. So: probe the dirty tree; if the
+    // agent exited ok OR the tree is dirty, commit + collect. If commits resulted,
+    // proceed to the gate (the gate is the real arbiter of quality). Only when the agent
+    // FAILED and NO commits resulted do we record `failed`, with the truncated stderr in
+    // the note (prefixed `implement-failed:` for honest bucketing — Bug 4).
     const backend = this.d.implementRegistry.resolve(item);
     log(`implement: dispatching ${backend.id} (lane=${lane}) …`);
     await runner.prepare();
     const base = await this.d.committer.head(cwd);
     const prompt = this.promptFor(item);
     const result = await backend.dispatch(prompt, { cwd, env: process.env as Record<string, string>, lane });
-    if (!result.ok) {
-      await runner.teardown();
-      return { itemId: item.id, status: 'failed', note: `implement backend ${backend.id} exited ${result.exitCode}` };
+
+    const treeDirty = await this.dirtyTree(cwd);
+    let commits: readonly string[] = [];
+    if (result.ok || treeDirty) {
+      await this.d.committer.commitAll(cwd, `feat: ${item.id} (/run-loop)`);
+      commits = await this.d.committer.collectCommits(cwd, base);
     }
-    await this.d.committer.commitAll(cwd, `feat: ${item.id} (/run-loop)`);
-    const commits = await this.d.committer.collectCommits(cwd, base);
-    log(`implement: ${backend.id} ok; runner produced ${commits.length} commit(s): ${commits.join(', ')}`);
+    log(
+      `implement: ${backend.id} exit=${result.exitCode} ok=${result.ok} dirty=${treeDirty}; ` +
+        `runner produced ${commits.length} commit(s): ${commits.join(', ')}`,
+    );
+
     if (commits.length === 0) {
       await runner.teardown();
-      return { itemId: item.id, status: 'failed', note: 'agent made no edits / no commit produced' };
+      // No work landed. Surface the truncated agent stderr so the WHY is visible, and
+      // tag the note `implement-failed:` (the gate never ran — Bug 4 bucketing).
+      const why = !result.ok
+        ? `agent ${backend.id} exited ${result.exitCode}; ${truncateStderr(result.stderr)}`
+        : 'agent made no edits / no commit produced';
+      return { itemId: item.id, status: 'failed', note: `implement-failed: ${why}` };
+    }
+    if (!result.ok) {
+      // Edits landed despite a non-zero exit — keep going; the gate decides quality.
+      log(`implement: ${backend.id} exited ${result.exitCode} but produced edits; committing + gating anyway`);
     }
 
     // 2. EXIT GATE — authoritative for merge.
@@ -295,7 +318,9 @@ export class ProductionProtocol implements PerItemProtocol {
     log(`gate: green=${gate.green} checks=${JSON.stringify(gate.checks)}`);
     if (!gate.green) {
       await runner.teardown();
-      return { itemId: item.id, status: 'failed', note: gate.note ?? 'exit gate red' };
+      // The gate RAN and went red — `gate-failed:` bucket (Bug 4), distinct from an
+      // implement failure where no gate ever ran.
+      return { itemId: item.id, status: 'failed', note: `gate-failed: ${gate.note ?? 'exit gate red'}` };
     }
 
     // 3. REVIEW — a single model judgment on the produced diff.
@@ -348,11 +373,38 @@ export class ProductionProtocol implements PerItemProtocol {
     const r = await (this.d.committer as ShellGitCommitterLike).diff?.(cwd, base);
     return r ?? '';
   }
+
+  /**
+   * Probe the working tree for uncommitted edits (Bug 3). Uses the committer's additive
+   * `dirty()` when present (ShellGitCommitter); a committer without it reports false (so
+   * the pre-Bug-3 ok-only commit path is preserved for a minimal fake committer).
+   */
+  private async dirtyTree(cwd: string): Promise<boolean> {
+    const probe = (this.d.committer as ShellGitCommitterLike).dirty;
+    if (probe === undefined) {
+      return false;
+    }
+    return probe.call(this.d.committer, cwd);
+  }
 }
 
-/** Structural type: a committer that can also produce a diff (ShellGitCommitter does). */
+/** Truncate captured stderr to a short tail for the note/trace (never the env). */
+function truncateStderr(stderr: string, max = 280): string {
+  const s = stderr.trim();
+  if (s.length === 0) {
+    return '(no stderr)';
+  }
+  return s.length <= max ? s : `…${s.slice(s.length - max)}`;
+}
+
+/**
+ * Structural type: a committer that can also produce a diff + probe a dirty tree
+ * (ShellGitCommitter does both). Both are additive on the concrete impl — the frozen
+ * `GitCommitter` interface is untouched (Wave 22, Bug 3).
+ */
 interface ShellGitCommitterLike extends GitCommitter {
   diff?(cwd: string, base: string): Promise<string>;
+  dirty?(cwd: string): Promise<boolean>;
 }
 
 /** The production EngineDeps + the resolved config + the source's ready items. */

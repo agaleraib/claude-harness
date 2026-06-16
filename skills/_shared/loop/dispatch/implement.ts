@@ -178,6 +178,24 @@ export class ShellGitCommitter implements GitCommitter {
     const out = await this.git(cwd, ['rev-list', '--reverse', `${base}..HEAD`]);
     return out.length === 0 ? [] : out.split('\n');
   }
+  /**
+   * Whether the working tree has uncommitted edits (Wave 22, Bug 3). Additive probe,
+   * like `diff` — the `GitCommitter` interface is untouched. Used to detect "the agent
+   * edited files but exited non-zero" so the runner commits the real work regardless of
+   * the agent's exit code (a cosmetic post-edit git error no longer discards it).
+   * `git status --porcelain` prints one line per change; empty ⇒ clean.
+   */
+  async dirty(cwd: string): Promise<boolean> {
+    const r = await spawnIgnoringStdin(this.spawn, 'git', ['status', '--porcelain'], {
+      cwd,
+      env: process.env as Record<string, string>,
+    });
+    if (r.exitCode !== 0) {
+      throw new Error(`git status failed (${r.exitCode}): ${r.stderr.trim()}`);
+    }
+    return r.stdout.trim().length > 0;
+  }
+
   /** The unified diff of `base..HEAD` — the produced diff fed to the reviewer. */
   async diff(cwd: string, base: string): Promise<string> {
     const r = await spawnIgnoringStdin(this.spawn, 'git', ['diff', `${base}..HEAD`], {

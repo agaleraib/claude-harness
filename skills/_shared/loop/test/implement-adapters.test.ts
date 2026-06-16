@@ -201,3 +201,24 @@ test('T2: Docker-absent ⇒ a sandcastle implement item aborts cleanly via prefl
   // A worktree-only run is unaffected by Docker being absent.
   await preflightRunners([{ id: 'wt1', runner: 'worktree' }], new StubContainerEngineProbe(false));
 });
+
+// --- Wave 22 Bug 3: ShellGitCommitter.dirty() probes the working tree --------------
+
+test('T3: ShellGitCommitter.dirty() is false on a clean tree and true after an edit', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'dirty-probe-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const git = (...a: string[]) => execFileSync('git', a, { cwd: dir, stdio: 'pipe' });
+  git('init', '-q'); git('config', 'user.email', 't@e.com'); git('config', 'user.name', 'T');
+  writeFileSync(join(dir, 'a'), 'x\n'); git('add', 'a'); git('commit', '-q', '-m', 'base');
+
+  const committer = new ShellGitCommitter(defaultSpawn);
+  assert.equal(await committer.dirty(dir), false, 'clean tree ⇒ not dirty');
+
+  // An uncommitted edit (the "agent edited but exited non-zero" case) ⇒ dirty.
+  writeFileSync(join(dir, 'b.txt'), 'new\n');
+  assert.equal(await committer.dirty(dir), true, 'untracked edit ⇒ dirty');
+
+  // After the runner commits, the tree is clean again.
+  await committer.commitAll(dir, 'feat: x');
+  assert.equal(await committer.dirty(dir), false, 'committed ⇒ clean again');
+});

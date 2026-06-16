@@ -177,6 +177,81 @@ test('prod: a red exit gate ⇒ item is failed (never merged)', async (t) => {
   assert.equal(result.status, 'failed');
 });
 
+// --- Wave 22 Bug 3: commit edits regardless of exit code; surface stderr -----------
+
+// A fake committer with a controllable dirty-tree + commit count. `dirty` is the Bug-3
+// additive probe; `commitAll`/`collectCommits` model the runner-commits step.
+class FakeCommitter {
+  private committed = false;
+  private readonly opts: { dirtyTree: boolean; commitsAfter: readonly string[] };
+  constructor(opts: { dirtyTree: boolean; commitsAfter: readonly string[] }) {
+    this.opts = opts;
+  }
+  async head(): Promise<string> { return 'BASE'; }
+  async commitAll(): Promise<void> { this.committed = true; }
+  async collectCommits(): Promise<readonly string[]> {
+    return this.committed ? this.opts.commitsAfter : [];
+  }
+  async diff(): Promise<string> { return 'fake diff'; }
+  async dirty(): Promise<boolean> { return this.opts.dirtyTree; }
+}
+
+function backendReturning(res: { ok: boolean; exitCode: number | null; stderr: string }) {
+  return {
+    id: 'codex' as const,
+    async dispatch() {
+      return { ok: res.ok, exitCode: res.exitCode, stdout: '', stderr: res.stderr };
+    },
+  };
+}
+
+test('T3: a non-zero exit WITH a dirty tree commits + gates (NOT failed-at-implement)', async () => {
+  const item: WorkItem = { id: 'edits-nonzero', runner: 'worktree', implementBackend: 'codex', body: 'x', gate: { tests: ['true'] } };
+  const committer = new FakeCommitter({ dirtyTree: true, commitsAfter: ['sha1'] });
+  const lines: string[] = [];
+  const fakeHttp: HttpClient = {
+    async postJson() { return { status: 200, json: { content: [{ type: 'text', text: '[]' }] } }; },
+  };
+  // gate spawn: every declared command passes (exit 0).
+  const gateSpawn: SpawnFn = async (): Promise<SpawnResult> => ({ exitCode: 0, stdout: '', stderr: '' });
+  const prod = buildProductionDeps({
+    source: new OneItemSource(item),
+    readyItems: [item],
+    cwdFor: () => '/repo',
+    config: { allowExternalReview: true, anthropicApiKey: 'rk' },
+    gh: new GhStub(),
+    seams: { spawn: gateSpawn, http: fakeHttp, committer: committer as unknown as ShellGitCommitter, console: { print: (l) => lines.push(l) } },
+  });
+  // Swap the implement backend for one that exits non-zero (index.lock case).
+  const protocol = prod.engine.protocol as unknown as { d: { implementRegistry: { resolve: () => unknown } } };
+  protocol.d.implementRegistry.resolve = () => backendReturning({ ok: false, exitCode: 1, stderr: 'index.lock: Operation not permitted' });
+
+  const result = await prod.engine.protocol.run(item, prod.engine.runnerFactory.create(item, 'worktree'));
+  assert.notEqual(result.status, 'failed', 'edits-on-non-zero-exit must NOT fail at implement');
+  assert.equal(result.status, 'completed', 'committed + green gate + advisory-only ⇒ completed');
+  assert.ok(lines.some((l) => /exited 1 but produced edits/.test(l)), 'the commit-anyway path is traced');
+});
+
+test('T3: a non-zero exit with a CLEAN tree / no commits ⇒ failed with truncated stderr', async () => {
+  const item: WorkItem = { id: 'no-edits', runner: 'worktree', implementBackend: 'codex', body: 'x', gate: { tests: ['true'] } };
+  const committer = new FakeCommitter({ dirtyTree: false, commitsAfter: [] });
+  const prod = buildProductionDeps({
+    source: new OneItemSource(item),
+    readyItems: [item],
+    cwdFor: () => '/repo',
+    config: { anthropicApiKey: 'rk' },
+    gh: new GhStub(),
+    seams: { committer: committer as unknown as ShellGitCommitter, console: { print: () => {} } },
+  });
+  const protocol = prod.engine.protocol as unknown as { d: { implementRegistry: { resolve: () => unknown } } };
+  protocol.d.implementRegistry.resolve = () => backendReturning({ ok: false, exitCode: 2, stderr: 'fatal: real codex error tail' });
+
+  const result = await prod.engine.protocol.run(item, prod.engine.runnerFactory.create(item, 'worktree'));
+  assert.equal(result.status, 'failed');
+  assert.match(result.note ?? '', /implement-failed:/, 'no-commit failure is the implement-failed bucket');
+  assert.match(result.note ?? '', /real codex error tail/, 'the truncated codex stderr is surfaced');
+});
+
 // --- Wave 22 Bug 2: a throwing lane is crash-ISOLATED; the sibling still runs -------
 
 test('T2: a thrown lane is recorded failed (reason surfaced) and the loop continues', async (t) => {
