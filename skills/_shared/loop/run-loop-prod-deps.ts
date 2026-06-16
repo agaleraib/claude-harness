@@ -42,7 +42,9 @@ import { IssueWorkSource } from './providers/issue-provider.ts';
 import {
   type AgentBackend,
   type BackendConfig,
+  type ImplementBackendId,
   type ReviewBackend,
+  IMPLEMENT_BACKENDS,
   ImplementBackendRegistry,
   ReviewBackendRegistry,
   loadBackendConfig,
@@ -169,8 +171,15 @@ export function buildBackendConfigFromEnv(
   // profile/hardcoded default. The caller has already validated the values; we only
   // place them onto the config. Egress is unchanged: review=codex is local (no gate);
   // anthropic-api / openrouter still require RUN_LOOP_ALLOW_EXTERNAL_REVIEW below.
-  const implementDefault =
+  const implementRaw =
     overrides.implementDefault ?? env['RUN_LOOP_IMPLEMENT_BACKEND'] ?? base.implementDefault;
+  // Narrow to the known implement-backend set; an unrecognized value (e.g. a stray env
+  // string that bypassed the entry's validation) is dropped so the per-item codex
+  // default applies — never widen `implementDefault` to an arbitrary string.
+  const implementDefault: ImplementBackendId | undefined =
+    implementRaw !== undefined && IMPLEMENT_BACKENDS.includes(implementRaw as ImplementBackendId)
+      ? (implementRaw as ImplementBackendId)
+      : undefined;
   const reviewDefault =
     overrides.reviewDefault ?? env['RUN_LOOP_REVIEW_BACKEND'] ?? base.reviewDefault;
 
@@ -179,7 +188,7 @@ export function buildBackendConfigFromEnv(
 
   return {
     ...base,
-    ...(implementDefault !== undefined ? { implementDefault: implementDefault as BackendConfig['implementDefault'] } : {}),
+    ...(implementDefault !== undefined ? { implementDefault } : {}),
     ...(reviewDefault !== undefined ? { reviewDefault } : {}),
     ...(allowExternalReview !== undefined ? { allowExternalReview } : {}),
   };
