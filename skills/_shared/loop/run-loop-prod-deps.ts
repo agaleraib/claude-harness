@@ -461,16 +461,118 @@ export async function buildIssuesProductionDeps(seams?: ProductionSeams): Promis
   const gh = new GhCliAdapter(command);
   const source = new IssueWorkSource({ gh, journal: new InMemoryJournal(), runId: `run-${Date.now()}` });
   const readyItems = await source.allItems();
+  // Bug 1 (Task 1): gate the drive on blocked-by readiness. The frozen engine pulls in
+  // source order; the readiness gate lives in this composition layer so blockers run
+  // before blocked items and a blocked item is withheld until its blockers are done.
+  const gatedSource = new ReadinessGatedSource(source, readyItems);
   const config = buildBackendConfigFromEnv();
   const repoCwd = process.cwd();
   return buildProductionDeps({
-    source,
+    source: gatedSource,
     readyItems,
     cwdFor: () => repoCwd,
     config,
     gh,
     ...(seams !== undefined ? { seams } : {}),
   });
+}
+
+/**
+ * Readiness-gated WorkSource wrapper (Wave 22, Task 1 — Bug 1).
+ *
+ * The frozen `engine.ts` pulls items in source order with no readiness check and throws
+ * if a source ever re-yields an id it already saw this run. So the readiness gate lives
+ * HERE, in the issues-mode source composition, NOT in the engine: this wrapper holds the
+ * full ready-item set up front and, on each `nextReady()`, yields the next not-yet-
+ * yielded item whose blockers are ALL done — processing blockers before blocked items.
+ *
+ * "Done" for a blocker (OQ-3, resolved — the UNION):
+ *   - recorded `completed` THIS run (via recordResult), OR
+ *   - the blocker's issue carries a terminal state (inner.isDone() ⇒ closed / terminal
+ *     marker).
+ * Either satisfies readiness. With `RUN_LOOP_TRANSITION_ISSUES` default-off, a blocker
+ * AFK-merged locally never transitions its issue, so the recorded-this-run arm is what
+ * unblocks its dependents inside a single drive — exactly the intended "defer #3 until
+ * #2 is done" behavior.
+ *
+ * Blockers referencing ids NOT in this run's ready set are ignored (dangling-edge rule,
+ * mirroring `scheduler/dag.ts`'s `blockersOf`): a blocker that is already closed is not
+ * in the ready-for-agent queue, so it does not gate.
+ *
+ * When no remaining item is currently ready (its blockers are not yet done), `nextReady`
+ * returns `null` — the source is drained for this drive. The engine then stops; a
+ * re-run (resume) re-evaluates against the now-updated issue state.
+ */
+export class ReadinessGatedSource implements WorkSource {
+  private readonly inner: WorkSource;
+  private readonly items: readonly WorkItem[];
+  private readonly inSet: ReadonlySet<string>;
+  private readonly yielded = new Set<string>();
+  /** Ids recorded `completed` this run (the in-run "done" arm of the union). */
+  private readonly completedThisRun = new Set<string>();
+  private initialized = false;
+
+  constructor(inner: WorkSource, items: readonly WorkItem[]) {
+    this.inner = inner;
+    this.items = items;
+    this.inSet = new Set(items.map((i) => i.id));
+  }
+
+  /** Blockers present in this run's ready set (dangling edges ignored). */
+  private blockersOf(item: WorkItem): readonly string[] {
+    const raw = item.blockedBy ?? [];
+    return raw.filter((id) => this.inSet.has(id));
+  }
+
+  /** A blocker is done iff completed-this-run OR its issue is terminal (inner.isDone). */
+  private async blockerDone(blockerId: string): Promise<boolean> {
+    if (this.completedThisRun.has(blockerId)) {
+      return true;
+    }
+    const blocker = this.items.find((i) => i.id === blockerId);
+    if (blocker === undefined) {
+      return true; // not in the set ⇒ does not gate (dangling edge).
+    }
+    return this.inner.isDone(blocker);
+  }
+
+  async nextReady(): Promise<WorkItem | null> {
+    if (!this.initialized) {
+      // Touch the inner source's init path (its allItems()/nextReady warms the queue);
+      // we already hold the ready set, so we only need the inner for isDone/recordResult.
+      this.initialized = true;
+    }
+    for (const item of this.items) {
+      if (this.yielded.has(item.id)) {
+        continue;
+      }
+      const blockers = this.blockersOf(item);
+      let ready = true;
+      for (const b of blockers) {
+        if (!(await this.blockerDone(b))) {
+          ready = false;
+          break;
+        }
+      }
+      if (ready) {
+        this.yielded.add(item.id);
+        return item;
+      }
+    }
+    // No remaining item is ready this drive (blockers not yet done) ⇒ drained.
+    return null;
+  }
+
+  async isDone(item: WorkItem): Promise<boolean> {
+    return this.inner.isDone(item);
+  }
+
+  async recordResult(item: WorkItem, result: ItemResult): Promise<void> {
+    if (result.status === 'completed') {
+      this.completedThisRun.add(item.id);
+    }
+    await this.inner.recordResult(item, result);
+  }
 }
 
 /**
