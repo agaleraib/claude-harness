@@ -76,6 +76,27 @@ export function stripClaudeMarkers(
 }
 
 /**
+ * Strip `OPENAI_API_KEY` from an env so a dispatched `codex` always uses its
+ * ChatGPT-subscription (gpt-5.5) auth and can't fall into the broken "mixed-auth" state.
+ * Unconditional: the loop's codex backend targets the sub-only gpt-5.5, so a stray
+ * OpenAI API key (e.g. exported in a shell profile) alongside the ChatGPT login makes
+ * `codex doctor` report "mixed auth signals" and codex tries a broken API path. Returns
+ * a NEW object; the input is untouched. Mirrors stripClaudeMarkers at the spawn boundary.
+ */
+export function stripOpenAiApiKey(
+  env: Readonly<Record<string, string>>,
+): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(env)) {
+    if (k === 'OPENAI_API_KEY') {
+      continue;
+    }
+    out[k] = v;
+  }
+  return out;
+}
+
+/**
  * The default spawn seam, binding node:child_process.spawn with stdin IGNORED. Lazily
  * imports child_process so the module loads in environments without it (tests inject a
  * fake and never reach here). Buffers stdout/stderr and resolves on close.

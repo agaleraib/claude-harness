@@ -28,7 +28,7 @@ import {
   type ReviewDispatchResult,
   type ReviewFinding,
 } from './backends.ts';
-import { type SpawnFn, spawnIgnoringStdin } from './spawn.ts';
+import { type SpawnFn, spawnIgnoringStdin, stripOpenAiApiKey } from './spawn.ts';
 import { type WorkItem } from '../types.ts';
 
 /** A minimal HTTP seam for the API-backed reviewers (no live fetch in tests). */
@@ -177,11 +177,12 @@ export class CodexReviewBackend implements ReviewBackend {
     ctx: ReviewDispatchContext,
   ): Promise<readonly ReviewFinding[]> {
     // Non-agentic judgment: a single codex exec with the diff in the prompt, read-only.
+    // Strip OPENAI_API_KEY so codex uses its ChatGPT-sub auth (see stripOpenAiApiKey).
     const r = await spawnIgnoringStdin(
       this.spawn,
       'codex',
       ['exec', '-s', 'read-only', '--skip-git-repo-check', reviewPrompt(diff, ctx.context)],
-      { cwd: this.cwd, env: ctx.env },
+      { cwd: this.cwd, env: stripOpenAiApiKey(ctx.env) },
     );
     return parseFindings(r.stdout);
   }

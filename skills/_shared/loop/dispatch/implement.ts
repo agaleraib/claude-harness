@@ -27,7 +27,7 @@ import {
   type AgentDispatchResult,
   type ImplementBackendId,
 } from './backends.ts';
-import { type SpawnFn, spawnIgnoringStdin, stripClaudeMarkers } from './spawn.ts';
+import { type SpawnFn, spawnIgnoringStdin, stripClaudeMarkers, stripOpenAiApiKey } from './spawn.ts';
 
 /**
  * Container-lane seam. The real impl runs the agentic CLI inside a container with the
@@ -74,15 +74,18 @@ export class CodexImplementAdapter implements AgentBackend {
   }
 
   async dispatch(prompt: string, ctx: AgentDispatchContext): Promise<AgentDispatchResult> {
+    // Strip OPENAI_API_KEY so codex always uses its ChatGPT-sub (gpt-5.5) auth — a stray
+    // key alongside the login triggers the broken "mixed-auth" state (see stripOpenAiApiKey).
+    const env = stripOpenAiApiKey(ctx.env);
     if (ctx.lane === 'sandcastle') {
       const argv = [...codexSandcastleArgv(), prompt];
-      return this.container.run('codex', 'codex', argv, ctx);
+      return this.container.run('codex', 'codex', argv, { ...ctx, env });
     }
     // Worktree lane: host, native -s workspace-write sandbox.
     const argv = [...codexWorktreeArgv(ctx.cwd), prompt];
     const r = await spawnIgnoringStdin(this.spawn, 'codex', argv, {
       cwd: ctx.cwd,
-      env: ctx.env,
+      env,
     });
     return { ok: r.exitCode === 0, exitCode: r.exitCode, stdout: r.stdout, stderr: r.stderr };
   }

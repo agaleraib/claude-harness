@@ -27,7 +27,14 @@ import {
   DISPATCH_STDIO,
   spawnIgnoringStdin,
   stripClaudeMarkers,
+  stripOpenAiApiKey,
 } from '../dispatch/spawn.ts';
+import {
+  type ContainerRunner,
+  ClaudeImplementAdapter,
+  CodexImplementAdapter,
+} from '../dispatch/implement.ts';
+import { CodexReviewBackend } from '../dispatch/review.ts';
 import { type WorkItem } from '../types.ts';
 
 function item(extra: Record<string, unknown> = {}): WorkItem {
@@ -222,4 +229,88 @@ test('T6: parseReviewBackendId rejects an unknown review selector (the knob vali
   assert.deepEqual(parseReviewBackendId('codex'), { kind: 'codex' });
   assert.deepEqual(parseReviewBackendId('anthropic-api:opus-4.8'), { kind: 'anthropic-api', model: 'opus-4.8' });
   assert.throws(() => parseReviewBackendId('bogus:x'), UnknownBackendError);
+});
+
+// --- OPENAI_API_KEY strip on codex spawn (sub-mode mixed-auth footgun fix) ----------
+
+test('stripOpenAiApiKey removes OPENAI_API_KEY and nothing else', () => {
+  const out = stripOpenAiApiKey({
+    OPENAI_API_KEY: 'sk-proj-secret',
+    PATH: '/usr/bin',
+    ANTHROPIC_API_KEY: 'rk',
+  });
+  assert.deepEqual(out, { PATH: '/usr/bin', ANTHROPIC_API_KEY: 'rk' });
+});
+
+// A recording spawn seam that captures the env the child would be launched with.
+function recordingSpawn(): { spawn: SpawnFn; captured: () => Readonly<Record<string, string>> | undefined } {
+  let env: Readonly<Record<string, string>> | undefined;
+  const spawn: SpawnFn = async (_cmd, _argv, options) => {
+    env = options.env;
+    return { exitCode: 0, stdout: '', stderr: '' };
+  };
+  return { spawn, captured: () => env };
+}
+
+// A stub ContainerRunner that records the ctx it was handed (sandcastle lane).
+class RecordingContainer implements ContainerRunner {
+  seenEnv: Readonly<Record<string, string>> | undefined;
+  async run(
+    _backend: 'codex' | 'claude',
+    _command: string,
+    _argv: readonly string[],
+    ctx: AgentDispatchContext,
+  ): Promise<AgentDispatchResult> {
+    this.seenEnv = ctx.env;
+    return { ok: true, exitCode: 0, stdout: '', stderr: '' };
+  }
+}
+
+test('CodexImplementAdapter (worktree) spawns the child WITHOUT OPENAI_API_KEY', async () => {
+  const { spawn, captured } = recordingSpawn();
+  const adapter = new CodexImplementAdapter({ spawn, container: new RecordingContainer() });
+  const ctx: AgentDispatchContext = {
+    cwd: '/wt',
+    env: { OPENAI_API_KEY: 'sk-proj-secret', PATH: '/usr/bin' },
+    lane: 'worktree',
+  };
+  await adapter.dispatch('do it', ctx);
+  assert.equal(captured()?.['OPENAI_API_KEY'], undefined);
+  assert.equal(captured()?.['PATH'], '/usr/bin');
+});
+
+test('CodexImplementAdapter (sandcastle) hands the container a ctx WITHOUT OPENAI_API_KEY', async () => {
+  const container = new RecordingContainer();
+  const adapter = new CodexImplementAdapter({ spawn: recordingSpawn().spawn, container });
+  const ctx: AgentDispatchContext = {
+    cwd: '/wt',
+    env: { OPENAI_API_KEY: 'sk-proj-secret', PATH: '/usr/bin' },
+    lane: 'sandcastle',
+  };
+  await adapter.dispatch('do it', ctx);
+  assert.equal(container.seenEnv?.['OPENAI_API_KEY'], undefined);
+  assert.equal(container.seenEnv?.['PATH'], '/usr/bin');
+});
+
+test('CodexReviewBackend spawns the child WITHOUT OPENAI_API_KEY', async () => {
+  const { spawn, captured } = recordingSpawn();
+  const backend = new CodexReviewBackend({ spawn, cwd: '/repo' });
+  await backend.review('diff', undefined, {
+    context: 'i1',
+    env: { OPENAI_API_KEY: 'sk-proj-secret', PATH: '/usr/bin' },
+  });
+  assert.equal(captured()?.['OPENAI_API_KEY'], undefined);
+  assert.equal(captured()?.['PATH'], '/usr/bin');
+});
+
+test('ClaudeImplementAdapter does NOT strip OPENAI_API_KEY (codex-only footgun)', async () => {
+  const { spawn, captured } = recordingSpawn();
+  const adapter = new ClaudeImplementAdapter({ spawn, container: new RecordingContainer() });
+  const ctx: AgentDispatchContext = {
+    cwd: '/wt',
+    env: { OPENAI_API_KEY: 'sk-proj-secret', PATH: '/usr/bin' },
+    lane: 'worktree',
+  };
+  await adapter.dispatch('do it', ctx);
+  assert.equal(captured()?.['OPENAI_API_KEY'], 'sk-proj-secret');
 });
