@@ -29,7 +29,23 @@ Navigator-style active board. Per v2 §6, the file has exactly four sections —
 
 ## Next
 
-(none)
+### Wave 22 - /run-loop issues live-drain fixes (T6b verdict)
+- spec: docs/specs/2026-06-15-run-loop-live-drain-fixes.md
+- status: ready
+- exit gate: real `/run-loop issues` drains #2 end-to-end (runner-commits even on a non-zero-with-edits agent exit) in BOTH backend directions (A: codex→opus-4.8 external; B: claude→codex local), defers #3 until #2 done, no unsupported-lane crash, honest AFK/HITL/blocked summary; knob unit-proven (flag/env→config, flag-wins, unknown errors before side effects, egress still gates external review); 186 baseline + new regression + knob tests green; strict tsc 0; no `any`; zero frozen Phase-1 interface change
+- Runner: worktree   # classifier: ready-for-human; gates: out-of-band-action + unobtainable-credential (T5/T7 mutate live gh, env-gated, + need host creds); T1-T4 + T6 are sandcastle-able
+
+  - depends-on: Wave 21 merged (✓ 8461197); live backend + gh creds re-provided per run; quickbase-replacement #2/#3 seeded
+  - done-when: see exit gate above
+  - next-concrete-action: Dispatch Task 1 (activate the readiness scheduler in the issues-mode drive)
+
+  **Why this wave:** Wave 21's clean-room smoke passed but the first real multi-issue run (T6b, 2026-06-15) found four integration bugs — readiness not enforced, unsupported lane crashes the loop, non-zero codex exit discards real edits, failure mis-bucketed — plus an unwired terminal transition. This wave fixes them, adds a per-run backend-direction knob, and re-runs the deferred T6b acceptance in both directions.
+
+  **Tasks (7):** T1 (readiness gate, Bug 1), T2 (crash-isolate unsupported lanes, Bug 2), T3 (commit-on-edits-regardless-of-exit + surface stderr, Bug 3), T4 (honest implement-failed bucket, Bug 4), T5 (env-gated terminal transition, Bug 5/scope), T6 (per-run `--implement`/`--review` backend-direction knob), T7 (dual-direction live #2/#3 re-drain). T1–T4 + T6 independent + parallelizable (T4 after T3); T5 after T1–T4; T7 after T1–T6.
+
+  **Exit gate:** the spec's `## Exit gate`.
+
+  **Estimate:** ~0.5–1 operator-day.
 
 ## Blocked
 
