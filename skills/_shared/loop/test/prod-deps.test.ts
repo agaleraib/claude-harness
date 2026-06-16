@@ -58,6 +58,38 @@ test('prod: buildBackendConfigFromEnv reads API keys from env, never logs them',
   assert.notEqual(cfg.allowExternalReview, true);
 });
 
+// --- Wave 22 Task 6: the per-run backend-direction knob → config -------------------
+
+test('T6: --implement/--review overrides set config.implementDefault/reviewDefault', () => {
+  const cfg = buildBackendConfigFromEnv({}, { implementDefault: 'claude', reviewDefault: 'codex' });
+  assert.equal(cfg.implementDefault, 'claude');
+  assert.equal(cfg.reviewDefault, 'codex');
+});
+
+test('T6: env-only RUN_LOOP_IMPLEMENT_BACKEND/REVIEW_BACKEND set the same config', () => {
+  const cfg = buildBackendConfigFromEnv({
+    RUN_LOOP_IMPLEMENT_BACKEND: 'claude',
+    RUN_LOOP_REVIEW_BACKEND: 'codex',
+  });
+  assert.equal(cfg.implementDefault, 'claude');
+  assert.equal(cfg.reviewDefault, 'codex');
+});
+
+test('T6: the flag override WINS over the env value', () => {
+  const cfg = buildBackendConfigFromEnv(
+    { RUN_LOOP_IMPLEMENT_BACKEND: 'codex', RUN_LOOP_REVIEW_BACKEND: 'anthropic-api:opus-4.8' },
+    { implementDefault: 'claude', reviewDefault: 'codex' },
+  );
+  assert.equal(cfg.implementDefault, 'claude', 'flag implement wins over env');
+  assert.equal(cfg.reviewDefault, 'codex', 'flag review wins over env');
+});
+
+test('T6: no knob ⇒ config carries no implement/review default (hardcoded defaults used)', () => {
+  const cfg = buildBackendConfigFromEnv({});
+  assert.equal('implementDefault' in cfg, false);
+  assert.equal('reviewDefault' in cfg, false);
+});
+
 test('prod: RUN_LOOP_ALLOW_EXTERNAL_REVIEW env gate opts into external review', () => {
   assert.equal(buildBackendConfigFromEnv({ RUN_LOOP_ALLOW_EXTERNAL_REVIEW: '1' }).allowExternalReview, true);
   assert.equal(buildBackendConfigFromEnv({ RUN_LOOP_ALLOW_EXTERNAL_REVIEW: 'true' }).allowExternalReview, true);

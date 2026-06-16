@@ -140,9 +140,21 @@ export interface ProductionSeams {
   readonly console?: DriverConsole;
 }
 
-/** Build the BackendConfig from process.env (+ optional profile fields). */
+/**
+ * Per-run backend-direction overrides (Wave 22, Task 6 knob). Parsed from the
+ * `--implement`/`--review` CLI flags (flag wins over env) and validated BEFORE any
+ * drive side effect; threaded here so they land as `config.implementDefault` /
+ * `config.reviewDefault`. Absent ⇒ fall back to env then the hardcoded defaults.
+ */
+export interface BackendDirectionOverrides {
+  readonly implementDefault?: string;
+  readonly reviewDefault?: string;
+}
+
+/** Build the BackendConfig from process.env (+ optional per-run direction overrides). */
 export function buildBackendConfigFromEnv(
   env: Readonly<Record<string, string | undefined>> = process.env,
+  overrides: BackendDirectionOverrides = {},
 ): BackendConfig {
   // .harness-profile parsing for the loop knobs lands with the SKILL.md wiring; the
   // env keys (API keys) are the security-relevant inputs and come from env here.
@@ -152,11 +164,25 @@ export function buildBackendConfigFromEnv(
   // / trusted run into the external Opus/OpenRouter reviewer via the explicit env gate
   // RUN_LOOP_ALLOW_EXTERNAL_REVIEW=1 — surfaced, not silent, and operator-controlled.
   const base = loadBackendConfig(env);
+
+  // Backend-direction knob (Task 6): the resolved override (flag-then-env) wins over the
+  // profile/hardcoded default. The caller has already validated the values; we only
+  // place them onto the config. Egress is unchanged: review=codex is local (no gate);
+  // anthropic-api / openrouter still require RUN_LOOP_ALLOW_EXTERNAL_REVIEW below.
+  const implementDefault =
+    overrides.implementDefault ?? env['RUN_LOOP_IMPLEMENT_BACKEND'] ?? base.implementDefault;
+  const reviewDefault =
+    overrides.reviewDefault ?? env['RUN_LOOP_REVIEW_BACKEND'] ?? base.reviewDefault;
+
   const allow = env['RUN_LOOP_ALLOW_EXTERNAL_REVIEW'];
-  if (allow === '1' || allow === 'true') {
-    return { ...base, allowExternalReview: true };
-  }
-  return base;
+  const allowExternalReview = allow === '1' || allow === 'true' ? true : base.allowExternalReview;
+
+  return {
+    ...base,
+    ...(implementDefault !== undefined ? { implementDefault: implementDefault as BackendConfig['implementDefault'] } : {}),
+    ...(reviewDefault !== undefined ? { reviewDefault } : {}),
+    ...(allowExternalReview !== undefined ? { allowExternalReview } : {}),
+  };
 }
 
 /**
@@ -552,7 +578,10 @@ export function buildProductionDeps(opts: BuildProductionDepsOptions): Productio
  * remote, a caller can instead build a local WorkSource and call buildProductionDeps
  * directly (see the live-test runbook / smoke harness).
  */
-export async function buildIssuesProductionDeps(seams?: ProductionSeams): Promise<ProductionDeps> {
+export async function buildIssuesProductionDeps(
+  seams?: ProductionSeams,
+  overrides: BackendDirectionOverrides = {},
+): Promise<ProductionDeps> {
   const command = seams?.command ?? new ExecFileCommandRunner();
   const gh = new GhCliAdapter(command);
   const source = new IssueWorkSource({ gh, journal: new InMemoryJournal(), runId: `run-${Date.now()}` });
@@ -565,7 +594,9 @@ export async function buildIssuesProductionDeps(seams?: ProductionSeams): Promis
   // successful AFK merge transitions its issue ONLY when RUN_LOOP_TRANSITION_ISSUES=1.
   const transitionHook = buildTerminalTransitionHook(source.terminalTransitions());
   const gatedSource = new ReadinessGatedSource(source, readyItems, transitionHook);
-  const config = buildBackendConfigFromEnv();
+  // Task 6 knob: the per-run --implement/--review overrides (flag-then-env) land on
+  // config.implementDefault / config.reviewDefault here.
+  const config = buildBackendConfigFromEnv(process.env, overrides);
   const repoCwd = process.cwd();
   return buildProductionDeps({
     source: gatedSource,

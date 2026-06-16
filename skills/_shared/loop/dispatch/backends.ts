@@ -193,6 +193,21 @@ export function loadBackendConfig(
   };
 }
 
+/**
+ * Validate a per-run implement-backend selector (Wave 22, Task 6 knob). Returns the
+ * narrowed id, or throws UnknownBackendError naming the valid set — used by the entry's
+ * `--implement`/RUN_LOOP_IMPLEMENT_BACKEND knob to reject an unknown value BEFORE any
+ * drive side effect (mirrors the per-item resolver's error).
+ */
+export function validateImplementBackendId(value: string): ImplementBackendId {
+  if (!IMPLEMENT_BACKENDS.includes(value as ImplementBackendId)) {
+    throw new UnknownBackendError(
+      `run-loop: unknown implement backend "${value}"; valid: ${IMPLEMENT_BACKENDS.join(' | ')}`,
+    );
+  }
+  return value as ImplementBackendId;
+}
+
 /** Raised when a backend id cannot be resolved against a registry. */
 export class UnknownBackendError extends Error {
   constructor(message: string) {

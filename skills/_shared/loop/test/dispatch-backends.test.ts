@@ -206,3 +206,20 @@ test('T1: stripClaudeMarkers removes CLAUDECODE + CLAUDE_CODE_* and nothing else
   });
   assert.deepEqual(out, { PATH: '/usr/bin', ANTHROPIC_API_KEY: 'secret' });
 });
+
+// --- Wave 22 Task 6: validateImplementBackendId (the knob validator) ---------------
+
+test('T6: validateImplementBackendId accepts codex/claude and rejects anything else', async () => {
+  const { validateImplementBackendId } = await import('../dispatch/backends.ts');
+  assert.equal(validateImplementBackendId('codex'), 'codex');
+  assert.equal(validateImplementBackendId('claude'), 'claude');
+  assert.throws(() => validateImplementBackendId('gpt5'), UnknownBackendError);
+  assert.throws(() => validateImplementBackendId('gpt5'), /unknown implement backend "gpt5"/);
+});
+
+test('T6: parseReviewBackendId rejects an unknown review selector (the knob validator)', () => {
+  // codex (local) + the two external kinds with a model parse; a bogus kind throws.
+  assert.deepEqual(parseReviewBackendId('codex'), { kind: 'codex' });
+  assert.deepEqual(parseReviewBackendId('anthropic-api:opus-4.8'), { kind: 'anthropic-api', model: 'opus-4.8' });
+  assert.throws(() => parseReviewBackendId('bogus:x'), UnknownBackendError);
+});
