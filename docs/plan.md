@@ -29,7 +29,19 @@ Navigator-style active board. Per v2 §6, the file has exactly four sections —
 
 ## Next
 
-(none)
+### Wave 24 — /run-loop portable exit gate (repo-resolved checks + fail-safe)
+
+- depends-on: Wave 23 merged (✓ 1173320)
+- spec: docs/specs/2026-06-16-run-loop-portable-gate.md
+- Runner: worktree — all tasks. T1–T6 are AFK (ready-for-agent), built on the host via the `/run-wave` orchestrator's `.claude/worktrees/agent-<id>/` (the sandcastle container lane is preflight-refused on this host, so it is NOT used); T7 is worktree/HITL (ready-for-human) — operator-gated live validation, a DAG leaf (no HITL-as-non-leaf warning)
+- done-when: `ShellGateRunner` executes the repo-resolved gate (`.harness-profile gate:` → `RUN_LOOP_GATE_*` → `RepoGateConfig`); no gate configured ⇒ preflight-refused (primary) + per-item RED (backstop), never vacuously green; partial gate (a sub-check empty) still passes; the verify-gate reproduces a gate-reddening finding again; SKILL.md + AGENTS.md document the `gate:` block + the "adopt on a new repo" checklist; 240-test baseline green + new regressions, strict tsc 0, no `any`, zero frozen-interface change
+- next-concrete-action: `/run-wave 24` (spec adversarially approved via `/planning-loop` 2026-06-17 — 3 cap rounds + arbiter + `/grill-me` Task 4 redesign + confirming passes → `approve`)
+
+**Tasks (7):** T1 `buildGateConfigFromEnv` + `RepoGateConfig` threading (F-030), T2 fail-safe `ShellGateRunner` three-way rule (F-031), T3 preflight refusal for unconfigured repos (F-032), T4 FF-only merge guard + post-gate worktree hygiene (`--ff-only` + `discardWorktreeChanges`) (F-033), T5 verify-gate-heals regression test (F-034), T6 `gate:` block docs + new-repo on-ramp checklist (F-035), T7 live validation on quickbase-replacement [worktree/HITL, DAG leaf] (F-036). Dependency: T1 → T2 → {T3, T4}; T5 after T2; T6 after T4; T7 operator-gated (after T3+T4+T6). T1–T6 AFK/worktree; T7 HITL.
+
+**Exit gate:** Each task's `Verify` block in the spec is the source of truth. Wave-level: the repo-resolved gate executes real checks; the fail-safe three-way rule holds (no-gate ⇒ refuse + red; partial ⇒ passes; configured-but-empty ⇒ red); the verify-gate heals; 240+ tests green; strict tsc 0; no `any`; zero frozen-interface change.
+
+**Estimate:** ~0.5–1 operator-day for T1–T5 (code + docs); T6 is a separate operator-gated live run.
 
 ## Blocked
 
