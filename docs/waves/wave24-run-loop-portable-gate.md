@@ -2,8 +2,8 @@
 wave_number: 24
 slug: run-loop-portable-gate
 spec_path: docs/specs/2026-06-16-run-loop-portable-gate.md
-merge_sha: TBD
-closed_at: TBD
+merge_sha: 72f950e
+closed_at: 2026-06-17
 ---
 
 # Wave 24 — /run-loop portable exit gate (repo-resolved + fail-safe)
