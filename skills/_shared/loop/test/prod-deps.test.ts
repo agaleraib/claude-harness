@@ -17,6 +17,7 @@ import {
   ShellGateRunner,
   TerminationGatedSource,
   buildBackendConfigFromEnv,
+  buildGateConfigFromEnv,
   buildProductionDeps,
   buildTerminalTransitionHook,
 } from '../run-loop-prod-deps.ts';
@@ -672,4 +673,130 @@ test('T6: a RED drive preserves the branch, leaves HEAD unchanged, and falls bac
   // The throwaway repo has no remote → the real `git push` fails → no-remote fallback.
   const row = prod.attention.rows.find((r) => r.itemId === 'issue-9');
   assert.ok((row?.fallbackCommands?.length ?? 0) > 0, 'no-remote fallback wrote copy-paste commands');
+});
+
+// --- Wave 24 Task 2 (F-031): the fail-safe three-way rule -------------------------
+//
+// Each test drives one item through the production protocol with a MergeRecordingCommitter
+// (records the merge lifecycle) + a recording spawn that distinguishes the implement spawn
+// (`codex`) from gate-check spawns. The gate config is threaded via buildProductionDeps's
+// `gateConfig` option (Task 1). The item carries NO own `gate` descriptor, so the repo
+// config is the only gate source — exercising the no-gate / partial / configError arms.
+
+// A spawn that records every gate-check command (non-codex spawns) and returns the exit
+// for the named command (`true`→0, `false`→1, otherwise 0).
+function recordingGateSpawn(): { spawn: SpawnFn; gateCalls: string[] } {
+  const gateCalls: string[] = [];
+  const spawn: SpawnFn = async (cmd, argv): Promise<SpawnResult> => {
+    if (cmd === 'codex') return { exitCode: 0, stdout: 'edited', stderr: '' };
+    gateCalls.push(`${cmd} ${argv.join(' ')}`.trim());
+    if (cmd === 'false') return { exitCode: 1, stdout: '', stderr: 'gate stderr tail' };
+    return { exitCode: 0, stdout: '', stderr: '' };
+  };
+  return { spawn, gateCalls };
+}
+
+function failSafeProd(opts: {
+  item: WorkItem;
+  gateConfig?: import('../run-loop-prod-deps.ts').RepoGateConfig;
+  spawn: SpawnFn;
+  committer: MergeRecordingCommitter;
+}) {
+  return buildProductionDeps({
+    source: new OneItemSource(opts.item),
+    readyItems: [opts.item],
+    cwdFor: () => '/repo',
+    config: { anthropicApiKey: 'rk' },
+    gh: new GhStub(),
+    ...(opts.gateConfig !== undefined ? { gateConfig: opts.gateConfig } : {}),
+    seams: { spawn: opts.spawn, http: reviewHttp, committer: opts.committer as unknown as ShellGitCommitter, console: { print: () => {} } },
+  });
+}
+
+test('T2: NO gate configured ⇒ not green (gate-unconfigured), nothing spawned, not merged', async () => {
+  const item: WorkItem = { id: 'issue-1', runner: 'worktree', implementBackend: 'codex', body: 'x' }; // no item gate
+  const { spawn, gateCalls } = recordingGateSpawn();
+  const committer = new MergeRecordingCommitter({ commits: ['sha1'] });
+  const prod = failSafeProd({ item, spawn, committer }); // no gateConfig ⇒ isConfigured false
+  const result = await prod.engine.protocol.run(item, prod.engine.runnerFactory.create(item, 'worktree'));
+  assert.equal(result.status, 'failed', 'an unconfigured gate is NEVER vacuously green');
+  assert.match(result.note ?? '', /gate-unconfigured/);
+  assert.equal(gateCalls.length, 0, 'no gate command was spawned (decided before running)');
+  assert.ok(!committer.calls.some((c) => c.startsWith('mergeToHead')), 'an unconfigured item is never merged');
+  // Routes to the HITL handoff (preserve branch + escalate), not a silent merge.
+  assert.ok(committer.calls.includes('pushBranch:run-loop/issue-1'));
+});
+
+test('T2: tests-only config, tests exit 0 ⇒ green, typecheck/verify not spawned, merges', async () => {
+  const item: WorkItem = { id: 'issue-2', runner: 'worktree', implementBackend: 'codex', body: 'x' };
+  const { spawn, gateCalls } = recordingGateSpawn();
+  const committer = new MergeRecordingCommitter({ commits: ['sha1'] });
+  const cfg = buildGateConfigFromEnv({ RUN_LOOP_GATE_TESTS: '["true"]' });
+  const prod = failSafeProd({ item, gateConfig: cfg, spawn, committer });
+  const result = await prod.engine.protocol.run(item, prod.engine.runnerFactory.create(item, 'worktree'));
+  assert.equal(result.status, 'completed', 'a partial (tests-only) green gate proceeds to merge');
+  assert.deepEqual(gateCalls, ['true'], 'only the declared tests check ran; absent sub-checks did not spawn');
+  assert.ok(committer.calls.includes('mergeToHead:run-loop/issue-2'));
+});
+
+test('T2: tests-only config, tests non-zero ⇒ red, escalated, stderr tail in note', async () => {
+  const item: WorkItem = { id: 'issue-3', runner: 'worktree', implementBackend: 'codex', body: 'x' };
+  const { spawn, gateCalls } = recordingGateSpawn();
+  const committer = new MergeRecordingCommitter({ commits: ['sha1'] });
+  const cfg = buildGateConfigFromEnv({ RUN_LOOP_GATE_TESTS: '["false"]' });
+  const prod = failSafeProd({ item, gateConfig: cfg, spawn, committer });
+  const result = await prod.engine.protocol.run(item, prod.engine.runnerFactory.create(item, 'worktree'));
+  assert.equal(result.status, 'failed');
+  assert.match(result.note ?? '', /gate-failed/);
+  assert.match(result.note ?? '', /gate stderr tail/, 'the red check stderr tail is surfaced');
+  assert.deepEqual(gateCalls, ['false']);
+  assert.ok(!committer.calls.some((c) => c.startsWith('mergeToHead')), 'a red item is never merged');
+});
+
+test('T2: full config all green ⇒ green', async () => {
+  const item: WorkItem = { id: 'issue-4', runner: 'worktree', implementBackend: 'codex', body: 'x' };
+  const { spawn, gateCalls } = recordingGateSpawn();
+  const committer = new MergeRecordingCommitter({ commits: ['sha1'] });
+  const cfg = buildGateConfigFromEnv({
+    RUN_LOOP_GATE_TESTS: '["true"]',
+    RUN_LOOP_GATE_TYPECHECK: '["true"]',
+    RUN_LOOP_GATE_VERIFY: '["true"]',
+  });
+  const prod = failSafeProd({ item, gateConfig: cfg, spawn, committer });
+  const result = await prod.engine.protocol.run(item, prod.engine.runnerFactory.create(item, 'worktree'));
+  assert.equal(result.status, 'completed');
+  assert.equal(gateCalls.length, 3, 'all three checks ran');
+  assert.ok(committer.calls.includes('mergeToHead:run-loop/issue-4'));
+});
+
+test('T2: a { shell } command spawns sh -c <value> and its exit is honored', async () => {
+  const item: WorkItem = { id: 'issue-5', runner: 'worktree', implementBackend: 'codex', body: 'x' };
+  const shellSpawns: Array<{ cmd: string; argv: readonly string[] }> = [];
+  const spawn: SpawnFn = async (cmd, argv): Promise<SpawnResult> => {
+    if (cmd === 'codex') return { exitCode: 0, stdout: '', stderr: '' };
+    shellSpawns.push({ cmd, argv });
+    return { exitCode: 0, stdout: '', stderr: '' };
+  };
+  const committer = new MergeRecordingCommitter({ commits: ['sha1'] });
+  const cfg = buildGateConfigFromEnv({ RUN_LOOP_GATE_TESTS_SHELL: 'npm test && tsc' });
+  const prod = failSafeProd({ item, gateConfig: cfg, spawn, committer });
+  const result = await prod.engine.protocol.run(item, prod.engine.runnerFactory.create(item, 'worktree'));
+  assert.equal(result.status, 'completed');
+  assert.equal(shellSpawns[0]?.cmd, 'sh');
+  assert.deepEqual(shellSpawns[0]?.argv, ['-c', 'npm test && tsc']);
+});
+
+test('T2: a RepoGateConfig configError ⇒ not green (gate-config-error), nothing spawned', async () => {
+  const item: WorkItem = { id: 'issue-6', runner: 'worktree', implementBackend: 'codex', body: 'x' };
+  const { spawn, gateCalls } = recordingGateSpawn();
+  const committer = new MergeRecordingCommitter({ commits: ['sha1'] });
+  // BOTH argv + *_SHELL for tests ⇒ a configError (mix-is-an-error).
+  const cfg = buildGateConfigFromEnv({ RUN_LOOP_GATE_TESTS: '["true"]', RUN_LOOP_GATE_TESTS_SHELL: 'true' });
+  assert.ok(cfg.configError !== undefined, 'precondition: the env is a configError');
+  const prod = failSafeProd({ item, gateConfig: cfg, spawn, committer });
+  const result = await prod.engine.protocol.run(item, prod.engine.runnerFactory.create(item, 'worktree'));
+  assert.equal(result.status, 'failed', 'a misconfigured gate fails CLOSED');
+  assert.match(result.note ?? '', /gate-config-error/);
+  assert.equal(gateCalls.length, 0, 'no gate command was spawned on a configError');
+  assert.ok(!committer.calls.some((c) => c.startsWith('mergeToHead')));
 });
