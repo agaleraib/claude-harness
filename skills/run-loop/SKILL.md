@@ -101,9 +101,51 @@ Before the first item runs, run the guardrail preflight (`skills/_shared/loop/sa
 
 Hand the selected provider + per-item protocol + runner factory to the shared engine (`runLoop`). Dependent items are sequenced **serially** by `ReadinessGatedSource`: a blocked item is withheld until its blockers are recorded done this run, so item B branches off item A's already-merged HEAD (sandcastle's serial-off-HEAD model — see `sandcastle_mattpocock_architecture.md`). Termination caps (iteration 20 / stall-after-3) are enforced by a composing `WorkSource` wrapper.
 
-**Merge model — `merge-to-head` (Wave 23).** Each item works on an isolated, predictably-named temp branch off HEAD (`run-loop/issue-<n>` / `run-loop/<item-id>`); the agent edits there, the runner commits on the branch, and the mechanical gate runs. On a GREEN gate with no surviving escalation, the loop **auto-merges the branch into HEAD** (host-side `git merge`, fast-forward in the serial case) and deletes the branch — **no PR, no `git push`, no human**. A non-green item's commits stay on its branch and **never touch HEAD**.
+**Merge model — `merge-to-head`, fast-forward-only (Wave 23 + Wave 24).** Each item works on an isolated, predictably-named temp branch off HEAD (`run-loop/issue-<n>` / `run-loop/<item-id>`); the agent edits there, the runner commits on the branch, and the mechanical gate runs. **The per-item gate IS the merge gate**: the temp branch is cut off HEAD and, in the strictly-serial drive, the gated tree == the merged tree — so on a GREEN gate with no surviving escalation the loop **auto-merges the branch into HEAD via `git merge --ff-only`** and deletes the branch (**no PR, no `git push`, no human, no re-gate**). The merge is fast-forward-**only**: if HEAD diverged since the branch was cut (an external commit), `--ff-only` exits without starting a merge, and the item is **escalated** (`non-fast-forward: HEAD moved since the gated tree was cut; refusing to merge an un-gated tree`) rather than synthesizing an un-gated 3-way merge. A non-green item's commits stay on its branch and **never touch HEAD**. Every gate execution's working-tree byproducts are **discarded between items** (`git reset --hard HEAD` + `git clean -fd`, NO `-x` — so ignored `.env`/`node_modules` are never deleted and ignored build caches never leak into a commit).
 
-**HITL handoff (the rare exception).** When an item needs a human — a merge conflict (`git merge --abort`, HEAD untouched), a red gate, or a reproduced review finding — the loop preserves the named branch, **pushes it, and opens a draft PR** via the `GhClient` seam, then **continues** (skip-and-continue; it never crashes). If there is no remote / no `gh` creds it falls back to writing the exact copy-paste `git push`/`gh pr create` commands. Either way, every run writes a persistent **attention report** at `.harness-state/run-loop-<date>-attention.md` (`N auto-merged ✓ · M need you ↓`, each need-you item = reason + branch + PR link / commands + next step) and the run summary points at it — so nothing is lost.
+**HITL handoff (the rare exception).** When an item needs a human — a red gate, a reproduced review finding, or a non-fast-forward divergence (HEAD untouched; the loop does **not** `git merge --abort`, because `--ff-only` never started a merge) — the loop preserves the named branch, **pushes it, and opens a draft PR** via the `GhClient` seam, then **continues** (skip-and-continue; it never crashes). If there is no remote / no `gh` creds it falls back to writing the exact copy-paste `git push`/`gh pr create` commands. Either way, every run writes a persistent **attention report** at `.harness-state/run-loop-<date>-attention.md` (`N auto-merged ✓ · M need you ↓`, each need-you item = reason + branch + PR link / commands + next step) and the run summary points at it — so nothing is lost.
+
+### The repo-resolved gate (Wave 24) — the `.harness-profile` `gate:` block
+
+`/run-loop` replaces the human merge gate with a MECHANICAL one (green tests + Verify + zero surviving CRITICAL/HIGH review findings). That mechanical gate is the entire reason it is safe to walk away — **a gate that fails OPEN is worse than no gate.** So the gate is **repo-resolved** and **fail-safe**: the TARGET repo declares the checks `/run-loop` must run, and a repo with no resolvable gate is **refused** rather than merged blind.
+
+**Where the checks come from.** The target repo declares them in its `.harness-profile` under a `gate:` block. The SKILL reads that block and exports the checks as `RUN_LOOP_GATE_*` env vars before invoking the engine (the engine itself is **zero-dep** — it does NOT parse YAML; it only reads env). Same wiring channel as `RUN_LOOP_IMPLEMENT_BACKEND` etc.
+
+```yaml
+# .harness-profile (in the TARGET repo)
+gate:
+  tests:     ["npm", "test"]          # a YAML LIST  → argv form (run with NO shell)
+  typecheck: ["npx", "tsc", "--noEmit"]
+  verify:    "npm run build && npm run smoke"   # a SCALAR string → shell form (run via sh -c)
+```
+
+**Two encoding forms (Decision 7 — NO shell sniffing).** Each check is encoded in exactly ONE of two explicit forms; `/run-loop` never guesses based on whether a value "looks like" it has shell metacharacters:
+
+| Form | `.harness-profile` value | Exported env | How it runs |
+|---|---|---|---|
+| **argv** | a YAML **list** of strings | `RUN_LOOP_GATE_TESTS=["npm","test"]` (a JSON array) | spawned directly, **NO shell** (`argv[0]` + args; no re-tokenization) |
+| **shell** | a YAML **scalar** string | `RUN_LOOP_GATE_TESTS_SHELL="npm test && tsc -p ."` | spawned `sh -c "<value>"` (use this when you need `&&`, pipes, globs, env expansion) |
+
+The same three keys take the same suffixes: `RUN_LOOP_GATE_TESTS` / `_TYPECHECK` / `_VERIFY` (argv) and their `*_SHELL` siblings (shell).
+
+- **Quoting.** Argv form is a JSON array — each token is one element (`["bash","-lc","echo hi"]` runs `bash -lc "echo hi"` with no re-splitting). Shell form is a single scalar handed verbatim to `sh -c`.
+- **Mixing both forms for one check is a config error.** Declaring, e.g., both `RUN_LOOP_GATE_TESTS` and `RUN_LOOP_GATE_TESTS_SHELL` is refused (named) — `/run-loop` never silently picks one.
+- **A present-but-empty value** (`""` or `[]`) **omits that check** — a legitimate **partial gate** (e.g. tests-only). An absent sub-check passes, but ONLY when a gate is otherwise configured.
+
+**The fail-safe contract (Decision 3 — the three-way rule).**
+
+1. **No gate configured at all** (no `gate:` block, no item descriptor) ⇒ the run is **refused at preflight** (before any agent dispatch) AND each item is **RED** per-item — `/run-loop` never merges a repo whose checks it cannot run. The refusal carries the fix: *"Add a `gate:` block (tests/typecheck/verify) to the target repo's `.harness-profile`."*
+2. **Gate configured but a sub-check empty** ⇒ that sub-check **passes** (the partial-gate case above).
+3. **Gate configured but misconfigured** (mix-is-an-error, invalid JSON) ⇒ **RED → escalate** (fails closed).
+
+Because the merge is fast-forward-only, the per-item gate IS the merge gate — and because the gate is fail-safe, a never-configured gate can never reach the merge.
+
+### Adopt `/run-loop` on a new repo — the on-ramp checklist
+
+1. **Add a `gate:` block** to that repo's `.harness-profile` (`tests:` / `typecheck:` / `verify:`, in either encoding form above). Without it, `/run-loop` refuses the run.
+2. **Authenticate `gh` against that repo** (`gh auth status` from the repo) — `issues` mode reads/labels issues and opens the HITL draft PRs through it.
+3. **Label issues `ready-for-agent`** and declare `blocked-by` edges between dependent issues (the serial `ReadinessGatedSource` withholds a blocked item until its blockers are done this run).
+4. **Confirm the agent + review credentials are available** — `codex` on PATH (the default implement + local-fallback review backend), and the review key (`ANTHROPIC_API_KEY` for the Opus reviewer, gated behind `RUN_LOOP_ALLOW_EXTERNAL_REVIEW=1`; otherwise review stays local on Codex).
 
 ### Module status (built-but-unwired disposition, Wave 23)
 
