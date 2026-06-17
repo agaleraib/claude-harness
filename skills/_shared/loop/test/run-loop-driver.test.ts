@@ -92,6 +92,121 @@ test('T2: a wired container lane (default) still clears a sandcastle item', asyn
   assert.deepEqual(omitted.cleared.map((i) => i.id), ['sc']);
 });
 
+// --- Wave 24 Task 3 (F-032): preflight refuses a run with no resolvable gate -------
+
+test('T3: no resolvable gate ⇒ the item is REFUSED at preflight with the fix line', async () => {
+  const items: WorkItem[] = [{ id: 'issue-1', runner: 'worktree', implementBackend: 'codex' }];
+  const pre = await runBackendAwarePreflight(items, EMPTY_CONFIG, hook(true), {
+    gateConfig: { isConfigured: false },
+  });
+  assert.equal(pre.cleared.length, 0, 'an item with no resolvable gate is not cleared');
+  assert.equal(pre.refused[0]?.itemId, 'issue-1');
+  assert.match(pre.refused[0]?.reason ?? '', /gate-unconfigured/);
+  assert.match(pre.refused[0]?.reason ?? '', /gate:` block/);
+});
+
+test('T3: a valid RepoGateConfig (isConfigured) ⇒ the item proceeds', async () => {
+  const items: WorkItem[] = [{ id: 'issue-2', runner: 'worktree', implementBackend: 'codex' }];
+  const pre = await runBackendAwarePreflight(items, EMPTY_CONFIG, hook(true), {
+    gateConfig: { isConfigured: true },
+  });
+  assert.deepEqual(pre.cleared.map((i) => i.id), ['issue-2']);
+  assert.equal(pre.refused.length, 0);
+});
+
+test('T3: a RepoGateConfig.configError ⇒ refused with the gate-config-error reason', async () => {
+  const items: WorkItem[] = [{ id: 'issue-3', runner: 'worktree', implementBackend: 'codex' }];
+  const pre = await runBackendAwarePreflight(items, EMPTY_CONFIG, hook(true), {
+    gateConfig: { isConfigured: false, configError: 'tests: declared in BOTH forms' },
+  });
+  assert.equal(pre.cleared.length, 0);
+  assert.match(pre.refused[0]?.reason ?? '', /gate-config-error/);
+  assert.match(pre.refused[0]?.reason ?? '', /declared in BOTH forms/);
+});
+
+test('T3: a clean-room item carrying its OWN gate descriptor proceeds with no gate config', async () => {
+  const items: WorkItem[] = [
+    { id: 'local-1', runner: 'worktree', implementBackend: 'codex', gate: { tests: ['npm', 'test'] } },
+  ];
+  const pre = await runBackendAwarePreflight(items, EMPTY_CONFIG, hook(true), {
+    gateConfig: { isConfigured: false }, // no repo gate, but the item carries its own
+  });
+  assert.deepEqual(pre.cleared.map((i) => i.id), ['local-1'], 'an item-gate item is exempt from the refusal');
+  assert.equal(pre.refused.length, 0);
+});
+
+test('T3: the gate refusal composes with the existing Claude-hook refusal', async () => {
+  // The gate refusal is the EARLIEST gate (refuse-before-work). `no-gate` has no own gate
+  // ⇒ refused gate-unconfigured. `claude-wt` carries its OWN gate (so it is exempt from the
+  // gate refusal) but still needs the denylist hook ⇒ refused for the hook. Both refusals
+  // coexist, each with its own reason.
+  const items: WorkItem[] = [
+    { id: 'no-gate', runner: 'worktree', implementBackend: 'codex' },
+    { id: 'claude-wt', runner: 'worktree', implementBackend: 'claude', gate: { tests: ['npm', 'test'] } },
+  ];
+  const pre = await runBackendAwarePreflight(items, EMPTY_CONFIG, hook(false), {
+    gateConfig: { isConfigured: false },
+  });
+  assert.equal(pre.cleared.length, 0);
+  const reasons = pre.refused.map((r) => `${r.itemId}:${r.reason}`);
+  assert.ok(reasons.some((r) => r.startsWith('no-gate:') && /gate-unconfigured/.test(r)));
+  assert.ok(reasons.some((r) => r.startsWith('claude-wt:') && /denylist hook/.test(r)));
+});
+
+test('T3: omitting gateConfig is backward-compatible (no gate-based refusal)', async () => {
+  const items: WorkItem[] = [{ id: 'issue-9', runner: 'worktree', implementBackend: 'codex' }];
+  const pre = await runBackendAwarePreflight(items, EMPTY_CONFIG, hook(true)); // no gateConfig
+  assert.deepEqual(pre.cleared.map((i) => i.id), ['issue-9'], 'no gateConfig ⇒ no gate refusal');
+});
+
+test('T3: drive REFUSES a no-gate run before any dispatch; the fix line is in the preview', async () => {
+  let loopRan = false;
+  const engine: EngineDeps = {
+    source: { async nextReady() { loopRan = true; return null; }, async isDone() { return false; }, async recordResult() {} },
+    protocol: new NoopProtocol(),
+    runnerFactory: new StubRunnerFactory(),
+  };
+  const { console: con, lines } = recordingConsole();
+  const outcome = await drive({
+    engine,
+    config: EMPTY_CONFIG,
+    readyItems: [{ id: 'issue-1', runner: 'worktree', implementBackend: 'codex' }],
+    hookProbe: hook(true),
+    console: con,
+    confirm: { async confirm() { return true; } },
+    buildReport: () => REPORT,
+    yes: true,
+    gateConfig: { isConfigured: false },
+  });
+  assert.equal(outcome.status, 'aborted-preflight');
+  assert.equal(loopRan, false, 'no dispatch when the only item is gate-refused');
+  assert.ok(lines.some((l) => /gate-unconfigured/.test(l)), 'the refusal is surfaced');
+  assert.ok(lines.some((l) => /gate:` block/.test(l)), 'the one-line fix is in the preview');
+});
+
+test('T3: drive proceeds when a valid gate config is threaded', async () => {
+  let loopRan = false;
+  const engine: EngineDeps = {
+    source: { async nextReady() { loopRan = true; return null; }, async isDone() { return false; }, async recordResult() {} },
+    protocol: new NoopProtocol(),
+    runnerFactory: new StubRunnerFactory(),
+  };
+  const { console: con } = recordingConsole();
+  const outcome = await drive({
+    engine,
+    config: EMPTY_CONFIG,
+    readyItems: [{ id: 'issue-2', runner: 'worktree', implementBackend: 'codex' }],
+    hookProbe: hook(true),
+    console: con,
+    confirm: { async confirm() { return true; } },
+    buildReport: () => REPORT,
+    yes: true,
+    gateConfig: { isConfigured: true },
+  });
+  assert.equal(outcome.status, 'ran');
+  assert.equal(loopRan, true, 'a configured gate ⇒ the loop runs');
+});
+
 // --- preview + summary text -------------------------------------------------------
 
 test('T5: the preview lists each item with its resolved runner + backends', () => {
