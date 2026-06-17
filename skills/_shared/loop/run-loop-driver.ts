@@ -63,6 +63,19 @@ export interface BackendAwarePreflight {
   readonly hookActive: boolean;
 }
 
+/**
+ * The minimal shape of the repo-resolved gate config the preflight needs (Wave 24,
+ * Task 3). Defined structurally here (not imported from `run-loop-prod-deps.ts`) to avoid
+ * an import cycle — that module already imports `DriverConsole` from here. The concrete
+ * `RepoGateConfig` (with `tests`/`typecheck`/`verify` commands) satisfies this shape.
+ */
+export interface PreflightGateConfig {
+  /** True iff at least one runnable gate check resolved for this repo. */
+  readonly isConfigured: boolean;
+  /** Set when the gate env is internally inconsistent (a misconfigured gate). */
+  readonly configError?: string;
+}
+
 /** Additive preflight options (Wave 22, Task 2 — Bug 2). */
 export interface PreflightOptions {
   /**
@@ -72,6 +85,35 @@ export interface PreflightOptions {
    * Absent ⇒ `true` (backward-compatible: sandcastle clears as before).
    */
   readonly containerLaneWired?: boolean;
+  /**
+   * The repo-resolved gate config (Wave 24, Task 3 — F-032). When the run has ready items
+   * but NO gate is resolvable — not `isConfigured`, or a `configError` — AND the item
+   * carries no own `gate` descriptor, the item is REFUSED before any agent dispatch:
+   * /run-loop refuses to merge a repo whose checks it cannot run (fail-safe, mirroring the
+   * Docker-absent / Claude-hook-absent refusals). Absent ⇒ no gate-based refusal
+   * (backward-compatible with callers that do not yet thread the config).
+   */
+  readonly gateConfig?: PreflightGateConfig;
+}
+
+/** The one-line fix surfaced on a gate-unconfigured / gate-config-error refusal. */
+const GATE_REFUSAL_FIX =
+  'Add a `gate:` block (tests/typecheck/verify) to the target repo\'s `.harness-profile` — ' +
+  '/run-loop refuses to merge a repo whose checks it cannot run.';
+
+/** Whether an item carries its own runnable `gate` descriptor (clean-room/local path). */
+function itemHasOwnGate(item: WorkItem): boolean {
+  const gate = item['gate'];
+  if (gate === null || typeof gate !== 'object') {
+    return false;
+  }
+  for (const key of ['tests', 'typecheck', 'verify'] as const) {
+    const v = (gate as Record<string, unknown>)[key];
+    if (Array.isArray(v) && v.length > 0 && v.every((x) => typeof x === 'string')) {
+      return true;
+    }
+  }
+  return false;
 }
 
 /**
@@ -98,6 +140,27 @@ export async function runBackendAwarePreflight(
   const cleared: WorkItem[] = [];
   const refused: PreflightRefusal[] = [];
   for (const item of items) {
+    // Wave 24 (Task 3): fail-safe gate refusal — refuse BEFORE any agent dispatch when the
+    // run has no resolvable gate for this item. A repo `configError` reds it (`gate-config-
+    // error`); an unconfigured repo with no own item gate reds it (`gate-unconfigured`).
+    // An item carrying its OWN `gate` descriptor (clean-room/local path) is exempt.
+    if (opts.gateConfig !== undefined && !itemHasOwnGate(item)) {
+      if (opts.gateConfig.configError !== undefined) {
+        refused.push({
+          itemId: item.id,
+          reason: `gate-config-error: ${opts.gateConfig.configError}. ${GATE_REFUSAL_FIX}`,
+        });
+        continue;
+      }
+      if (!opts.gateConfig.isConfigured) {
+        refused.push({
+          itemId: item.id,
+          reason: `gate-unconfigured: no gate commands resolved for this repo. ${GATE_REFUSAL_FIX}`,
+        });
+        continue;
+      }
+    }
+
     const kind = resolveRunnerKind(item);
     if (kind === 'sandcastle') {
       if (!containerLaneWired) {
@@ -188,6 +251,12 @@ export interface DriverDeps {
    */
   readonly containerLaneWired?: boolean;
   /**
+   * The repo-resolved gate config (Wave 24, Task 3 — F-032). Threaded into the backend-
+   * aware preflight so a run against a repo with no resolvable gate is REFUSED before any
+   * agent dispatch (fail-safe). Absent ⇒ no gate-based refusal.
+   */
+  readonly gateConfig?: PreflightGateConfig;
+  /**
    * Wave 23: the per-run attention rows (auto-merged ✓ / need-you ↓). When present, the
    * driver renders + writes `.harness-state/run-loop-<date>-attention.md` at run end and
    * prints a pointer line. `attentionSink`/`attentionDate` are injectable for tests.
@@ -214,6 +283,7 @@ export async function drive(deps: DriverDeps): Promise<DriveOutcome> {
   //    a Codex item is not. If everything is refused, abort before the loop.
   const pre = await runBackendAwarePreflight(deps.readyItems, deps.config, deps.hookProbe, {
     containerLaneWired: deps.containerLaneWired ?? true,
+    ...(deps.gateConfig !== undefined ? { gateConfig: deps.gateConfig } : {}),
   });
   for (const r of pre.refused) {
     deps.console.print(`refused: ${r.itemId} — ${r.reason}`);

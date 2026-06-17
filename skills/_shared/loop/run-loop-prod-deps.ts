@@ -68,7 +68,7 @@ import {
   OpenRouterReviewBackend,
   dispatchReview,
 } from './dispatch/review.ts';
-import { type GateRunner, runExitGate } from './protocol/gate.ts';
+import { type GateResult, type GateRunner, runExitGate } from './protocol/gate.ts';
 import {
   type FindingFixer,
   type FindingReproducer,
@@ -206,45 +206,230 @@ export function buildBackendConfigFromEnv(
   };
 }
 
+// --- repo-resolved gate config (Wave 24, Task 1 — F-030) --------------------------
+//
+// Decision 2 (gate is repo-resolved): the TARGET repo declares its checks; the SKILL.md
+// reads the `.harness-profile` `gate:` block and exports the env vars; the engine consumes
+// the env into a `RepoGateConfig` with NO YAML parser (zero-dep). Decision 7 (gate command
+// encoding — NO shell sniffing): each check is encoded in exactly one of two EXPLICIT forms:
+//   (a) argv form  `RUN_LOOP_GATE_TESTS` = a JSON array of strings → spawned directly, NO shell;
+//   (b) shell form `RUN_LOOP_GATE_TESTS_SHELL` = a scalar string → spawned `sh ['-c', value]`.
+// The same check in BOTH forms ⇒ a configError (never silently pick one). No auto-detection of
+// shell metacharacters.
+
 /**
- * A production GateRunner that shells the repo's checks for one item. For the
- * clean-room local path the item carries an explicit `gate` descriptor (tests /
- * typecheck / verify commands run in `cwd`); absent ⇒ the gate is vacuously green
- * (nothing to check). Each command's zero exit = pass.
+ * A single gate check command. A discriminated value: either a non-empty argv (run with
+ * NO shell — `argv[0]` is the command, the rest are args) or a `{ shell }` scalar (run as
+ * `sh ['-c', value]`). These are the only two encodings (Decision 7).
+ */
+export type Command = { readonly argv: readonly string[] } | { readonly shell: string };
+
+/** The three repo-declared gate checks, plus a config-error sentinel + the "configured?" flag. */
+export interface RepoGateConfig {
+  readonly tests?: Command;
+  readonly typecheck?: Command;
+  readonly verify?: Command;
+  /**
+   * Set when the env is internally inconsistent (a check declared in BOTH the argv and
+   * `*_SHELL` forms, or invalid JSON in the argv form). A misconfigured gate fails CLOSED
+   * (Task 2 turns this into a RED/refuse with the offending check named) — never green.
+   */
+  readonly configError?: string;
+  /** True iff at least one runnable check resolved (⇒ "a gate is configured for this repo"). */
+  readonly isConfigured: boolean;
+}
+
+/** The three gate-check keys, in their canonical order. */
+const GATE_CHECK_KEYS = ['tests', 'typecheck', 'verify'] as const;
+type GateCheckKey = (typeof GATE_CHECK_KEYS)[number];
+
+/** The env-var suffix for each check's argv form (`RUN_LOOP_GATE_<SUFFIX>`). */
+const GATE_ENV_SUFFIX: Readonly<Record<GateCheckKey, string>> = {
+  tests: 'TESTS',
+  typecheck: 'TYPECHECK',
+  verify: 'VERIFY',
+};
+
+/**
+ * Parse one check's two env forms into a `Command` (or undefined / a config error).
+ * Returns `{ command }` when exactly one form resolves, `{}` when neither resolves, and
+ * `{ error }` when both forms are populated (mix-is-an-error) or the argv JSON is invalid.
+ *
+ * Precedence per Decision 7 when BOTH are present is moot: the same check declared in both
+ * forms is a configError, not a silent pick. (The item-`gate`-descriptor arm of the
+ * precedence lives in `ShellGateRunner.cmdFor`, ahead of this repo config.)
+ */
+function parseCheckFromEnv(
+  env: Readonly<Record<string, string | undefined>>,
+  key: GateCheckKey,
+): { readonly command?: Command; readonly error?: string } {
+  const suffix = GATE_ENV_SUFFIX[key];
+  const argvRaw = env[`RUN_LOOP_GATE_${suffix}`];
+  const shellRaw = env[`RUN_LOOP_GATE_${suffix}_SHELL`];
+
+  // Shell form: a present, non-empty scalar.
+  const hasShell = typeof shellRaw === 'string' && shellRaw.trim().length > 0;
+
+  // Argv form: a present value parsed as a JSON non-empty string[].
+  let argvCommand: Command | undefined;
+  if (typeof argvRaw === 'string' && argvRaw.trim().length > 0) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(argvRaw);
+    } catch {
+      // Invalid JSON (e.g. `RUN_LOOP_GATE_TESTS="npm test"`) ⇒ key omitted + a config error.
+      return { error: `${key}: RUN_LOOP_GATE_${suffix} is not valid JSON (expected a JSON array of strings, e.g. ["npm","test"])` };
+    }
+    if (Array.isArray(parsed) && parsed.length > 0 && parsed.every((x) => typeof x === 'string')) {
+      argvCommand = { argv: parsed as readonly string[] };
+    } else if (!Array.isArray(parsed)) {
+      // A non-array JSON value (e.g. `5`, `{"a":1}`) is a config error.
+      return { error: `${key}: RUN_LOOP_GATE_${suffix} JSON must be an array of strings` };
+    }
+    // Else: a present-but-empty array (`[]`) ⇒ key omitted, NOT a config error (a partial gate).
+  }
+
+  // Mix-is-an-error: the SAME check declared in BOTH a runnable argv AND a runnable shell.
+  if (argvCommand !== undefined && hasShell) {
+    return {
+      error: `${key}: declared in BOTH RUN_LOOP_GATE_${suffix} (argv) and RUN_LOOP_GATE_${suffix}_SHELL — pick one encoding`,
+    };
+  }
+
+  // Precedence: *_SHELL scalar → JSON-argv → absent. (Both-present is handled above.)
+  if (hasShell) {
+    return { command: { shell: (shellRaw as string) } };
+  }
+  if (argvCommand !== undefined) {
+    return { command: argvCommand };
+  }
+  return {};
+}
+
+/**
+ * Build a `RepoGateConfig` from the gate env vars (Decision 2 + Decision 7). Sibling to
+ * `buildBackendConfigFromEnv`. NO YAML parser — the SKILL.md does the `.harness-profile`
+ * `gate:` read and exports the env. The same check in both encodings, or invalid JSON,
+ * surfaces a `configError`; a present-but-empty value omits the key (a legitimate partial
+ * gate). `isConfigured` is true iff ≥1 runnable check resolved.
+ */
+export function buildGateConfigFromEnv(
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): RepoGateConfig {
+  const resolved: { tests?: Command; typecheck?: Command; verify?: Command } = {};
+  const errors: string[] = [];
+  for (const key of GATE_CHECK_KEYS) {
+    const r = parseCheckFromEnv(env, key);
+    if (r.error !== undefined) {
+      errors.push(r.error);
+    }
+    if (r.command !== undefined) {
+      resolved[key] = r.command;
+    }
+  }
+  const isConfigured =
+    resolved.tests !== undefined || resolved.typecheck !== undefined || resolved.verify !== undefined;
+  return {
+    ...resolved,
+    ...(errors.length > 0 ? { configError: errors.join('; ') } : {}),
+    isConfigured,
+  };
+}
+
+/**
+ * A production GateRunner that shells the repo's checks for one item. Resolution per
+ * Decision 7's precedence: item `gate` descriptor → repo `RepoGateConfig` check → absent.
+ * Each command's zero exit = pass; a `{ shell }` command is spawned `sh ['-c', value]`, an
+ * argv command is spawned directly (NO shell). The three-way fail-safe rule (Decision 3) —
+ * no gate ⇒ NOT green, configError ⇒ NOT green, partial gate ⇒ absent sub-check passes — is
+ * applied by the per-item protocol (Task 2) which keys on `isConfiguredFor`/`configError`.
  */
 export class ShellGateRunner implements GateRunner {
   private readonly spawn: SpawnFn;
   private readonly cwd: string;
-  constructor(spawn: SpawnFn, cwd: string) {
+  private readonly config: RepoGateConfig;
+  /** Captured note for the most recent red check (truncated stderr tail). */
+  private lastNote: string | undefined;
+  constructor(spawn: SpawnFn, cwd: string, config: RepoGateConfig = { isConfigured: false }) {
     this.spawn = spawn;
     this.cwd = cwd;
+    this.config = config;
   }
-  private async runCmd(cmd: readonly string[] | undefined): Promise<boolean> {
-    if (cmd === undefined || cmd.length === 0) {
-      return true; // no check declared ⇒ pass (vacuously green)
-    }
-    const [command, ...argv] = cmd;
-    if (command === undefined) {
+
+  /** Whether ANY gate is configured for this item (item descriptor OR repo config). */
+  isConfiguredFor(item: WorkItem): boolean {
+    if (this.config.isConfigured) {
       return true;
     }
-    const r = await this.spawn(command, argv, {
+    const gate = item['gate'];
+    if (gate !== null && typeof gate === 'object') {
+      for (const key of GATE_CHECK_KEYS) {
+        const v = (gate as Record<string, unknown>)[key];
+        if (Array.isArray(v) && v.length > 0 && v.every((x) => typeof x === 'string')) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  /** The config error (if the repo config is internally inconsistent). */
+  configError(): string | undefined {
+    return this.config.configError;
+  }
+
+  /** The note for the most recent red check (cleared at the start of each check). */
+  note(): string | undefined {
+    return this.lastNote;
+  }
+
+  private async runCmd(cmd: Command | undefined): Promise<boolean> {
+    if (cmd === undefined) {
+      return true; // sub-check absent ⇒ passes (only legitimate when a gate is otherwise configured)
+    }
+    let command: string;
+    let argv: readonly string[];
+    if ('shell' in cmd) {
+      command = 'sh';
+      argv = ['-c', cmd.shell];
+    } else {
+      const [first, ...rest] = cmd.argv;
+      if (first === undefined) {
+        return true; // empty argv ⇒ nothing to run (defensive; parser rejects empty arrays)
+      }
+      command = first;
+      argv = rest;
+    }
+    const r = await this.spawn(command, [...argv], {
       cwd: this.cwd,
       env: process.env as Record<string, string>,
       stdio: ['ignore', 'pipe', 'pipe'],
     });
+    if (r.exitCode !== 0) {
+      // Record the red check's stderr tail. Set ONLY on an actual red spawn so it survives
+      // a later absent (no-op) sub-check — runExitGate runs all three with no short-circuit,
+      // and an absent sub-check must not clear an earlier red check's note.
+      this.lastNote = truncateStderr(r.stderr);
+    }
     return r.exitCode === 0;
   }
-  private cmdFor(item: WorkItem, key: 'tests' | 'typecheck' | 'verify'): readonly string[] | undefined {
+
+  /** Resolve a check command: item `gate` descriptor first, then the repo config. */
+  private cmdFor(item: WorkItem, key: GateCheckKey): Command | undefined {
     const gate = item['gate'];
     if (gate !== null && typeof gate === 'object') {
       const v = (gate as Record<string, unknown>)[key];
-      if (Array.isArray(v) && v.every((x) => typeof x === 'string')) {
-        return v as string[];
+      if (Array.isArray(v) && v.length > 0 && v.every((x) => typeof x === 'string')) {
+        return { argv: v as readonly string[] };
       }
     }
-    return undefined;
+    return this.config[key];
   }
+
   async runTests(item: WorkItem): Promise<boolean> {
+    // First check of the gate sequence clears the prior run's note (the protocol builds a
+    // fresh ShellGateRunner per gate invocation, but defend against reuse).
+    this.lastNote = undefined;
     return this.runCmd(this.cmdFor(item, 'tests'));
   }
   async runTypecheck(item: WorkItem): Promise<boolean> {
@@ -379,8 +564,8 @@ export class ProductionProtocol implements PerItemProtocol {
         log(`implement: ${backend.id} exited ${result.exitCode} but produced edits; committing + gating anyway`);
       }
 
-      // 2. EXIT GATE — authoritative for merge.
-      const gate = await runExitGate(item, this.d.gate(item, cwd));
+      // 2. EXIT GATE — authoritative for merge, FAIL-SAFE (Wave 24 Task 2, Decision 3).
+      const gate = await this.runFailSafeGate(item, cwd);
       log(`gate: green=${gate.green} checks=${JSON.stringify(gate.checks)}`);
       if (!gate.green) {
         // RED gate: preserve the branch (back to the main line, no merge), hand it off.
@@ -405,10 +590,13 @@ export class ProductionProtocol implements PerItemProtocol {
       log(`review: backend=${review.backend} findings=${review.findings.length}`);
 
       // 4. VERIFY-GATE — reviewer proposes, the gate decides. A finding "reproduces" iff
-      //    it makes the gate go red; nothing here acts on a raw assertion.
-      const gateRunner = this.d.gate(item, cwd);
+      //    it makes the FAIL-SAFE gate go red; nothing here acts on a raw assertion. Using
+      //    the fail-safe gate (not a raw runExitGate) is what heals the verify-gate (Wave 24
+      //    Task 5): a real gate goes red on a reddening finding, so the finding reproduces;
+      //    a non-reddening finding stays advisory. (An unconfigured item never reaches here —
+      //    its per-item gate already red'd it / preflight refused the run.)
       const reproducer: FindingReproducer = {
-        reproduce: async () => !(await runExitGate(item, gateRunner)).green,
+        reproduce: async () => !(await this.runFailSafeGate(item, cwd)).green,
       };
       const fixer: FindingFixer = { fix: async () => { /* no auto-fix on the local path */ } };
       const vg = await runVerifyGate(item, review.findings, { reproducer, fixer, gh: this.d.gh, maxFixRounds: 1 });
@@ -425,17 +613,26 @@ export class ProductionProtocol implements PerItemProtocol {
         return { itemId: item.id, status: 'escalated', note: `a review finding reproduced + was not fixed within the bound; ${handoff}` };
       }
 
-      // 5. GREEN + no escalation ⇒ merge-to-head. Back to the main line, then merge.
+      // 5. GREEN + no escalation ⇒ fast-forward-only merge-to-head (Wave 24, Task 4 —
+      //    Mechanism A). Back to the main line, then `git merge --ff-only`. In the serial
+      //    drive the gated tree == the merge candidate, so a fast-forward advances HEAD to
+      //    the gated tip with NO re-gating needed.
       await ops.checkout(cwd, origBranch);
       const merge = await ops.mergeToHead(cwd, branch);
       if (!merge.ok) {
-        // escalate-on-conflict: abort (HEAD untouched), preserve the branch, hand it off,
-        // and CONTINUE the loop (skip-and-continue) — do NOT crash.
-        await ops.abortMerge(cwd);
+        // Non-fast-forward: HEAD diverged since the branch was cut (an external commit), so
+        // `--ff-only` refused WITHOUT starting a merge (no MERGE_HEAD). Do NOT `abortMerge`
+        // (it would throw — there is nothing to abort). Preserve the branch (no deleteBranch),
+        // hand it off, escalate, and CONTINUE the loop (skip-and-continue) — never crash, and
+        // never synthesize an un-gated 3-way merge onto HEAD.
         await runner.teardown();
         const handoff = await this.handoff(item, branch, 'merge-conflict', title);
-        log(`merge: CONFLICT on ${item.id}; aborted + preserved ${branch}`);
-        return { itemId: item.id, status: 'escalated', note: `merge-conflict: could not auto-merge ${branch} onto HEAD; ${handoff}` };
+        log(`merge: NON-FAST-FORWARD on ${item.id}; HEAD moved — preserved ${branch} (no abort)`);
+        return {
+          itemId: item.id,
+          status: 'escalated',
+          note: `non-fast-forward: HEAD moved since the gated tree was cut; refusing to merge an un-gated tree; ${handoff}`,
+        };
       }
       await ops.deleteBranch(cwd, branch);
       await runner.teardown();
@@ -455,6 +652,91 @@ export class ProductionProtocol implements PerItemProtocol {
         /* best-effort cleanup — never mask the original throw */
       }
       throw err;
+    }
+  }
+
+  /**
+   * Run the per-item exit gate FAIL-SAFE (Wave 24, Task 2 — the locked three-way rule,
+   * Decision 3). The "is anything configured?" decision is made ONCE per item, keyed on
+   * the runner's `isConfiguredFor(item)` (item descriptor OR repo `RepoGateConfig`):
+   *   (a) no gate configured at all          ⇒ NOT green, note `gate-unconfigured: …`
+   *       — NEVER vacuously green. (The motivating defect was a gate that ran zero commands
+   *       and returned green, so the loop merged blind.)
+   *   (b) a `configError` is set             ⇒ NOT green, note `gate-config-error: <text>`
+   *       — a misconfigured gate fails CLOSED.
+   *   (c) configured                          ⇒ delegate to `runExitGate`. A present
+   *       sub-check runs (zero exit = pass); an absent sub-check passes (legitimate partial
+   *       gate — `runCmd(undefined) → true`).
+   *
+   * A gate runner WITHOUT the fail-safe surface (`isConfiguredFor`/`configError`) is a
+   * test/wiring shim — fall back to `runExitGate` (the pre-Wave-24 behavior) so those tests
+   * are unaffected. Production always injects a `ShellGateRunner`, which has the surface.
+   *
+   * Wave 24, Task 4 — Mechanism B (post-gate worktree hygiene): EVERY gate execution that
+   * runs real commands is wrapped in a `try/finally` that calls `discardWorktreeChanges`
+   * AFTER the gate (GREEN, RED, or throw), BEFORE any checkout/merge. The gate runs in two
+   * places — the initial per-item gate AND the verify-gate reproducer — and both route
+   * through here, so this single chokepoint covers both. Without it, a gate's working-tree
+   * byproducts (tracked mods / non-ignored untracked files) would be swept into the NEXT
+   * item's `git add -A` commit. The unconfigured / configError arms run no commands, so they
+   * skip the discard (nothing was touched).
+   */
+  private async runFailSafeGate(item: WorkItem, cwd: string): Promise<GateResult> {
+    const runner = this.d.gate(item, cwd);
+    const fs = runner as FailSafeGateRunner;
+    if (typeof fs.isConfiguredFor === 'function') {
+      const configError = typeof fs.configError === 'function' ? fs.configError() : undefined;
+      if (configError !== undefined) {
+        return {
+          green: false,
+          checks: { tests: false, typecheck: false, verify: false },
+          note: `gate-config-error: ${configError}`,
+        };
+      }
+      if (!fs.isConfiguredFor(item)) {
+        return {
+          green: false,
+          checks: { tests: false, typecheck: false, verify: false },
+          note: 'gate-unconfigured: no gate commands resolved for this repo',
+        };
+      }
+    }
+    // Configured (or a test shim without the surface) ⇒ run the real exit gate. On a red
+    // gate, enrich the note with the runner's captured stderr tail (the last red check's
+    // truncated stderr) so the failure note names WHY, not just WHICH, check failed. The
+    // finally discards any working-tree side effect the gate's commands left behind.
+    try {
+      const result = await runExitGate(item, runner);
+      if (!result.green && typeof fs.note === 'function') {
+        const tail = fs.note();
+        if (tail !== undefined) {
+          const base = result.note ?? `exit gate red for ${item.id}`;
+          return { ...result, note: `${base} — ${tail}` };
+        }
+      }
+      return result;
+    } finally {
+      await this.discardWorktreeChanges(cwd);
+    }
+  }
+
+  /**
+   * Discard the gate's working-tree side effects (Wave 24, Task 4 — Mechanism B). Calls
+   * the committer's additive `discardWorktreeChanges` (`git reset --hard HEAD` + `git clean
+   * -fd`, NO `-x`). A committer without it (a minimal test fake) is a no-op — the wrap is
+   * still safe. Never throws out of a `finally` (a hygiene failure must not mask the gate
+   * result); a failure is traced and swallowed.
+   */
+  private async discardWorktreeChanges(cwd: string): Promise<void> {
+    const probe = (this.d.committer as ShellGitCommitterLike).discardWorktreeChanges;
+    if (probe === undefined) {
+      return;
+    }
+    try {
+      await probe.call(this.d.committer, cwd);
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err);
+      this.d.console.print(`[trace] post-gate worktree hygiene failed (continuing): ${reason}`);
     }
   }
 
@@ -583,6 +865,23 @@ interface ShellGitCommitterLike extends GitCommitter {
   abortMerge?(cwd: string): Promise<void>;
   deleteBranch?(cwd: string, branch: string): Promise<void>;
   pushBranch?(cwd: string, branch: string, remote?: string): Promise<GitOpResult>;
+  // Wave 24 (Task 4) — post-gate worktree hygiene (additive concrete method).
+  discardWorktreeChanges?(cwd: string): Promise<void>;
+}
+
+/**
+ * Structural type: a GateRunner that also exposes the Wave-24 fail-safe surface. The
+ * frozen `GateRunner` (`protocol/gate.ts`) is NOT widened; these are surfaced structurally
+ * (the `ShellGitCommitterLike` precedent). `ShellGateRunner` implements all three; a test
+ * shim that omits them falls back to the pre-Wave-24 `runExitGate` behavior.
+ */
+interface FailSafeGateRunner extends GateRunner {
+  /** Whether ANY gate is configured for the item (item descriptor OR repo config). */
+  isConfiguredFor?(item: WorkItem): boolean;
+  /** The repo config's internal-inconsistency error, if any (a misconfigured gate). */
+  configError?(): string | undefined;
+  /** A truncated stderr tail captured for the most recent red check. */
+  note?(): string | undefined;
 }
 
 /** The production EngineDeps + the resolved config + the source's ready items. */
@@ -600,6 +899,12 @@ export interface ProductionDeps {
   readonly containerLaneWired: boolean;
   /** Wave 23: the per-run attention-row collector (the driver renders + writes it). */
   readonly attention: AttentionCollector;
+  /**
+   * Wave 24 (Task 1/Task 3): the repo-resolved gate config the graph was built with. The
+   * driver reads this for the fail-safe preflight refusal (no resolvable gate ⇒ refuse the
+   * run before any agent dispatch). Always present (defaults to `isConfigured: false`).
+   */
+  readonly gateConfig: RepoGateConfig;
 }
 
 /** Options for assembling the production graph. */
@@ -620,6 +925,13 @@ export interface BuildProductionDepsOptions {
    * `drained` (the frozen `runLoop` only ever sees a drained source).
    */
   readonly stopReason?: () => RunStopReason;
+  /**
+   * Wave 24 (Task 1): the repo-resolved gate config (from `buildGateConfigFromEnv`),
+   * threaded into every per-item `ShellGateRunner` via its constructor. Absent ⇒ an
+   * unconfigured config (`isConfigured: false`) — the Task-2 fail-safe rule then reds the
+   * item / Task-3 refuses the run at preflight. NEVER vacuously green.
+   */
+  readonly gateConfig?: RepoGateConfig;
 }
 
 /**
@@ -660,7 +972,8 @@ export function buildProductionDeps(opts: BuildProductionDepsOptions): Productio
   );
   void codexReviewFor; // per-item codex review wiring is available; fallbackCwd suffices here.
 
-  const gate = (_item: WorkItem, cwd: string): GateRunner => new ShellGateRunner(spawn, cwd);
+  const gateConfig = opts.gateConfig ?? { isConfigured: false };
+  const gate = (_item: WorkItem, cwd: string): GateRunner => new ShellGateRunner(spawn, cwd, gateConfig);
 
   const attention = new AttentionCollector();
   const protocol = new ProductionProtocol({
@@ -730,7 +1043,7 @@ export function buildProductionDeps(opts: BuildProductionDepsOptions): Productio
     return builder.build(opts.stopReason?.() ?? 'drained');
   };
 
-  return { engine, config, readyItems: opts.readyItems, buildReport, containerLaneWired, attention };
+  return { engine, config, readyItems: opts.readyItems, buildReport, containerLaneWired, attention, gateConfig };
 }
 
 /**
@@ -763,6 +1076,9 @@ export async function buildIssuesProductionDeps(
   // Task 6 knob: the per-run --implement/--review overrides (flag-then-env) land on
   // config.implementDefault / config.reviewDefault here.
   const config = buildBackendConfigFromEnv(process.env, overrides);
+  // Wave 24 (Task 1): resolve the repo gate from env (the SKILL.md exported the
+  // `.harness-profile` `gate:` block into RUN_LOOP_GATE_* before invoking the engine).
+  const gateConfig = buildGateConfigFromEnv(process.env);
   const repoCwd = process.cwd();
   return buildProductionDeps({
     source: termSource,
@@ -770,6 +1086,7 @@ export async function buildIssuesProductionDeps(
     cwdFor: () => repoCwd,
     config,
     gh,
+    gateConfig,
     stopReason: () => termSource.stopReason(),
     ...(seams !== undefined ? { seams } : {}),
   });
@@ -1039,6 +1356,12 @@ export function buildLocalCleanRoomDeps(opts: {
   readonly item: WorkItem;
   readonly config: BackendConfig;
   readonly seams?: ProductionSeams;
+  /**
+   * Wave 24 (Task 1): the repo gate config. The clean-room item usually carries its OWN
+   * `gate` descriptor (the item-descriptor arm of Decision 7's precedence), so this can be
+   * absent (defaults to `isConfigured: false`); the item gate then drives the per-item gate.
+   */
+  readonly gateConfig?: RepoGateConfig;
 }): ProductionDeps {
   const noopGh: GhClient = {
     async listIssues() { return []; },
@@ -1058,6 +1381,7 @@ export function buildLocalCleanRoomDeps(opts: {
     cwdFor: () => opts.repoDir,
     config: opts.config,
     gh: noopGh,
+    ...(opts.gateConfig !== undefined ? { gateConfig: opts.gateConfig } : {}),
     ...(opts.seams !== undefined ? { seams: opts.seams } : {}),
   });
 }
