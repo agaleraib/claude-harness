@@ -225,7 +225,10 @@ test('T3: ShellGitCommitter.dirty() is false on a clean tree and true after an e
 
 // --- Wave 23 Task 1: merge-to-head lifecycle on the committer ----------------------
 
-test('T1: createTempBranch / abortMerge / deleteBranch issue the expected git argv', async () => {
+test('T1: createTempBranch / abortMerge (probe + abort) / deleteBranch issue the expected git argv', async () => {
+  // Wave 24, Task 4: abortMerge now probes MERGE_HEAD first and only aborts when one
+  // exists. recordingSpawn returns exit 0 for every call ⇒ the probe "succeeds" ⇒ the
+  // abort runs (the no-MERGE_HEAD no-op case is covered separately in prod-deps.test.ts).
   const { spawn, calls } = recordingSpawn();
   const committer = new ShellGitCommitter(spawn);
   await committer.createTempBranch('/wt', 'run-loop/issue-2');
@@ -233,26 +236,28 @@ test('T1: createTempBranch / abortMerge / deleteBranch issue the expected git ar
   await committer.deleteBranch('/wt', 'run-loop/issue-2');
   assert.deepEqual(calls.map((c) => c.argv), [
     ['checkout', '-b', 'run-loop/issue-2'],
+    ['rev-parse', '-q', '--verify', 'MERGE_HEAD'],
     ['merge', '--abort'],
     ['branch', '-D', 'run-loop/issue-2'],
   ]);
-  assert.deepEqual(calls.map((c) => c.cmd), ['git', 'git', 'git']);
+  assert.deepEqual(calls.map((c) => c.cmd), ['git', 'git', 'git', 'git']);
   // stdin is ignored on every dispatched git op (the non-negotiable invariant).
   assert.deepEqual(calls[0]?.stdio, ['ignore', 'pipe', 'pipe']);
 });
 
-test('T1: mergeToHead returns a typed conflict (not a throw) on a non-zero merge', async () => {
+test('T1: mergeToHead is --ff-only and returns a typed non-FF (not a throw) on a non-zero merge', async () => {
+  // Wave 24, Task 4 (Mechanism A): the merge is fast-forward-only.
   let argv: readonly string[] | undefined;
-  const conflictSpawn: SpawnFn = async (_cmd, a) => {
+  const nonFfSpawn: SpawnFn = async (_cmd, a) => {
     argv = a;
-    return { exitCode: 1, stdout: 'CONFLICT (content): Merge conflict in x', stderr: 'merge failed' };
+    return { exitCode: 128, stdout: '', stderr: 'fatal: Not possible to fast-forward, aborting.' };
   };
-  const committer = new ShellGitCommitter(conflictSpawn);
+  const committer = new ShellGitCommitter(nonFfSpawn);
   const r = await committer.mergeToHead('/wt', 'run-loop/issue-2');
-  assert.deepEqual(argv, ['merge', 'run-loop/issue-2']);
+  assert.deepEqual(argv, ['merge', '--ff-only', 'run-loop/issue-2']);
   assert.equal(r.ok, false);
-  assert.equal(r.exitCode, 1);
-  assert.match(r.stderr, /merge failed/);
+  assert.equal(r.exitCode, 128);
+  assert.match(r.stderr, /fast-forward/);
 });
 
 test('T1: mergeToHead returns ok on a clean merge', async () => {

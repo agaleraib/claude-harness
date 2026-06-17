@@ -7,7 +7,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, writeFileSync, readFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
@@ -476,6 +476,7 @@ class MergeRecordingCommitter {
     this.calls.push(`pushBranch:${b}`);
     return { ok: this.opts.pushOk ?? true, exitCode: this.opts.pushOk === false ? 128 : 0, stderr: '' };
   }
+  async discardWorktreeChanges(): Promise<void> { this.calls.push('discardWorktreeChanges'); }
 }
 
 const passSpawn: SpawnFn = async (cmd): Promise<SpawnResult> =>
@@ -506,7 +507,9 @@ test('T3: a RED-gate item is preserved on its branch, pushed, and a draft PR is 
   assert.ok(row?.prUrl?.startsWith('https://github.com/'));
 });
 
-test('T3: a merge conflict aborts, preserves the branch, hands off, and does NOT crash', async () => {
+test('T4: a non-fast-forward merge escalates, preserves the branch, hands off, and does NOT abort', async () => {
+  // Under `--ff-only` (Wave 24, Task 4), a `!merge.ok` is a NON-fast-forward (HEAD diverged),
+  // which under --ff-only never starts a merge — so abortMerge must NOT be called.
   const item: WorkItem = { id: 'issue-7', runner: 'worktree', implementBackend: 'codex', body: 'x', gate: { tests: ['true'] } };
   const committer = new MergeRecordingCommitter({ mergeOk: false, commits: ['sha1'] });
   const gh = new GhStub();
@@ -517,10 +520,10 @@ test('T3: a merge conflict aborts, preserves the branch, hands off, and does NOT
   });
   const result = await prod.engine.protocol.run(item, prod.engine.runnerFactory.create(item, 'worktree'));
   assert.equal(result.status, 'escalated');
-  assert.match(result.note ?? '', /^merge-conflict:/);
+  assert.match(result.note ?? '', /^non-fast-forward:/);
   assert.ok(committer.calls.includes('mergeToHead:run-loop/issue-7'));
-  assert.ok(committer.calls.includes('abortMerge'), 'conflict ⇒ abort (HEAD untouched)');
-  assert.ok(!committer.calls.some((c) => c.startsWith('deleteBranch')), 'conflict ⇒ branch preserved');
+  assert.ok(!committer.calls.includes('abortMerge'), 'a non-fast-forward must NOT abort (nothing to abort)');
+  assert.ok(!committer.calls.some((c) => c.startsWith('deleteBranch')), 'divergence ⇒ branch preserved');
   assert.equal(prod.attention.rows.find((r) => r.itemId === 'issue-7')?.reason, 'merge-conflict');
 });
 
@@ -799,4 +802,194 @@ test('T2: a RepoGateConfig configError ⇒ not green (gate-config-error), nothin
   assert.match(result.note ?? '', /gate-config-error/);
   assert.equal(gateCalls.length, 0, 'no gate command was spawned on a configError');
   assert.ok(!committer.calls.some((c) => c.startsWith('mergeToHead')));
+});
+
+// --- Wave 24 Task 4 (F-033): FF-only merge guard + post-gate worktree hygiene ------
+
+// (1) serial happy path — per-item gate green ⇒ --ff-only merge advances HEAD, branch
+// deleted, and discardWorktreeChanges ran AFTER the gate (before the checkout/merge).
+test('T4: serial happy path — green gate ⇒ ff-only merge, branch deleted, discard ran post-gate', async () => {
+  const item: WorkItem = { id: 'issue-2', runner: 'worktree', implementBackend: 'codex', body: 'x', gate: { tests: ['true'] } };
+  const committer = new MergeRecordingCommitter({ commits: ['sha1'] });
+  const prod = buildProductionDeps({
+    source: new OneItemSource(item), readyItems: [item], cwdFor: () => '/repo',
+    config: { anthropicApiKey: 'rk' }, gh: new GhStub(),
+    seams: { spawn: passSpawn, http: reviewHttp, committer: committer as unknown as ShellGitCommitter, console: { print: () => {} } },
+  });
+  const result = await prod.engine.protocol.run(item, prod.engine.runnerFactory.create(item, 'worktree'));
+  assert.equal(result.status, 'completed');
+  assert.ok(committer.calls.includes('mergeToHead:run-loop/issue-2'));
+  assert.ok(committer.calls.includes('deleteBranch:run-loop/issue-2'), 'a merged branch is deleted');
+  // discardWorktreeChanges ran AFTER the gate and BEFORE the merge (checkout to origBranch).
+  const discardIdx = committer.calls.indexOf('discardWorktreeChanges');
+  const mergeIdx = committer.calls.indexOf('mergeToHead:run-loop/issue-2');
+  assert.ok(discardIdx >= 0, 'discardWorktreeChanges ran after the gate');
+  assert.ok(discardIdx < mergeIdx, 'the discard completed before the merge');
+});
+
+// (2) divergence fixture — --ff-only returns {ok:false} ⇒ escalated, HEAD unchanged,
+// branch preserved, note non-fast-forward, abortMerge NOT called.
+test('T4: divergence — ff-only !ok ⇒ escalated, HEAD unchanged, branch preserved, no abortMerge', async () => {
+  const item: WorkItem = { id: 'issue-8', runner: 'worktree', implementBackend: 'codex', body: 'x', gate: { tests: ['true'] } };
+  const committer = new MergeRecordingCommitter({ mergeOk: false, commits: ['sha1'] });
+  const prod = buildProductionDeps({
+    source: new OneItemSource(item), readyItems: [item], cwdFor: () => '/repo',
+    config: { anthropicApiKey: 'rk' }, gh: new GhStub(),
+    seams: { spawn: passSpawn, http: reviewHttp, committer: committer as unknown as ShellGitCommitter, console: { print: () => {} } },
+  });
+  const result = await prod.engine.protocol.run(item, prod.engine.runnerFactory.create(item, 'worktree'));
+  assert.equal(result.status, 'escalated');
+  assert.match(result.note ?? '', /non-fast-forward/);
+  assert.equal(await committer.head(), 'MERGESHA', 'committer.head is unchanged (a stub constant)');
+  assert.ok(!committer.calls.some((c) => c.startsWith('deleteBranch')), 'divergence ⇒ branch preserved');
+  assert.equal(committer.calls.filter((c) => c === 'abortMerge').length, 0, 'zero abortMerge invocations');
+});
+
+// (3) non-FF abort-safety regression — a faithfully-faked abortMerge that THROWS when no
+// MERGE_HEAD exists ⇒ the non-fast-forward case escalates cleanly without the throw
+// propagating (because the code path never calls abortMerge on a non-FF).
+test('T4: a throwing abortMerge does NOT crash the item on a non-fast-forward', async () => {
+  class ThrowingAbortCommitter extends MergeRecordingCommitter {
+    override async abortMerge(): Promise<void> {
+      this.calls.push('abortMerge');
+      throw new Error('There is no merge to abort (MERGE_HEAD missing)');
+    }
+  }
+  const item: WorkItem = { id: 'issue-9', runner: 'worktree', implementBackend: 'codex', body: 'x', gate: { tests: ['true'] } };
+  const committer = new ThrowingAbortCommitter({ mergeOk: false, commits: ['sha1'] });
+  const prod = buildProductionDeps({
+    source: new OneItemSource(item), readyItems: [item], cwdFor: () => '/repo',
+    config: { anthropicApiKey: 'rk' }, gh: new GhStub(),
+    seams: { spawn: passSpawn, http: reviewHttp, committer: committer as unknown as ShellGitCommitter, console: { print: () => {} } },
+  });
+  const result = await prod.engine.protocol.run(item, prod.engine.runnerFactory.create(item, 'worktree'));
+  assert.equal(result.status, 'escalated', 'the item escalates cleanly');
+  assert.match(result.note ?? '', /non-fast-forward/);
+  assert.equal(committer.calls.filter((c) => c === 'abortMerge').length, 0, 'abortMerge is never reached on a non-FF');
+  assert.ok(!committer.calls.some((c) => c.startsWith('deleteBranch')), 'branch preserved');
+  assert.equal(await committer.head(), 'MERGESHA', 'HEAD unchanged');
+});
+
+// (3b) a direct test that abortMerge is a NO-OP when no MERGE_HEAD is present (defensive
+// guard) and does not throw.
+test('T4: ShellGitCommitter.abortMerge is a no-op (no throw) when no MERGE_HEAD is present', async () => {
+  const spawns: string[] = [];
+  const spawn: SpawnFn = async (cmd, argv): Promise<SpawnResult> => {
+    spawns.push(`${cmd} ${argv.join(' ')}`);
+    // The MERGE_HEAD probe fails (exit 1) ⇒ no merge in progress.
+    if (argv.includes('MERGE_HEAD')) return { exitCode: 1, stdout: '', stderr: '' };
+    return { exitCode: 0, stdout: '', stderr: '' };
+  };
+  const committer = new ShellGitCommitter(spawn);
+  await committer.abortMerge('/repo'); // must not throw
+  assert.ok(spawns.some((s) => s.includes('MERGE_HEAD')), 'probed MERGE_HEAD');
+  assert.ok(!spawns.some((s) => s === 'git merge --abort'), 'never called git merge --abort with no MERGE_HEAD');
+});
+
+// (4) gate-leak regression — initial gate — a gate that modifies a tracked file AND creates
+// a non-ignored untracked file ⇒ after the initial per-item gate, discardWorktreeChanges
+// cleaned them and the next item's `git add -A` does NOT contain them. Real git.
+test('T4: gate-leak (initial gate) — a gate side effect is discarded, not swept into a commit (real git)', async (t) => {
+  const dir = realRepo(t);
+  // The gate (a tests command) modifies a tracked file + creates an untracked one.
+  const fakeSpawn: SpawnFn = async (cmd, _a, opts): Promise<SpawnResult> => {
+    if (cmd === 'codex') { writeFileSync(join(opts.cwd, 'feature.txt'), 'real work\n'); return { exitCode: 0, stdout: '', stderr: '' }; }
+    if (cmd === 'gate-test') {
+      writeFileSync(join(opts.cwd, 'base'), 'GATE MUTATED THIS\n'); // tracked-file mod
+      writeFileSync(join(opts.cwd, 'gate-junk.txt'), 'leak\n'); // non-ignored untracked
+      return { exitCode: 0, stdout: '', stderr: '' };
+    }
+    return { exitCode: 0, stdout: '', stderr: '' };
+  };
+  const item: WorkItem = { id: 'issue-4', runner: 'worktree', implementBackend: 'codex', body: 'x', gate: { tests: ['gate-test'] } };
+  const prod = buildProductionDeps({
+    source: new OneItemSource(item), readyItems: [item], cwdFor: () => dir,
+    config: { anthropicApiKey: 'rk' }, gh: new GhStub(),
+    seams: { spawn: fakeSpawn, http: reviewHttp, committer: new ShellGitCommitter(defaultSpawn), console: { print: () => {} } },
+  });
+  const result = await prod.engine.protocol.run(item, prod.engine.runnerFactory.create(item, 'worktree'));
+  assert.equal(result.status, 'completed');
+  // After the run, the gate's leak artifacts are GONE (discarded) and the tracked file is
+  // back to its committed content — the gate's mutation did not survive into HEAD.
+  assert.equal(existsSync(join(dir, 'gate-junk.txt')), false, 'the untracked gate leak was cleaned');
+  const headBase = execFileSync('git', ['show', 'HEAD:base'], { cwd: dir }).toString();
+  assert.equal(headBase, 'x\n', 'the gate-mutated tracked file was NOT committed (reset to HEAD)');
+  // The legitimate agent work IS on HEAD.
+  const headFeature = execFileSync('git', ['show', 'HEAD:feature.txt'], { cwd: dir }).toString();
+  assert.equal(headFeature, 'real work\n');
+  // The worktree is clean.
+  assert.equal(execFileSync('git', ['status', '--porcelain'], { cwd: dir }).toString().trim(), '');
+});
+
+// (5) gate-leak regression — verify-gate reproducer — a reproducer stub that creates a
+// tracked AND untracked artifact when re-run per finding ⇒ after the reproduction,
+// discardWorktreeChanges ran for that reproducer invocation too; worktree clean. Real git.
+test('T4: gate-leak (verify-gate reproducer) — reproducer side effect is discarded too (real git)', async (t) => {
+  const dir = realRepo(t);
+  let gateRuns = 0;
+  // The gate is green on the FIRST run (the per-item gate) and on the reproducer run, but
+  // the reproducer run leaks artifacts. We model both via the same gate command; each run
+  // leaks, and the wrap must clean after EACH.
+  const fakeSpawn: SpawnFn = async (cmd, _a, opts): Promise<SpawnResult> => {
+    if (cmd === 'codex') { writeFileSync(join(opts.cwd, 'feature.txt'), 'work\n'); return { exitCode: 0, stdout: '', stderr: '' }; }
+    if (cmd === 'gate-test') {
+      gateRuns += 1;
+      writeFileSync(join(opts.cwd, `gate-leak-${gateRuns}.txt`), 'leak\n');
+      return { exitCode: 0, stdout: '', stderr: '' };
+    }
+    return { exitCode: 0, stdout: '', stderr: '' };
+  };
+  // A review that returns one finding ⇒ the verify-gate reproducer runs the gate again.
+  const oneFindingHttp: HttpClient = {
+    async postJson() {
+      return { status: 200, json: { content: [{ type: 'text', text: JSON.stringify([{ severity: 'MEDIUM', title: 'a finding' }]) }] } };
+    },
+  };
+  const item: WorkItem = { id: 'issue-5', runner: 'worktree', implementBackend: 'codex', body: 'x', gate: { tests: ['gate-test'] } };
+  const prod = buildProductionDeps({
+    source: new OneItemSource(item), readyItems: [item], cwdFor: () => dir,
+    config: { allowExternalReview: true, anthropicApiKey: 'rk' }, gh: new GhStub(),
+    seams: { spawn: fakeSpawn, http: oneFindingHttp, committer: new ShellGitCommitter(defaultSpawn), console: { print: () => {} } },
+  });
+  const result = await prod.engine.protocol.run(item, prod.engine.runnerFactory.create(item, 'worktree'));
+  // The finding stays advisory (the gate stays green ⇒ does not reproduce) ⇒ completed.
+  assert.equal(result.status, 'completed');
+  assert.ok(gateRuns >= 2, 'the gate ran for the per-item gate AND the verify-gate reproducer');
+  // EVERY reproducer's leak artifact was discarded; the worktree is clean.
+  assert.equal(execFileSync('git', ['status', '--porcelain'], { cwd: dir }).toString().trim(), '', 'worktree clean after every gate run');
+  for (let i = 1; i <= gateRuns; i += 1) {
+    assert.equal(existsSync(join(dir, `gate-leak-${i}.txt`)), false, `gate-leak-${i}.txt was discarded`);
+  }
+});
+
+// (6) ignored-artifact case — a gate that creates an ignored artifact (coverage/) ⇒ neither
+// committed (git add -A ignores it) NOR removed by discardWorktreeChanges (no -x). Real git.
+test('T4: an ignored gate artifact is left in place (no -x) and never committed (real git)', async (t) => {
+  const dir = realRepo(t);
+  // .gitignore coverage/ — commit it so it is tracked policy from the start.
+  writeFileSync(join(dir, '.gitignore'), 'coverage/\n');
+  execFileSync('git', ['add', '.gitignore'], { cwd: dir });
+  execFileSync('git', ['commit', '-q', '-m', 'ignore coverage'], { cwd: dir });
+  const fakeSpawn: SpawnFn = async (cmd, _a, opts): Promise<SpawnResult> => {
+    if (cmd === 'codex') { writeFileSync(join(opts.cwd, 'feature.txt'), 'work\n'); return { exitCode: 0, stdout: '', stderr: '' }; }
+    if (cmd === 'gate-test') {
+      mkdirSync(join(opts.cwd, 'coverage'), { recursive: true });
+      writeFileSync(join(opts.cwd, 'coverage', 'report.html'), '<html>precious cache</html>\n');
+      return { exitCode: 0, stdout: '', stderr: '' };
+    }
+    return { exitCode: 0, stdout: '', stderr: '' };
+  };
+  const item: WorkItem = { id: 'issue-6', runner: 'worktree', implementBackend: 'codex', body: 'x', gate: { tests: ['gate-test'] } };
+  const prod = buildProductionDeps({
+    source: new OneItemSource(item), readyItems: [item], cwdFor: () => dir,
+    config: { anthropicApiKey: 'rk' }, gh: new GhStub(),
+    seams: { spawn: fakeSpawn, http: reviewHttp, committer: new ShellGitCommitter(defaultSpawn), console: { print: () => {} } },
+  });
+  const result = await prod.engine.protocol.run(item, prod.engine.runnerFactory.create(item, 'worktree'));
+  assert.equal(result.status, 'completed');
+  // The ignored artifact is LEFT in place (discardWorktreeChanges uses -fd, NOT -x).
+  assert.equal(existsSync(join(dir, 'coverage', 'report.html')), true, 'ignored artifact is preserved (no -x)');
+  // And it was never committed (git add -A skips ignored files).
+  const tracked = execFileSync('git', ['ls-files', 'coverage/'], { cwd: dir }).toString().trim();
+  assert.equal(tracked, '', 'the ignored artifact is absent from any commit');
 });

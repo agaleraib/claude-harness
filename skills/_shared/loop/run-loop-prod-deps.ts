@@ -613,17 +613,26 @@ export class ProductionProtocol implements PerItemProtocol {
         return { itemId: item.id, status: 'escalated', note: `a review finding reproduced + was not fixed within the bound; ${handoff}` };
       }
 
-      // 5. GREEN + no escalation ⇒ merge-to-head. Back to the main line, then merge.
+      // 5. GREEN + no escalation ⇒ fast-forward-only merge-to-head (Wave 24, Task 4 —
+      //    Mechanism A). Back to the main line, then `git merge --ff-only`. In the serial
+      //    drive the gated tree == the merge candidate, so a fast-forward advances HEAD to
+      //    the gated tip with NO re-gating needed.
       await ops.checkout(cwd, origBranch);
       const merge = await ops.mergeToHead(cwd, branch);
       if (!merge.ok) {
-        // escalate-on-conflict: abort (HEAD untouched), preserve the branch, hand it off,
-        // and CONTINUE the loop (skip-and-continue) — do NOT crash.
-        await ops.abortMerge(cwd);
+        // Non-fast-forward: HEAD diverged since the branch was cut (an external commit), so
+        // `--ff-only` refused WITHOUT starting a merge (no MERGE_HEAD). Do NOT `abortMerge`
+        // (it would throw — there is nothing to abort). Preserve the branch (no deleteBranch),
+        // hand it off, escalate, and CONTINUE the loop (skip-and-continue) — never crash, and
+        // never synthesize an un-gated 3-way merge onto HEAD.
         await runner.teardown();
         const handoff = await this.handoff(item, branch, 'merge-conflict', title);
-        log(`merge: CONFLICT on ${item.id}; aborted + preserved ${branch}`);
-        return { itemId: item.id, status: 'escalated', note: `merge-conflict: could not auto-merge ${branch} onto HEAD; ${handoff}` };
+        log(`merge: NON-FAST-FORWARD on ${item.id}; HEAD moved — preserved ${branch} (no abort)`);
+        return {
+          itemId: item.id,
+          status: 'escalated',
+          note: `non-fast-forward: HEAD moved since the gated tree was cut; refusing to merge an un-gated tree; ${handoff}`,
+        };
       }
       await ops.deleteBranch(cwd, branch);
       await runner.teardown();
@@ -662,6 +671,15 @@ export class ProductionProtocol implements PerItemProtocol {
    * A gate runner WITHOUT the fail-safe surface (`isConfiguredFor`/`configError`) is a
    * test/wiring shim — fall back to `runExitGate` (the pre-Wave-24 behavior) so those tests
    * are unaffected. Production always injects a `ShellGateRunner`, which has the surface.
+   *
+   * Wave 24, Task 4 — Mechanism B (post-gate worktree hygiene): EVERY gate execution that
+   * runs real commands is wrapped in a `try/finally` that calls `discardWorktreeChanges`
+   * AFTER the gate (GREEN, RED, or throw), BEFORE any checkout/merge. The gate runs in two
+   * places — the initial per-item gate AND the verify-gate reproducer — and both route
+   * through here, so this single chokepoint covers both. Without it, a gate's working-tree
+   * byproducts (tracked mods / non-ignored untracked files) would be swept into the NEXT
+   * item's `git add -A` commit. The unconfigured / configError arms run no commands, so they
+   * skip the discard (nothing was touched).
    */
   private async runFailSafeGate(item: WorkItem, cwd: string): Promise<GateResult> {
     const runner = this.d.gate(item, cwd);
@@ -685,16 +703,41 @@ export class ProductionProtocol implements PerItemProtocol {
     }
     // Configured (or a test shim without the surface) ⇒ run the real exit gate. On a red
     // gate, enrich the note with the runner's captured stderr tail (the last red check's
-    // truncated stderr) so the failure note names WHY, not just WHICH, check failed.
-    const result = await runExitGate(item, runner);
-    if (!result.green && typeof fs.note === 'function') {
-      const tail = fs.note();
-      if (tail !== undefined) {
-        const base = result.note ?? `exit gate red for ${item.id}`;
-        return { ...result, note: `${base} — ${tail}` };
+    // truncated stderr) so the failure note names WHY, not just WHICH, check failed. The
+    // finally discards any working-tree side effect the gate's commands left behind.
+    try {
+      const result = await runExitGate(item, runner);
+      if (!result.green && typeof fs.note === 'function') {
+        const tail = fs.note();
+        if (tail !== undefined) {
+          const base = result.note ?? `exit gate red for ${item.id}`;
+          return { ...result, note: `${base} — ${tail}` };
+        }
       }
+      return result;
+    } finally {
+      await this.discardWorktreeChanges(cwd);
     }
-    return result;
+  }
+
+  /**
+   * Discard the gate's working-tree side effects (Wave 24, Task 4 — Mechanism B). Calls
+   * the committer's additive `discardWorktreeChanges` (`git reset --hard HEAD` + `git clean
+   * -fd`, NO `-x`). A committer without it (a minimal test fake) is a no-op — the wrap is
+   * still safe. Never throws out of a `finally` (a hygiene failure must not mask the gate
+   * result); a failure is traced and swallowed.
+   */
+  private async discardWorktreeChanges(cwd: string): Promise<void> {
+    const probe = (this.d.committer as ShellGitCommitterLike).discardWorktreeChanges;
+    if (probe === undefined) {
+      return;
+    }
+    try {
+      await probe.call(this.d.committer, cwd);
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err);
+      this.d.console.print(`[trace] post-gate worktree hygiene failed (continuing): ${reason}`);
+    }
   }
 
   /**
@@ -822,6 +865,8 @@ interface ShellGitCommitterLike extends GitCommitter {
   abortMerge?(cwd: string): Promise<void>;
   deleteBranch?(cwd: string, branch: string): Promise<void>;
   pushBranch?(cwd: string, branch: string, remote?: string): Promise<GitOpResult>;
+  // Wave 24 (Task 4) — post-gate worktree hygiene (additive concrete method).
+  discardWorktreeChanges?(cwd: string): Promise<void>;
 }
 
 /**

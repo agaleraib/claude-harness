@@ -248,21 +248,55 @@ export class ShellGitCommitter implements GitCommitter {
   }
 
   /**
-   * Merge `branch` into the host's current branch (`git merge <branch>`), fast-forward
-   * where possible. A non-zero exit (conflict) is returned as `{ok:false}` — NOT thrown
-   * — so the caller can `abortMerge` + run the HITL handoff.
+   * Fast-forward-ONLY merge of `branch` into the host's current branch (Wave 24, Task 4 —
+   * `git merge --ff-only <branch>`). In the strictly-serial drive the temp branch is cut
+   * off HEAD and the gated tree == the merged tree, so a fast-forward advances HEAD to the
+   * gated tip. If HEAD diverged since the branch-cut (an external commit), `--ff-only`
+   * exits non-zero WITHOUT starting a merge (no `MERGE_HEAD`) and returns `{ok:false}` —
+   * NOT thrown — so the caller escalates instead of synthesizing an un-gated 3-way merge.
+   * Because `--ff-only` never starts a merge on failure, the caller must NOT `git merge
+   * --abort` on the `!ok` path (it would throw).
    */
   async mergeToHead(cwd: string, branch: string): Promise<GitOpResult> {
-    const r = await spawnIgnoringStdin(this.spawn, 'git', ['merge', branch], {
+    const r = await spawnIgnoringStdin(this.spawn, 'git', ['merge', '--ff-only', branch], {
       cwd,
       env: process.env as Record<string, string>,
     });
     return { ok: r.exitCode === 0, exitCode: r.exitCode, stderr: r.stderr };
   }
 
-  /** Abort an in-progress merge (`git merge --abort`), leaving HEAD untouched. */
+  /**
+   * Abort an in-progress merge (`git merge --abort`), leaving HEAD untouched. DEFENSIVE
+   * (Wave 24, Task 4): a NO-OP when no merge is in progress. Under `--ff-only` a failed
+   * merge never starts (no `MERGE_HEAD`), so a bare `git merge --abort` would throw "There
+   * is no merge to abort"; probe `MERGE_HEAD` first and only abort when one exists.
+   */
   async abortMerge(cwd: string): Promise<void> {
-    await this.git(cwd, ['merge', '--abort']);
+    const probe = await spawnIgnoringStdin(
+      this.spawn,
+      'git',
+      ['rev-parse', '-q', '--verify', 'MERGE_HEAD'],
+      { cwd, env: process.env as Record<string, string> },
+    );
+    if (probe.exitCode === 0) {
+      await this.git(cwd, ['merge', '--abort']);
+    }
+    // else: no merge in progress ⇒ no-op (never throw).
+  }
+
+  /**
+   * Discard ALL working-tree side effects (Wave 24, Task 4 — Mechanism B): `git reset
+   * --hard HEAD` (drop tracked-file mods + un-commit nothing — HEAD is unchanged) followed
+   * by `git clean -fd` (remove non-ignored untracked files + dirs). NO `-x`: `git add -A`
+   * never stages ignored files, so ignored build caches (`coverage/`, `dist/`, `.next/`)
+   * cannot leak into a commit; `-x` would DELETE precious ignored files (`.env`,
+   * `node_modules`). So `-fd` discards exactly the leak vectors and nothing else. Wraps
+   * EVERY gate execution (in a `finally`) so a gate's byproducts never sweep into the NEXT
+   * item's `git add -A` commit.
+   */
+  async discardWorktreeChanges(cwd: string): Promise<void> {
+    await this.git(cwd, ['reset', '--hard', 'HEAD']);
+    await this.git(cwd, ['clean', '-fd']);
   }
 
   /** Delete `branch` (`git branch -D <branch>`) — used after a GREEN merge. */
