@@ -46,6 +46,18 @@ Read `package.json`, `pyproject.toml`, `Cargo.toml`, `bun.lockb`, etc. Extract:
 - `database`: detect from dependencies (`drizzle`, `prisma`, `sqlx`, `sqlalchemy`, `mongoose`) — use `deferred` if none found but persistent state implied, `none` if clearly stateless
 - `llm_apis`: detect from dependencies (`@anthropic-ai/sdk`, `openai`, `@google/generative-ai`)
 
+### Gate commands (for `/run-loop`'s mechanical gate — Wave 24)
+Derive a **proposed** `gate:` block: the commands `/run-loop` runs to verify a change before it merges (`.harness-profile gate:` → `RUN_LOOP_GATE_*` → the engine). Map from the detected `runtime` **only using commands you can ground in the repo**:
+
+| runtime | tests | typecheck |
+|---|---|---|
+| node / bun | `package.json#scripts.test` if present, else `npm test` (only if a test runner dep exists: vitest/jest/mocha) | `package.json#scripts.typecheck` if present, else `tsc --noEmit` (only if TypeScript) |
+| python | `pytest` (only if pytest is a dep or a `tests/` dir exists) | `mypy .` (only if mypy is configured) |
+| go | `go test ./...` | `go vet ./...` |
+| rust | `cargo test` | `cargo check` |
+
+This is a **proposal to confirm in Step 3**, not a silent write. **Do NOT invent a command you can't ground** (no `scripts.test`, no test dep, no test dir ⇒ derive nothing). Deriving nothing is correct — see the fail-safe rule (Step 3 + Rules §7).
+
 ### Project name
 From `package.json#name`, `pyproject.toml#project.name`, `Cargo.toml#package.name`, or directory basename.
 
@@ -99,6 +111,13 @@ Use `AskUserQuestion` for the fields that can't be auto-detected. Group into at 
    - If `production` selected, follow up: `rollback_required` yes/no?
 
 5. **(If data_sensitivity ≠ none)** Any compliance frameworks apply? `gdpr` / `soc2` / `hipaa` / `pci` / `none` / multi-select
+
+6. **(If a gate command was derived in Step 2)** Confirm the `/run-loop` gate. Show the derived block (e.g. `tests: npm test`, `typecheck: tsc --noEmit`) and ask:
+   - `Keep` — write the derived commands as the `gate:` block (Recommended).
+   - `Edit` — operator supplies the exact command(s) per check.
+   - `None` — **omit** the `gate:` block. `/run-loop` will then **refuse** this repo until a block is added by hand (fail-safe — see Rules §7). This is a valid, safe choice, not a misconfiguration.
+
+   **If NO command was derivable in Step 2, do NOT ask and do NOT fabricate one** — silently omit the block and surface a one-line note in the Step 7 summary: *"No `gate:` block — `/run-loop` will refuse this repo until you add one (it can't guess your check commands)."*
 
 ### Round 3 — Workstreams & team (only if relevant)
 
@@ -201,6 +220,18 @@ stack:
   frameworks: [list]
   database: [name|deferred|none]
   llm_apis: [list]
+
+# Gate commands for /run-loop's mechanical gate (Wave 24 — repo-resolved + fail-safe).
+# EMIT this block ONLY when a runnable command was derived AND confirmed (Step 3).
+# OMIT it entirely if none could be grounded: /run-loop FAILS SAFE and REFUSES a repo
+# with no gate rather than merging unverified — never emit a guessed or empty command.
+# Encoding (Decision 7): a scalar string → exported as RUN_LOOP_GATE_*_SHELL (run via
+# `sh -c`); a YAML list (e.g. ["go","test","./..."]) → RUN_LOOP_GATE_* JSON-argv (no shell).
+# Per-check: omit any check (e.g. typecheck) that has no command — a partial gate is valid.
+# gate:
+#   tests: "[e.g. npm test  |  go test ./...  |  pytest]"
+#   typecheck: "[e.g. tsc --noEmit  |  go vet ./...  |  mypy .  — omit if none]"
+#   # verify: "[optional extra check]"
 
 # Only include if workstream mode is multi:
 # workstreams:
@@ -314,3 +345,4 @@ Edit `.harness-profile` anytime to adjust — it's plain YAML.
 4. **Auto-detect aggressively** — every detected field is one less question.
 5. **Respect the 3-round limit** — do not interrogate. If information is missing after 3 rounds, write a minimal profile with placeholders and comment them clearly.
 6. **Never ask for data you can read from disk** — if `package.json` has the stack, don't ask for it.
+7. **The `gate:` block is fail-safe — never guess.** Emit it only with commands grounded in the repo (a real `scripts.test`, test dep, or test dir) AND confirmed by the operator. If none can be derived, **OMIT the block** — `/run-loop` then refuses the repo (correct) rather than merging unverified. Do NOT fabricate a command to "fill in" the block. This mirrors Wave 24 (`docs/specs/2026-06-16-run-loop-portable-gate.md`, Decision 3 + Out-of-scope): auto-derivation is a convenience that must sit **on top of** fail-safe — an auto-detect that finds nothing must still refuse, never pass.
