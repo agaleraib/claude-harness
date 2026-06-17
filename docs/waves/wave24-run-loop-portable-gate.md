@@ -43,7 +43,7 @@ DEFERRED: none of gates 1–7. T7 (live re-validation) is out of scope (human-on
 
 ## §Human-only TODOs
 
-**T7 (F-036) — Live re-validation on quickbase-replacement WITH a gate configured.** Runner: worktree / HITL (ready-for-human). Gates: unobtainable-credential (live `gh` + codex + Anthropic creds on the host), out-of-band-action (real repo run + live merge/draft-PR). DAG leaf. Depends on: Task 3, Task 4, Task 6.
+**T7 (F-036) — Live re-validation on quickbase-replacement WITH a gate configured. ✅ DONE 2026-06-17 — see §T7 Live Validation Results below.** Runner: worktree / HITL (ready-for-human). Gates: unobtainable-credential (live `gh` + codex + Anthropic creds on the host), out-of-band-action (real repo run + live merge/draft-PR). DAG leaf. Depends on: Task 3, Task 4, Task 6.
 
 Operator-gated live proof: configure a `gate:` block in `quickbase-replacement/.harness-profile`; then prove:
 1. the gate actually runs on a green item before merging;
@@ -52,7 +52,21 @@ Operator-gated live proof: configure a `gate:` block in `quickbase-replacement/.
 4. the verify-gate is live (≥1 Opus finding reproduces-and-drives-a-fix or is correctly logged advisory);
 5. the merge resolves as a fast-forward (best-effort divergence check: advance HEAD externally and confirm `--ff-only` escalates with a `non-fast-forward` note, no crash).
 
-Record outcomes + real merge SHA + refusal preview + FF trace line + attention report in the wave receipt + runbook. Not attempted by this dispatch (needs live credentials + a real repo run).
+Record outcomes + real merge SHA + refusal preview + FF trace line + attention report in the wave receipt + runbook.
+
+## §T7 Live Validation Results (2026-06-17)
+
+Run live against `agaleraib/quickbase-replacement` (issues #2/#3) on a throwaway branch off a gate-green base (`207ae69`; typecheck clean + 911 vitest tests pass). Gate: `RUN_LOOP_GATE_TESTS_SHELL="npm test"` + `RUN_LOOP_GATE_TYPECHECK_SHELL="npm run typecheck"`. Backend: `--implement codex --review anthropic-api:opus-4.8`, `RUN_LOOP_ALLOW_EXTERNAL_REVIEW=1`, `OPENAI_API_KEY` unset (codex sub mode). Three runs; repo + issues restored to seeded state after (throwaway branch deleted, PR #6 closed + branch deleted, #3 label restored).
+
+| # | Outcome | Result | Evidence |
+|---|---------|--------|----------|
+| 1 | Gate runs real checks before a green merge | ✅ PASS | Run 2 (drain #2, no fixture): `gate: green=true checks={"tests":true,"typecheck":true,"verify":true}` — `npm test`+`npm run typecheck` executed on the temp branch, then merge |
+| 2 | Red change NOT merged → escalate, HEAD untouched, worktree clean | ✅ PASS | Run 3 (drain #2 with a committed failing fixture): `gate: green=false checks={"tests":false,"typecheck":true,...}` → `handoff: pushed run-loop/issue-2 + opened draft PR #6`; HEAD stayed at the fixture commit `b2ea32b` (0 merge commits since base), worktree clean (`discardWorktreeChanges` ran on the red path), summary `gate-failed:1 / merged-afk:0` |
+| 3 | Unconfigured repo refused at preflight, zero dispatch | ✅ PASS | Run 1 (no gate env): `refused: issue-2/issue-3 — gate-unconfigured: no gate commands resolved for this repo. Add a \`gate:\` block …`; exit 0 instantly, no codex dispatch |
+| 4 | Verify-gate live | ⚠️ PARTIAL | Path live + wired (`verify-gate: triaged=0 advisory=0 escalate=false` correctly computed from the Opus review), but Opus returned **0 findings** on the clean diff (Run 2) and Run 3 reddened before review — so no real finding exercised the reproduce-vs-advisory branch. Not a defect; the diff simply yielded no finding |
+| 5 | Merge is fast-forward | ✅ PASS | Run 2: linear history, **0 merge commits** since base, merged SHA == gated commit `a6f143c`, temp branch deleted. Divergence sub-check (`--ff-only` escalates a non-FF) NOT exercised — the serial drive never moved HEAD between branch-cut and merge; the FF-only guard held (spec allows best-effort here) |
+
+**Net:** the fail-open→fail-safe flip is proven live on a real repo — `/run-loop` runs the repo's real checks, merges only green via fast-forward, and refuses/escalates rather than merging blind. Green merge SHA `a6f143c` (Run 2); red handoff = closed draft PR #6 (Run 3). Two codex implements + one Opus review consumed.
 
 ## §Open Questions
 
