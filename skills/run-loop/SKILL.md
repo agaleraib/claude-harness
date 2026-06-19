@@ -21,12 +21,20 @@ Name chosen over `/loop` — that is the Anthropic interval-scheduler built-in. 
 > clean-room drain (real `codex exec` implement + real `anthropic-api:opus-4.8` review +
 > verify-gate) was completed on 2026-06-15 (see `docs/waves/wave21-run-loop-live-wiring.md`).
 >
-> **Live invocation (the SKILL body shells to this):**
+> **Live invocation (the SKILL body shells to this).** Resolve the engine to an
+> **absolute** path first — `/run-loop` runs in the **target repo's** cwd, so a
+> repo-relative `skills/_shared/loop/...` would NOT resolve (it only works from the
+> claude-harness checkout). The `_shared` module is symlinked to `~/.claude/skills/_shared`
+> by the harness install; use that, with a fallback via the skill's own symlink:
 > ```bash
+> # Resolve once — cwd-independent (works from any repo you're draining):
+> RUN_LOOP_ENGINE="$HOME/.claude/skills/_shared/loop/run-loop-entry.ts"
+> [ -f "$RUN_LOOP_ENGINE" ] || RUN_LOOP_ENGINE="$(readlink -f "$HOME/.claude/skills/run-loop")/../_shared/loop/run-loop-entry.ts"
+>
 > # issues mode — drains ready-for-agent gh issues in the current repo:
-> node skills/_shared/loop/run-loop-entry.ts issues --yes
+> node "$RUN_LOOP_ENGINE" issues --yes
 > # clean-room local drive against a throwaway repo (no gh, one JSON item):
-> node skills/_shared/loop/run-loop-entry.ts issues --yes --repo <dir> --item-file <item.json>
+> node "$RUN_LOOP_ENGINE" issues --yes --repo <dir> --item-file <item.json>
 > ```
 > API keys come from the environment (`ANTHROPIC_API_KEY` review-only, `OPENROUTER_API_KEY`)
 > and are never logged. External review (Opus/OpenRouter) requires opt-in via the per-repo
@@ -99,7 +107,7 @@ Before the first item runs, run the guardrail preflight (`skills/_shared/loop/sa
 
 ## Step 4: Drive the engine
 
-Hand the selected provider + per-item protocol + runner factory to the shared engine (`runLoop`). Dependent items are sequenced **serially** by `ReadinessGatedSource`: a blocked item is withheld until its blockers are recorded done this run, so item B branches off item A's already-merged HEAD (sandcastle's serial-off-HEAD model — see `sandcastle_mattpocock_architecture.md`). Termination caps (iteration 20 / stall-after-3) are enforced by a composing `WorkSource` wrapper.
+Launch via the **resolved absolute path** `$RUN_LOOP_ENGINE` (from "Live invocation" above — `node "$RUN_LOOP_ENGINE" <source> …`), never a repo-relative `skills/_shared/...` path: `/run-loop` runs in the target repo's cwd, so the relative form would not resolve. Hand the selected provider + per-item protocol + runner factory to the shared engine (`runLoop`). Dependent items are sequenced **serially** by `ReadinessGatedSource`: a blocked item is withheld until its blockers are recorded done this run, so item B branches off item A's already-merged HEAD (sandcastle's serial-off-HEAD model — see `sandcastle_mattpocock_architecture.md`). Termination caps (iteration 20 / stall-after-3) are enforced by a composing `WorkSource` wrapper.
 
 **Merge model — `merge-to-head`, fast-forward-only (Wave 23 + Wave 24).** Each item works on an isolated, predictably-named temp branch off HEAD (`run-loop/issue-<n>` / `run-loop/<item-id>`); the agent edits there, the runner commits on the branch, and the mechanical gate runs. **The per-item gate IS the merge gate**: the temp branch is cut off HEAD and, in the strictly-serial drive, the gated tree == the merged tree — so on a GREEN gate with no surviving escalation the loop **auto-merges the branch into HEAD via `git merge --ff-only`** and deletes the branch (**no PR, no `git push`, no human, no re-gate**). The merge is fast-forward-**only**: if HEAD diverged since the branch was cut (an external commit), `--ff-only` exits without starting a merge, and the item is **escalated** (`non-fast-forward: HEAD moved since the gated tree was cut; refusing to merge an un-gated tree`) rather than synthesizing an un-gated 3-way merge. A non-green item's commits stay on its branch and **never touch HEAD**. Every gate execution's working-tree byproducts are **discarded between items** (`git reset --hard HEAD` + `git clean -fd`, NO `-x` — so ignored `.env`/`node_modules` are never deleted and ignored build caches never leak into a commit).
 
