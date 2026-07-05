@@ -272,6 +272,20 @@ TARGET_PATH="$SPEC_PATH"
 FOCUS="review $TARGET_PATH as a plan, not code — focus on whether the design is sound, what assumptions could break under real-world conditions, and whether scope matches the stated goal"
 [[ -n "$EXTRA_FOCUS" ]] && FOCUS="$FOCUS — additional focus: $EXTRA_FOCUS"
 
+# Acceptance-criteria strictness (Wave 25, F-039): fold the shared scanner's
+# sub-strict: diagnostics into the reviewer FOCUS and the round log via the
+# review-focus helper (which composes acceptance-strictness.sh internally — the
+# single source of truth). The caller-side [[ -x "$HELPER" ]] guard IS the
+# fail-open: a missing/non-executable helper leaves $FOCUS unchanged and writes
+# no log line, because a bare `bash <missing>` returning 127 never clobbers the
+# base focus. The skill performs NO string transformation of its own — it passes
+# helper stdout straight through.
+HELPER="$HOME/.claude/skills/planning-loop/lib/acceptance-review-focus.sh"
+if [[ -x "$HELPER" ]]; then
+  FOCUS="$(bash "$HOME/.claude/skills/planning-loop/lib/acceptance-review-focus.sh" --emit-focus "$FOCUS" "$SPEC_PATH")"
+  bash "$HOME/.claude/skills/planning-loop/lib/acceptance-review-focus.sh" --emit-log "$SPEC_PATH" >> "$LOG_PATH"
+fi
+
 REVIEW_OUTPUT="$(node "$CODEX_COMPANION" adversarial-review --wait "$FOCUS" 2>&1)"
 ```
 

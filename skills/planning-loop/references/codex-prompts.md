@@ -23,6 +23,8 @@ Codex review prompts §3 (detail-arbiter) and the round-1/2+ spec-planner prompt
 
 The criterion enforces v2 protocol §"Manual is primary": every adapter is an accelerator, never the only path. A spec that can only be executed by a specific LLM is a portability defect — flag it as `needs-attention`.
 
+The `sub-strict:` diagnostics block referenced by the acceptance-criteria strictness criterion is injected verbatim by `/planning-loop` Step 5b, which runs the shared scanner `acceptance-strictness.sh` through the `acceptance-review-focus.sh` helper before each adversarial-review dispatch (and appends the same block to the round log), so Codex judges the scanner's deterministic output rather than re-interpreting the spec's prose.
+
 ---
 
 ## 1. Round-1 spec-planner dispatch (FRESH mode only)
