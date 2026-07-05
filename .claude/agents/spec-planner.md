@@ -217,6 +217,21 @@ Specs that omit `**Manual fallback:**` on any implementation task FAIL the self-
 
 **Self-check at end of spec emission.** Count implementation tasks (`grep -c '^- \[ \] \*\*Task '` or equivalent) and count `**Manual fallback:**` sub-bullets (`grep -c '\*\*Manual fallback:\*\*'`). If counts disagree, print a warning to stdout naming the missing tasks; the spec still ships (don't block) but the Manual-fallback bullet count appears in the final summary line and the user is alerted.
 
+### Acceptance-criteria strictness self-check (MANDATORY)
+
+Sibling to the Manual-fallback self-check above, and enforced the same way — it **WARNS, never blocks**. Acceptance criteria are the pass/fail contract a coding agent and an evaluator must agree on, so every scoped bullet must be machine-verifiable, not a judgment call.
+
+**This check MIRRORS the shared scanner — it does not re-implement it.** The single source of truth for what "strict" means is the deterministic shared scanner `skills/planning-loop/lib/acceptance-strictness.sh` (it owns the SCOPE rule, the closed judgment lexicon, the mechanism regexes M1–M4, and the binding rule). Run that scanner over the spec you just wrote and mirror its grammar in your reasoning — do NOT invent a second, drifting copy of the rules here.
+
+**The grammar it mirrors (clauses a–d of the shared scanner):**
+
+- **(a) SCOPE** — only `- [ ]` bullets inside an OPEN acceptance-criteria block are scanned. A block opens on a `**Acceptance criteria` marker and closes on the next `##`–`######` heading. Implementation-Plan `- [ ] **Task N:**` checkboxes are never scanned.
+- **(b) Judgment lexicon** — a closed, whole-token list of vague **judgment words** (`clean`, `properly`, `graceful`, `performant`, `fast`, `robust`, `intuitive`, `seamless`, … — see the scanner for the exhaustive set). A judgment word on its own is not verifiable.
+- **(c) Mechanisms M1–M4** — a bullet "names a **mechanism**" iff it carries a command-shaped backtick span (M1), an HTTP verb + path such as `GET /x` (M2), an ASCII numeric comparator such as `< 200` (M3), or an `Error case:` / `Edge case:` prefix (M4).
+- **(d) Binding** — a bullet is **strict** iff it names ≥1 mechanism. A judgment word is allowed only when the same bullet is also bound by a mechanism. Otherwise the bullet is *sub-strict*, tagged `unbound-judgment` (has a judgment word but no mechanism) or `no-mechanism` (asserts nothing verifiable at all).
+
+**What to do at end of spec emission.** Run `bash skills/planning-loop/lib/acceptance-strictness.sh <spec_path>` (or mirror its grammar bullet-by-bullet). For every `sub-strict:` line the scanner emits, print a WARNing to stdout naming the offending bullet and its reason code (`unbound-judgment` or `no-mechanism`), and rewrite the bullet to name a mechanism before emission when you can. This self-check **does not block**: the spec still ships even with sub-strict bullets (fail-open, exactly like the Manual-fallback self-check). The scanner's `strict=<P> total=<T>` result is surfaced in the final summary line, and `/planning-loop`'s Codex reviewer flags any remaining `sub-strict` bullet as `needs-attention`. Behavioral enforcement of the grammar lives in the scanner + its fixtures, NOT in this prose check — the check only WARNs and feeds the summary line.
+
 ### WORKFLOW.md row delta for new commands
 
 Any spec that adds a user-facing command (slash command, CLI entry point, or new subagent invocation) MUST include a `### WORKFLOW.md row delta` subsection (or equivalent named subsection) showing the new row(s) to be added. Format must match the v2 §4 matrix exactly:
@@ -243,10 +258,12 @@ When neither heuristic fires, the row delta section is **not required** (no fals
 Every `/spec-planner` invocation MUST emit exactly one final stdout line of the form:
 
 ```
-Spec shape: <wave|micro|trivial>; plan.md: <auto-appended Wave N|untouched|skipped (env var)|skipped (profile)|missing — see warning>; Manual fallback bullets: <N>/<N>; WORKFLOW.md row delta: <yes|n/a>
+Spec shape: <wave|micro|trivial>; plan.md: <auto-appended Wave N|untouched|skipped (env var)|skipped (profile)|missing — see warning>; Manual fallback bullets: <N>/<N>; WORKFLOW.md row delta: <yes|n/a>; Acceptance criteria: <P>/<T> strict
 ```
 
 The classification MUST match the actual side effects (no drift between summary and reality). This line is the auditable "did the right thing happen?" surface; downstream tooling can `grep` it to verify.
+
+The `Acceptance criteria: <P>/<T> strict` field is sourced verbatim from the shared scanner's `strict=<P> total=<T>` output (`acceptance-strictness.sh`) — `P` is the count of strict bullets, `T` the count of scoped acceptance bullets — never a re-implementation of the grammar. A spec with zero scoped acceptance bullets renders `0/0 strict`. Downstream tooling can `grep` this field exactly as it greps the Manual-fallback bullet count.
 
 ## Output Format
 
@@ -366,3 +383,4 @@ After generating the spec, write it to `docs/specs/YYYY-MM-DD-<topic>.md` (creat
 12. **Emit the final summary line.** Every invocation prints exactly one shape/plan/fallback/delta classification line to stdout, matching the actual side effects.
 13. **Conform to the plan/spec grammar.** Numbering follows AGENTS.md §"Plan & spec grammar", not prior specs. Every spec carries the `> **Board wave:**` header line; `Phase`/`Task` restart at 1 and are spec-local; never reuse or invent a board `Wave` number inside a spec; `F-0xx` is global/monotonic. Do not use "Wave" as a spec-internal heading.
 14. **Emit a `Runner:` line per wave/task.** Route each wave/task through the shared AFK/HITL classifier (`skills/_shared/classifier/`) and declare `Runner: sandcastle` (default) or `Runner: worktree`. Run the HITL-as-non-leaf lint and warn when a `worktree`/HITL wave gates ≥3 downstream waves. The wave provider defaults to `sandcastle` when the line is absent, so this is additive.
+15. **Acceptance criteria must be strict.** Run the shared scanner (`acceptance-strictness.sh`) over every spec's acceptance criteria and mirror its grammar in the Acceptance-criteria strictness self-check. WARN on each `sub-strict` bullet (naming `unbound-judgment` / `no-mechanism`); the check never blocks (fail-open) and its `<P>/<T> strict` result appears in the final summary line, where `/planning-loop`'s Codex reviewer picks up any remaining sub-strict bullet as `needs-attention`.
