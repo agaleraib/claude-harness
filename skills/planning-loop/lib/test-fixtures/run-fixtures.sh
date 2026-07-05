@@ -441,11 +441,32 @@ else
   echo "WARN: $W2_BIN missing or not executable; Wave 2 block skipped"
 fi
 
+# Wave 25 (F-039) — acceptance-strictness scanner fixtures. Driven by
+# acceptance-strictness-fixtures.sh, which runs the real lib/acceptance-strictness.sh
+# against the eight strict-*.md fixtures. Pass/fail is parsed from the trailing
+# summary line and folded into the suite total.
+echo
+echo "== acceptance-strictness fixtures (Wave 25 — F-039) =="
+AS_BIN="$SCRIPT_DIR/acceptance-strictness-fixtures.sh"
+AS_RC=0
+if [[ -x "$AS_BIN" ]]; then
+  AS_OUT=$(bash "$AS_BIN") || AS_RC=$?
+  printf '%s\n' "$AS_OUT"
+  AS_PASS=$(printf '%s\n' "$AS_OUT" | tail -1 | sed -nE 's/.*pass=([0-9]+) fail=([0-9]+)/\1/p')
+  AS_FAIL=$(printf '%s\n' "$AS_OUT" | tail -1 | sed -nE 's/.*pass=([0-9]+) fail=([0-9]+)/\2/p')
+  [[ -z "${AS_PASS:-}" ]] && AS_PASS=0
+  [[ -z "${AS_FAIL:-}" ]] && AS_FAIL=0
+  PASS=$((PASS + AS_PASS))
+  FAIL=$((FAIL + AS_FAIL))
+else
+  echo "WARN: $AS_BIN missing or not executable; acceptance-strictness block skipped"
+fi
+
 echo
 echo "----------------------------------------"
 echo "Combined total: $((PASS + FAIL))   Pass: $PASS   Fail: $FAIL"
 
-if [[ $FAIL -eq 0 && $MECH_RC -eq 0 && $W2_RC -eq 0 ]]; then
+if [[ $FAIL -eq 0 && $MECH_RC -eq 0 && $W2_RC -eq 0 && $AS_RC -eq 0 ]]; then
   exit 0
 else
   exit 1
