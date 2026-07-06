@@ -441,11 +441,106 @@ else
   echo "WARN: $W2_BIN missing or not executable; Wave 2 block skipped"
 fi
 
+# Wave 25 (F-039) — acceptance-strictness scanner fixtures. Driven by
+# acceptance-strictness-fixtures.sh, which runs the real lib/acceptance-strictness.sh
+# against the eight strict-*.md fixtures. Pass/fail is parsed from the trailing
+# summary line and folded into the suite total.
+echo
+echo "== acceptance-strictness fixtures (Wave 25 — F-039) =="
+AS_BIN="$SCRIPT_DIR/acceptance-strictness-fixtures.sh"
+AS_RC=0
+if [[ -x "$AS_BIN" ]]; then
+  AS_OUT=$(bash "$AS_BIN") || AS_RC=$?
+  printf '%s\n' "$AS_OUT"
+  AS_PASS=$(printf '%s\n' "$AS_OUT" | tail -1 | sed -nE 's/.*pass=([0-9]+) fail=([0-9]+)/\1/p')
+  AS_FAIL=$(printf '%s\n' "$AS_OUT" | tail -1 | sed -nE 's/.*pass=([0-9]+) fail=([0-9]+)/\2/p')
+  [[ -z "${AS_PASS:-}" ]] && AS_PASS=0
+  [[ -z "${AS_FAIL:-}" ]] && AS_FAIL=0
+  PASS=$((PASS + AS_PASS))
+  FAIL=$((FAIL + AS_FAIL))
+else
+  echo "WARN: $AS_BIN missing or not executable; acceptance-strictness block skipped"
+fi
+
+# Wave 25 (F-039, Finding 2) — acceptance-review-focus FOLD proof. Asserts the
+# review-focus helper folds the scanner's `sub-strict:` diagnostics into BOTH
+# the reviewer FOCUS (--emit-focus) and the round log (--emit-log), and that a
+# fully-strict spec yields the self-contained sentinel with zero sub-strict lines.
+echo
+echo "== acceptance-review-focus fold fixtures (Wave 25 — F-039) =="
+RF_BIN="$LIB_DIR/acceptance-review-focus.sh"
+RF_SAMPLE="$SCRIPT_DIR/strict-review-focus-sample.md"
+RF_ALLCLEAN="$SCRIPT_DIR/strict-all-clean.md"
+RF_SUBSTRICT_LINE='sub-strict: unbound-judgment :: - [ ] Clean shutdown on SIGTERM.'
+RF_PASS=0; RF_FAIL=0; RF_RC=0
+rf_pass() { printf '  PASS  %s\n' "$1"; RF_PASS=$((RF_PASS + 1)); }
+rf_fail() { printf '  FAIL  %s\n' "$1"; RF_FAIL=$((RF_FAIL + 1)); }
+if [[ -x "$RF_BIN" ]]; then
+  # LOAD-BEARING: --emit-focus carries base focus + the verbatim sub-strict line.
+  EF_OUT="$(bash "$RF_BIN" --emit-focus "BASE-FOCUS" "$RF_SAMPLE")"; EF_RC=$?
+  if [[ "$EF_RC" -eq 0 ]] \
+      && printf '%s\n' "$EF_OUT" | grep -qF "$RF_SUBSTRICT_LINE" \
+      && printf '%s\n' "$EF_OUT" | grep -qF "BASE-FOCUS"; then
+    rf_pass "--emit-focus folds base focus + verbatim sub-strict line"
+  else
+    rf_fail "--emit-focus missing base focus or sub-strict line (rc=$EF_RC)"
+  fi
+  # LOAD-BEARING (Wave 25 code-review F2): --emit-focus must inject the
+  # INSTRUCTION, not just the data. The emitted focus has to carry the
+  # imperative `needs-attention` rule so Codex acts on the sub-strict lines even
+  # when it never reads references/codex-prompts.md — alongside the base focus.
+  if [[ "$EF_RC" -eq 0 ]] \
+      && printf '%s\n' "$EF_OUT" | grep -qF "needs-attention" \
+      && printf '%s\n' "$EF_OUT" | grep -qF "BASE-FOCUS"; then
+    rf_pass "--emit-focus injects the needs-attention imperative header (F2)"
+  else
+    rf_fail "--emit-focus missing needs-attention imperative header (rc=$EF_RC)"
+  fi
+  # LOAD-BEARING: --emit-log carries the verbatim sub-strict line.
+  EL_OUT="$(bash "$RF_BIN" --emit-log "$RF_SAMPLE")"; EL_RC=$?
+  if [[ "$EL_RC" -eq 0 ]] && printf '%s\n' "$EL_OUT" | grep -qF "$RF_SUBSTRICT_LINE"; then
+    rf_pass "--emit-log folds verbatim sub-strict line into the round-log block"
+  else
+    rf_fail "--emit-log missing sub-strict line (rc=$EL_RC)"
+  fi
+  # Fully-strict spec: both subcommands emit the sentinel, zero sub-strict, exit 0.
+  for RF_MODE in "--emit-focus BASE-FOCUS" "--emit-log"; do
+    AC_OUT="$(bash "$RF_BIN" $RF_MODE "$RF_ALLCLEAN")"; AC_RC=$?
+    AC_SUB="$(printf '%s\n' "$AC_OUT" | grep -c '^sub-strict:')"
+    if [[ "$AC_RC" -eq 0 ]] \
+        && printf '%s\n' "$AC_OUT" | grep -qF "all acceptance criteria are strict" \
+        && [[ "$AC_SUB" -eq 0 ]]; then
+      rf_pass "$RF_MODE (all-clean) emits sentinel, zero sub-strict, exit 0"
+    else
+      rf_fail "$RF_MODE (all-clean) wrong (rc=$AC_RC, sub-strict=$AC_SUB)"
+    fi
+  done
+  # Wave 25 code-review (re-review): a missing/unreadable spec path must NOT
+  # fail open to the all-strict sentinel. The scanner exits 3 (runtime error),
+  # so the fold surfaces "diagnostics unavailable" and preserves the base focus.
+  MISS_OUT="$(bash "$RF_BIN" --emit-focus "BASE-FOCUS" "$SCRIPT_DIR/does-not-exist-$$.md")"; MISS_RC=$?
+  if [[ "$MISS_RC" -eq 0 ]] \
+      && ! printf '%s\n' "$MISS_OUT" | grep -qF "all acceptance criteria are strict" \
+      && printf '%s\n' "$MISS_OUT" | grep -qiF "diagnostics unavailable" \
+      && printf '%s\n' "$MISS_OUT" | grep -qF "BASE-FOCUS"; then
+    rf_pass "--emit-focus (missing spec) surfaces diagnostics-unavailable, no sentinel (no fail-open)"
+  else
+    rf_fail "--emit-focus (missing spec) fail-open or missing base focus (rc=$MISS_RC)"
+  fi
+  echo "----------------------------------------"
+  echo "acceptance-review-focus fixtures: pass=$RF_PASS fail=$RF_FAIL"
+  PASS=$((PASS + RF_PASS))
+  FAIL=$((FAIL + RF_FAIL))
+  [[ "$RF_FAIL" -eq 0 ]] || RF_RC=1
+else
+  echo "WARN: $RF_BIN missing or not executable; review-focus block skipped"
+fi
+
 echo
 echo "----------------------------------------"
 echo "Combined total: $((PASS + FAIL))   Pass: $PASS   Fail: $FAIL"
 
-if [[ $FAIL -eq 0 && $MECH_RC -eq 0 && $W2_RC -eq 0 ]]; then
+if [[ $FAIL -eq 0 && $MECH_RC -eq 0 && $W2_RC -eq 0 && $AS_RC -eq 0 && $RF_RC -eq 0 ]]; then
   exit 0
 else
   exit 1
