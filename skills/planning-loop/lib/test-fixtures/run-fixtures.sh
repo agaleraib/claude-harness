@@ -485,6 +485,17 @@ if [[ -x "$RF_BIN" ]]; then
   else
     rf_fail "--emit-focus missing base focus or sub-strict line (rc=$EF_RC)"
   fi
+  # LOAD-BEARING (Wave 25 code-review F2): --emit-focus must inject the
+  # INSTRUCTION, not just the data. The emitted focus has to carry the
+  # imperative `needs-attention` rule so Codex acts on the sub-strict lines even
+  # when it never reads references/codex-prompts.md — alongside the base focus.
+  if [[ "$EF_RC" -eq 0 ]] \
+      && printf '%s\n' "$EF_OUT" | grep -qF "needs-attention" \
+      && printf '%s\n' "$EF_OUT" | grep -qF "BASE-FOCUS"; then
+    rf_pass "--emit-focus injects the needs-attention imperative header (F2)"
+  else
+    rf_fail "--emit-focus missing needs-attention imperative header (rc=$EF_RC)"
+  fi
   # LOAD-BEARING: --emit-log carries the verbatim sub-strict line.
   EL_OUT="$(bash "$RF_BIN" --emit-log "$RF_SAMPLE")"; EL_RC=$?
   if [[ "$EL_RC" -eq 0 ]] && printf '%s\n' "$EL_OUT" | grep -qF "$RF_SUBSTRICT_LINE"; then
