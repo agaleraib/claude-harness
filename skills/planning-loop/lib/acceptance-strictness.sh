@@ -18,8 +18,14 @@
 # Output contract:
 #   stdout line 1 : "strict=<P> total=<T>"
 #   then          : zero or more "sub-strict: <unbound-judgment|no-mechanism> :: <bullet>"
-# Exit code is ALWAYS 0 (this is a scanner, not a gate). There is no abort
-# flag, no `abort-eligible`, no `egregious` concept.
+# Exit code is 0 on a clean scan (this is a scanner, not a gate — there is no
+# abort flag, no `abort-eligible`, no `egregious` concept). The ONE non-zero
+# exit is a matcher RUNTIME error: if a matcher cannot run (grep exits >1) the
+# scanner writes a stderr diagnostic and exits 3 instead of silently reporting a
+# non-match. Failing OPEN — reporting a bullet strict because a matcher never
+# ran — is the worst mode for an enforcement tool, so it is explicitly refused.
+# Matching is temp-free: NO bash here-strings, which write a temp file and fail
+# in read-only/restricted environments; pipes (kernel buffers) are used instead.
 #
 # Bash 3.2 compatible (macOS default shell).
 set -u
@@ -47,18 +53,45 @@ strict=0
 total=0
 sub_lines=()
 
+# matches <regex> <line> [-i]
+#   Temp-free ERE matcher. It NEVER uses a bash here-string: a here-string
+#   writes the input to a temp file, and in a read-only/restricted
+#   environment that write fails, the redirection returns non-zero BEFORE grep
+#   runs, and the caller reads the result as "no match" — the scanner then fails
+#   OPEN (a scoped bullet is silently misclassified as strict). A pipe uses a
+#   kernel pipe buffer, never touches disk, and cannot fail that way.
+#   Returns 0 on a match, 1 on a genuine NON-match. On a matcher RUNTIME error
+#   (grep exits >1 — e.g. the regex engine could not run) it does NOT report a
+#   non-match: it writes a diagnostic to stderr and aborts the whole scan
+#   (exit 3), so a matcher that never ran can never be silently reported strict.
+#   LC_ALL=C keeps the ERE dialect + locale pinned to the grammar.
+matches() {
+  local re="$1" line="$2" flag="${3:-}" rc
+  if [[ "$flag" == "-i" ]]; then
+    printf '%s\n' "$line" | LC_ALL=C grep -Eiq -e "$re"
+  else
+    printf '%s\n' "$line" | LC_ALL=C grep -Eq -e "$re"
+  fi
+  rc=$?
+  if [[ $rc -gt 1 ]]; then
+    printf 'acceptance-strictness: matcher error (grep exit %d) on line: %s\n' "$rc" "$line" >&2
+    exit 3
+  fi
+  return $rc
+}
+
 in_block=0
 while IFS= read -r line || [[ -n "$line" ]]; do
   # (a) SCOPE: track the OPEN acceptance-criteria block.
-  if LC_ALL=C grep -Eq -e "$BLOCK_OPEN" <<< "$line"; then
+  if matches "$BLOCK_OPEN" "$line"; then
     in_block=1
     continue                                        # the marker line is never a bullet
   fi
-  if [[ $in_block -eq 1 ]] && LC_ALL=C grep -Eq -e "$HEAD_CLOSE" <<< "$line"; then
+  if [[ $in_block -eq 1 ]] && matches "$HEAD_CLOSE" "$line"; then
     in_block=0                                       # heading closes the block
   fi
   [[ $in_block -eq 1 ]] || continue
-  LC_ALL=C grep -Eq -e "$BULLET" <<< "$line" || continue
+  matches "$BULLET" "$line" || continue
 
   total=$((total + 1))
   # Emit the bullet left-trimmed of leading whitespace (matches the contract's
@@ -66,18 +99,18 @@ while IFS= read -r line || [[ -n "$line" ]]; do
   bullet="${line#"${line%%[![:space:]]*}"}"
 
   is_judgment=0
-  LC_ALL=C grep -Eiq -e "$LEXICON" <<< "$line" && is_judgment=1
+  matches "$LEXICON" "$line" -i && is_judgment=1
 
   mech=0
-  LC_ALL=C grep -Eq  -e "$M2" <<< "$line" && mech=1
-  LC_ALL=C grep -Eq  -e "$M3" <<< "$line" && mech=1
-  LC_ALL=C grep -Eiq -e "$M4" <<< "$line" && mech=1
+  matches "$M2" "$line"    && mech=1
+  matches "$M3" "$line"    && mech=1
+  matches "$M4" "$line" -i && mech=1
   # M1 binding rule: for a judgment bullet, only a COMMAND-SHAPED span binds;
   # for a non-judgment bullet, any backtick span binds.
   if [[ $is_judgment -eq 1 ]]; then
-    LC_ALL=C grep -Eq -e "$M1_CMD" <<< "$line" && mech=1
+    matches "$M1_CMD" "$line" && mech=1
   else
-    LC_ALL=C grep -Eq -e "$M1_ANY" <<< "$line" && mech=1
+    matches "$M1_ANY" "$line" && mech=1
   fi
 
   # (d) BINDING + STRICTNESS.
