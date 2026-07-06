@@ -74,6 +74,18 @@ assert_scan strict-task-checkbox-immune.md "strict=0 total=0" 0
 # no acceptance-criteria marker → 0/0, exit 0 (no crash).
 assert_scan strict-no-requirements.md      "strict=0 total=0" 0
 
+# missing/unreadable spec path → RUNTIME error (exit 3), NO strict= on stdout.
+# Guards the input-read fail-open path: an unreadable file must NOT report a
+# clean empty scan (which the fold would turn into the all-strict sentinel).
+missing_out="$(bash "$SCANNER" "$FIX_DIR/does-not-exist-$$.md" 2>/dev/null)"
+missing_rc=$?
+missing_strict="$(printf '%s\n' "$missing_out" | grep -c '^strict=')"
+if [[ "$missing_rc" -eq 3 && "$missing_strict" -eq 0 ]]; then
+  note_pass "missing spec path -> exit 3, no strict= (no fail-open)"
+else
+  note_fail "missing spec path — exit=$missing_rc(want 3), strict-lines=$missing_strict(want 0)"
+fi
+
 echo "----------------------------------------"
 echo "acceptance-strictness fixtures: pass=$PASS fail=$FAIL"
 [[ "$FAIL" -eq 0 ]] || exit 1

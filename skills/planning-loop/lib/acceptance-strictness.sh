@@ -19,11 +19,12 @@
 #   stdout line 1 : "strict=<P> total=<T>"
 #   then          : zero or more "sub-strict: <unbound-judgment|no-mechanism> :: <bullet>"
 # Exit code is 0 on a clean scan (this is a scanner, not a gate — there is no
-# abort flag, no `abort-eligible`, no `egregious` concept). The ONE non-zero
-# exit is a matcher RUNTIME error: if a matcher cannot run (grep exits >1) the
-# scanner writes a stderr diagnostic and exits 3 instead of silently reporting a
-# non-match. Failing OPEN — reporting a bullet strict because a matcher never
-# ran — is the worst mode for an enforcement tool, so it is explicitly refused.
+# abort flag, no `abort-eligible`, no `egregious` concept). The non-zero exit 3
+# is a RUNTIME error — an unreadable/missing input path, OR a matcher that cannot
+# run (grep exits >1). In either case the scanner writes a stderr diagnostic and
+# exits 3 instead of silently reporting a clean/empty scan. Failing OPEN —
+# reporting strict (or an empty scan) because the input or a matcher never ran —
+# is the worst mode for an enforcement tool, so it is explicitly refused.
 # Matching is temp-free: NO bash here-strings, which write a temp file and fail
 # in read-only/restricted environments; pipes (kernel buffers) are used instead.
 #
@@ -31,6 +32,17 @@
 set -u
 
 SPEC="${1:-}"
+
+# Fail-closed on an unusable input path. A missing/empty/unreadable SPEC is a
+# RUNTIME error (exit 3), NOT a clean empty scan: reporting strict=0 total=0 for
+# an unreadable file fails OPEN — the review-focus helper would emit the
+# all-strict sentinel and tell the reviewer nothing is wrong. Refuse it, exactly
+# like a matcher error. The read below uses a direct redirect (not `cat 2>/dev/null`)
+# so a mid-read failure surfaces instead of truncating to a short/empty scan.
+if [[ -z "$SPEC" || ! -r "$SPEC" ]]; then
+  printf 'acceptance-strictness: cannot read spec: %s\n' "${SPEC:-<no path given>}" >&2
+  exit 3
+fi
 
 # (b) JUDGMENT-WORD LEXICON — closed, whole-token, delimiter-bounded.
 #     Run case-insensitively via `LC_ALL=C grep -Ei`.
@@ -121,7 +133,7 @@ while IFS= read -r line || [[ -n "$line" ]]; do
   else
     sub_lines+=("sub-strict: no-mechanism :: $bullet")
   fi
-done < <(cat -- "$SPEC" 2>/dev/null)
+done < "$SPEC"
 
 printf 'strict=%d total=%d\n' "$strict" "$total"
 if [[ ${#sub_lines[@]} -gt 0 ]]; then

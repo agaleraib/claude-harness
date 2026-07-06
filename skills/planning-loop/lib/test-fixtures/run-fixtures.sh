@@ -515,6 +515,18 @@ if [[ -x "$RF_BIN" ]]; then
       rf_fail "$RF_MODE (all-clean) wrong (rc=$AC_RC, sub-strict=$AC_SUB)"
     fi
   done
+  # Wave 25 code-review (re-review): a missing/unreadable spec path must NOT
+  # fail open to the all-strict sentinel. The scanner exits 3 (runtime error),
+  # so the fold surfaces "diagnostics unavailable" and preserves the base focus.
+  MISS_OUT="$(bash "$RF_BIN" --emit-focus "BASE-FOCUS" "$SCRIPT_DIR/does-not-exist-$$.md")"; MISS_RC=$?
+  if [[ "$MISS_RC" -eq 0 ]] \
+      && ! printf '%s\n' "$MISS_OUT" | grep -qF "all acceptance criteria are strict" \
+      && printf '%s\n' "$MISS_OUT" | grep -qiF "diagnostics unavailable" \
+      && printf '%s\n' "$MISS_OUT" | grep -qF "BASE-FOCUS"; then
+    rf_pass "--emit-focus (missing spec) surfaces diagnostics-unavailable, no sentinel (no fail-open)"
+  else
+    rf_fail "--emit-focus (missing spec) fail-open or missing base focus (rc=$MISS_RC)"
+  fi
   echo "----------------------------------------"
   echo "acceptance-review-focus fixtures: pass=$RF_PASS fail=$RF_FAIL"
   PASS=$((PASS + RF_PASS))
