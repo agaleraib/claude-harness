@@ -230,7 +230,20 @@ Sibling to the Manual-fallback self-check above, and enforced the same way — i
 - **(c) Mechanisms M1–M4** — a bullet "names a **mechanism**" iff it carries a command-shaped backtick span (M1), an HTTP verb + path such as `GET /x` (M2), an ASCII numeric comparator such as `< 200` (M3), or an `Error case:` / `Edge case:` prefix (M4).
 - **(d) Binding** — a bullet is **strict** iff it names ≥1 mechanism. A judgment word is allowed only when the same bullet is also bound by a mechanism. Otherwise the bullet is *sub-strict*, tagged `unbound-judgment` (has a judgment word but no mechanism) or `no-mechanism` (asserts nothing verifiable at all).
 
-**What to do at end of spec emission.** Run `bash skills/planning-loop/lib/acceptance-strictness.sh <spec_path>` (or mirror its grammar bullet-by-bullet). For every `sub-strict:` line the scanner emits, print a WARNing to stdout naming the offending bullet and its reason code (`unbound-judgment` or `no-mechanism`), and rewrite the bullet to name a mechanism before emission when you can. This self-check **does not block**: the spec still ships even with sub-strict bullets (fail-open, exactly like the Manual-fallback self-check). The scanner's `strict=<P> total=<T>` result is surfaced in the final summary line, and `/planning-loop`'s Codex reviewer flags any remaining `sub-strict` bullet as `needs-attention`. Behavioral enforcement of the grammar lives in the scanner + its fixtures, NOT in this prose check — the check only WARNs and feeds the summary line.
+**What to do at end of spec emission.** Run the shared scanner at its **canonical installed path**, guarding for a partial install:
+
+```bash
+SCANNER="$HOME/.claude/skills/planning-loop/lib/acceptance-strictness.sh"
+if [[ -x "$SCANNER" ]]; then
+  bash "$SCANNER" <spec_path>
+else
+  echo 'strict=0 total=0'   # scanner genuinely ABSENT — report 0/0, never fabricate a count
+fi
+```
+
+The scanner installs to `$HOME/.claude/skills/planning-loop/lib/acceptance-strictness.sh`. ALWAYS invoke that `$HOME` install path — a repo-relative `skills/planning-loop/lib/...` path is missing when this globally-installed agent runs from a consumer repo's own root. The scanner is the **single source of truth** for the `<P>/<T>` count: the summary-line field MUST be its `strict=<P> total=<T>` output, never a hand-count. The `[[ -x ]]` guard reports `0/0` **only** when the scanner is genuinely absent (fail-open on absence is fine); it never fabricates strict counts. The grammar mirror in clauses (a)–(d) above is a documentation aid for a human reading this file — NOT a parallel counter that may diverge from the scanner. A human with neither the scanner nor an LLM may mirror the grammar bullet-by-bullet as a last resort, but that manual mirror never overrides the scanner's count when the scanner is present.
+
+For every `sub-strict:` line the scanner emits, print a WARNing to stdout naming the offending bullet and its reason code (`unbound-judgment` or `no-mechanism`), and rewrite the bullet to name a mechanism before emission when you can. This self-check **does not block**: the spec still ships even with sub-strict bullets (fail-open, exactly like the Manual-fallback self-check). The scanner's `strict=<P> total=<T>` result is surfaced in the final summary line, and `/planning-loop`'s Codex reviewer flags any remaining `sub-strict` bullet as `needs-attention`. Behavioral enforcement of the grammar lives in the scanner + its fixtures, NOT in this prose check — the check only WARNs and feeds the summary line.
 
 ### WORKFLOW.md row delta for new commands
 
