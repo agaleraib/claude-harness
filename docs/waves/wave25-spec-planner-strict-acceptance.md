@@ -2,8 +2,8 @@
 wave_number: 25
 slug: spec-planner-strict-acceptance
 spec_path: docs/specs/2026-07-02-spec-planner-strict-acceptance.md
-merge_sha: null   # NOT merged — worktree branch worktree-agent-aa70af605fe0863fa awaits the human merge decision
-closed_at: null   # NOT closed — /close-wave completes the handoff (this is the build-phase receipt)
+merge_sha: cdb80bb
+closed_at: 2026-07-06
 ---
 
 # Wave 25 — spec-planner strict acceptance-criteria discipline
