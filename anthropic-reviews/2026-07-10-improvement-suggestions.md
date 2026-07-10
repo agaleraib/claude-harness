@@ -163,7 +163,7 @@ Both pinned models are one generation behind (4.x). The last such refresh — Op
 
 ### Why this is `defer`, not `apply`
 
-- **The maintainer's own runtime is still Opus 4.7.** This session's own system context confirms `You are configured to run on the model claude-opus-4-7` — the maintainer hasn't flipped their Claude Code default yet. Pinning `.harness-profile` ahead of the maintainer's own runtime creates a mismatch: skills that read `model.primary` for routing (e.g. `orchestrator`) would target a model the maintainer isn't running.
+- **The maintainer's own runtime is still on the 4.x tier.** The `.harness-profile` pin (Opus 4.7 primary, Sonnet 4.6 fallback) reflects what the maintainer is running today. Pinning the profile ahead of the maintainer's own runtime creates a mismatch: skills that read `model.primary` for routing (e.g. `orchestrator`) would target a model the maintainer isn't running.
 - **New tokenizer in Sonnet 5.** Per the June-30 launch post, Sonnet 5 uses an updated tokenizer. Any harness skill/agent that assumes a specific token-count invariant (few do — the harness is deliberately lean — but `harness-status`, `memory-prune`, and the "keep CLAUDE.md under 200 lines" README rule are budget-adjacent) should be re-checked before flipping fallback.
 - **Fable 5 had a brief availability gap (June 12 → June 30).** The redeploy included a new cybersecurity classifier. Wait for a week or two of post-redeploy stability before pinning production model routing to it.
 - **Downstream references need coordinated update.** `.claude/agents/orchestrator.md` references the current pinned identifiers 15 times (per grep). The 2026-04-19 §1 migration touched the same files — this isn't a one-line edit.
@@ -203,7 +203,7 @@ Harness routing lines up with the currently-recommended model tier — consumer 
 **Verify before applying:**
 1. `grep -n "claude-opus-4-7\|claude-sonnet-4-6" .harness-profile` — must still return hits at lines ~27–28; if the file already reads `claude-fable-5` / `claude-sonnet-5`, this § has been applied and can be marked APPLIED without further action.
 2. `grep -c "claude-opus-4-7\|claude-sonnet-4-6" .claude/agents/orchestrator.md` — should still be ~15 (see this-run grep count in the tracker's context notes). A large drop means someone has partially applied the migration.
-3. Confirm the maintainer's *own* Claude Code session has moved off Opus 4.7 to Fable 5 (or Sonnet 5 for the fallback tier) — if not, the migration is premature. Check by opening a fresh session and reading the system context.
+3. Confirm the maintainer's *own* Claude Code session has moved off the 4.x tier onto Fable 5 (or Sonnet 5 for the fallback tier) — if not, the migration is premature. Check by opening a fresh session and reading the system context.
 4. Confirm the [Claude Code Best Practices](https://code.claude.com/docs/en/best-practices) doc still recommends `effort_default: xhigh` — if the product default has changed with Fable 5, the derivation table in `.harness-profile:22–25` needs a comment update.
 5. Fable 5 has been redeployed since 2026-07-01 without a further suspension — confirm no new export-control incident is in flight before pinning production routing to it.
 
