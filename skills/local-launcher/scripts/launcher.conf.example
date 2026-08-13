@@ -1,0 +1,41 @@
+# launcher.conf — copy to launcher.conf next to the scripts and edit.
+#
+# Sourced by boot-servers.sh and install-launcher.sh, and read by make-icon.py.
+# Keep it shell-parseable: plain assignments only, no logic.
+
+# Display name of the app bundle. Also the Dock and Cmd+Tab label.
+APP_NAME="MyProject"
+
+# Absolute path to the project checkout. Every service directory below is
+# resolved relative to this.
+PROJECT_DIR="$HOME/DEV/myproject"
+
+# What the app window opens.
+OPEN_URL="http://localhost:5173/"
+
+# Services to start, in order: "<port>:<dir relative to PROJECT_DIR>:<command>".
+# A service whose port is already listening is left alone, so clicking the icon
+# twice never starts a second copy.
+SERVICES=(
+  "3000:packages/api:PORT=3000 bun run src/index.ts"
+  "5173:packages/web:bun run dev"
+)
+
+# The port the window is opened against — the one worth blocking on. The others
+# are given a shorter grace period and never block the window.
+PRIMARY_PORT=5173
+
+# Optional. Package manager used for the first-run dependency install, and the
+# marker directory whose absence triggers it. Set INSTALL_CMD empty to skip.
+INSTALL_CMD="bun install"
+INSTALL_MARKER="node_modules"
+
+# Optional. Where the launcher appends its output.
+LOG_FILE="$HOME/Library/Logs/${APP_NAME}-dev.log"
+
+# Icon colours: background gradient (top, bottom) and accent, as hex.
+# Pull these from the app's own palette so the Dock icon matches the UI.
+ICON_BG_TOP="#14141a"
+ICON_BG_BOTTOM="#08080c"
+ICON_ACCENT="#5ba8a0"
+ICON_NODE="#e8e6e3"
