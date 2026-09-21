@@ -111,7 +111,7 @@ else
 fi
 
 # 0c. Any active tasks still unticked under this wave?
-awk "/^### Wave $wave_number/,/^### Wave /" docs/plan.md \
+awk '/^### Wave '"$wave_number"'( |$)/{f=1} f&&/^### Wave /&&!/^### Wave '"$wave_number"'( |$)/{f=0} f' docs/plan.md \
   | grep "^- \[ \]" | grep -v "Deferred" || echo "NO_UNTICKED"
 
 # 0d. Worktree still alive for this wave?
@@ -508,7 +508,7 @@ Commit as `docs(plan): close wave $wave_number + reconcile OQs` (stage edited fi
 
 ```bash
 # Common — no unticked tasks under this wave (legacy format only — new format never has unticked items in plan.md)
-awk "/^### Wave $wave_number/,/^### Wave /" docs/plan.md | grep "^- \[ \]" | grep -v "Deferred"
+awk '/^### Wave '"$wave_number"'( |$)/{f=1} f&&/^### Wave /&&!/^### Wave '"$wave_number"'( |$)/{f=0} f' docs/plan.md | grep "^- \[ \]" | grep -v "Deferred"
 
 # Closure annotation present in one of two shapes (new format primary; legacy fallback)
 new_ok=0; legacy_ok=0
@@ -581,13 +581,15 @@ This is the step that prevents "did we actually close this wave?" questions late
 
 **Portability note:** on systems where `grep` is `ugrep` (e.g. macOS via Homebrew), patterns starting with `-` are interpreted as command-line options. Always use `--` separator: `grep -F -- "- [x] Wave …"`. Skill-body greps below already include `--`.
 
+**Awk range note:** don't reintroduce a `pat1,pat2` comma-range awk pattern for the "unticked tasks under this wave" check. POSIX awk tests `pat2` against the same record that opened the range, so `/^### Wave N/,/^### Wave /` closes on the heading line itself and returns only the heading, never the block body; `/^### Wave 3/` alone also collides with `Wave 30`/`Wave 31`/etc. The flag-toggling form used at Step 0c, Step 8, and here (`f=1`/`f=0`, anchored on `( |$)`) avoids both traps.
+
 ```bash
 cd "$REPO"
 
 # 11a. Every Wave N task ticked or explicitly deferred — HARD (legacy-format only;
 #      new format never has unticked items in plan.md because all per-task detail
 #      lives in the linked spec / wave summary, not in plan.md itself)
-unticked=$(awk "/^### Wave $wave_number/,/^### Wave /" docs/plan.md | grep "^- \[ \]" | grep -v "Deferred")
+unticked=$(awk '/^### Wave '"$wave_number"'( |$)/{f=1} f&&/^### Wave /&&!/^### Wave '"$wave_number"'( |$)/{f=0} f' docs/plan.md | grep "^- \[ \]" | grep -v "Deferred")
 [ -z "$unticked" ] || { echo "FAIL 11a"; echo "$unticked"; exit 1; }
 
 # 11b. Closure annotation in one of two shapes — HARD
