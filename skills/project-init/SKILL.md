@@ -101,6 +101,7 @@ Use `AskUserQuestion` for the fields that can't be auto-detected. Group into at 
 
 2. **(If quality_bar ≥ production)** Should typecheck, lint, and tests **block commits**?
    - Options: `yes all`, `typecheck only`, `typecheck + lint`, `none`
+   - The answer sets `typecheck_blocking` / `test_required`, and the global pre-push hook (setup-harness Step 6) enforces it: it runs `gate.typecheck` unless `typecheck_blocking: false`, and `gate.tests` only when `test_required: true`.
 
 3. **Enable model routing for the orchestrator?** The orchestrator can dispatch tasks to different models (opus/sonnet/haiku) based on complexity. Saves cost on mechanical tasks while keeping opus for hard problems.
    - `on` — orchestrator routes tasks to appropriate models
@@ -222,6 +223,9 @@ stack:
   llm_apis: [list]
 
 # Gate commands for /run-loop's mechanical gate (Wave 24 — repo-resolved + fail-safe).
+# The global pre-push hook (scripts/git-hooks/dispatch.sh) reads this same block:
+# typecheck per quality_bar.typecheck_blocking, tests only if test_required: true,
+# verify always. Opt a repo out of the harness hooks with a top-level `harness_hooks: off`.
 # EMIT this block ONLY when a runnable command was derived AND confirmed (Step 3).
 # OMIT it entirely if none could be grounded: /run-loop FAILS SAFE and REFUSES a repo
 # with no gate rather than merging unverified — never emit a guessed or empty command.

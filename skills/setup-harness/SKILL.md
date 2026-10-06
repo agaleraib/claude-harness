@@ -236,22 +236,34 @@ If they pick "Skip", print the install-later hint:
 
 > Skipped. To install later: `cp ~/.claude/harness/skills/setup-harness/templates/user-CLAUDE.md ~/.claude/CLAUDE.md`
 
-## Step 6: Verify Global Git Hook (first-time only)
+## Step 6: Install the global git hooks
 
-```bash
-git config --global core.hooksPath 2>/dev/null
-```
+The harness ships one dispatcher, `~/.claude/harness/scripts/git-hooks/dispatch.sh`, that every repo on the machine runs through `core.hooksPath`. It blocks secrets in staged lines (pre-commit), blocks pushes deleting more than 10 files, runs the repo's `.harness-profile` `gate:` (pre-push), and chains to the repo's own `scripts/hooks/<name>` and `.git/hooks/<name>`. The header of `dispatch.sh` is the full contract.
 
-If empty and `~/.claude/harness/scripts/git-post-commit.sh` exists, install it:
+**6a. Machine-wide (first time only).** Read `git config --global core.hooksPath`:
 
-```bash
-mkdir -p ~/.git-hooks
-cp ~/.claude/harness/scripts/git-post-commit.sh ~/.git-hooks/post-commit
-chmod +x ~/.git-hooks/post-commit
-git config --global core.hooksPath ~/.git-hooks
-```
+- **Empty:** install it.
+  ```bash
+  mkdir -p ~/.git-hooks/local
+  for n in pre-commit prepare-commit-msg commit-msg post-commit pre-push \
+           post-checkout post-merge post-rewrite pre-rebase pre-merge-commit; do
+    ln -sfn ~/.claude/harness/scripts/git-hooks/dispatch.sh ~/.git-hooks/$n
+  done
+  git config --global core.hooksPath ~/.git-hooks
+  ```
+  Then, if `~/.claude/harness/scripts/git-post-commit.sh` exists, install the Second Brain hook as a machine-wide extra, which the dispatcher chains: `cp ~/.claude/harness/scripts/git-post-commit.sh ~/.git-hooks/local/post-commit && chmod +x ~/.git-hooks/local/post-commit`.
+- **`~/.git-hooks` already:** first move any regular (non-symlink) hook file there into `~/.git-hooks/local/`, for example the older Second Brain `post-commit`, so it keeps running. Then run the install loop above.
+- **Anything else:** another tool owns the global hooks path. Skip, and tell the user the harness checks are not installed.
 
-If already set, skip entirely.
+**6b. This repo.** Read `git config --local core.hooksPath`. A repo-level value beats the global one, so the dispatcher never runs there:
+
+- **Unset:** nothing to do.
+- **`<git-common-dir>/hooks` (absolute or relative):** this equals git's default, and the dispatcher already chains that folder. Unset it with `git config --local --unset core.hooksPath`.
+- **Anything else** (`.husky/_`, `scripts/hooks`, …): ask before changing it. For `scripts/hooks`, unset it, because the dispatcher chains that folder. For husky and similar tools, leave it, and tell the user the harness checks skip this repo.
+
+**6c. Gate.** The pre-push gate reads `.harness-profile`, which `/project-init` writes. If the profile has neither a `gate:` block nor `quality_gate.command`, say in one line that pushes run only the deletion check until `/project-init` records a gate.
+
+Run `bash ~/.claude/harness/scripts/git-hooks/test.sh` after changing the dispatcher.
 
 ## Step 7: Update Harness Source
 
