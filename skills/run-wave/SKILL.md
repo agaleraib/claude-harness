@@ -136,7 +136,7 @@ If plan.md has no such section, fall back to this minimal set:
 
 The orchestrator expects a spec file to parse. Because a wave cherry-picks across multiple specs, we synthesize one.
 
-Write to `/tmp/wave-<N>-<YYYYMMDD-HHMMSS>.md` with this shape:
+Write to `<main-checkout>/.harness-state/wave-<N>-<YYYYMMDD-HHMMSS>.md` (absolute path; `.harness-state/` is gitignored and already holds the run-wave receipts) with this shape:
 
 ```markdown
 # Wave <N> — Synthetic spec (from docs/plan.md)
@@ -208,7 +208,7 @@ Verbal-only reports break the handoff to close/merge tooling. Write the file.
 
 ---
 
-The synthetic spec below (the `/tmp/wave-<N>-<ts>.md` file) is ephemeral — it lives in `/tmp` so it's accessible from any worktree but doesn't pollute the repo. The mandatory summary file above is the durable artifact.
+The synthetic spec (`.harness-state/wave-<N>-<ts>.md`) is a gitignored working file: it stays readable for the whole run (a long wave outlives `/tmp`, which macOS cleans), and every worktree reaches it by its absolute main-checkout path. The mandatory summary file above is the durable artifact.
 
 ## Step 9: Confirm before dispatch
 
@@ -221,7 +221,8 @@ Show the user a summary. Include a **Heads-up** section if any header/sub-bullet
 > - Specs referenced: <list>
 > - Exit gate: <one-line summary>
 > - Human-only TODOs flagged: <count> (manual ops) + <count> (pre-implementation decisions)
-> - Synthetic spec: `/tmp/wave-<N>-<timestamp>.md`
+> - Synthetic spec: `.harness-state/wave-<N>-<timestamp>.md`
+> - **Keep this session open until the orchestrator reports back.** The orchestrator is a background agent of this session; closing or `/clear`-ing it stops the wave mid-task, and a resume only continues once a session is open again.
 >
 > **Heads-up (if applicable):**
 > - **Header/sub-bullet divergence:** <for each item with divergence, name the header scope vs sub-bullet scope>. Sub-bullets are authoritative per convention, but confirm this matches your intent.
@@ -351,8 +352,8 @@ Invoke the Agent tool with:
 - `isolation: "worktree"` — creates an isolated working copy so commits don't touch the main checkout
 - `description: "Wave <N> orchestration"`
 - `prompt:` a brief that tells the orchestrator:
-  1. It is executing Wave <N> from a synthetic spec at `/tmp/wave-<N>-<timestamp>.md` (read that file)
-  2. The full synthetic spec content, inlined in the prompt (so the orchestrator doesn't depend on reading from `/tmp` if the worktree sandbox blocks it)
+  1. It is executing Wave <N> from a synthetic spec at `<main-checkout>/.harness-state/wave-<N>-<timestamp>.md` (absolute path; read that file)
+  2. The full synthetic spec content, inlined in the prompt (so the orchestrator doesn't depend on reading outside its worktree if the sandbox blocks it)
   3. After all tasks commit, run the Exit Gate section verbatim and include results in the final summary
   4. Surface Human-only TODOs in the final summary; do NOT attempt them
   5. Respect the Operating Rules section — especially protected-path separation (live worktrees, protected branches)
@@ -361,7 +362,7 @@ Invoke the Agent tool with:
 Example prompt shape:
 
 ```
-Execute Wave <N> from docs/plan.md. Synthetic spec at /tmp/wave-<N>-<timestamp>.md
+Execute Wave <N> from docs/plan.md. Synthetic spec at <main-checkout>/.harness-state/wave-<N>-<timestamp>.md
 and reproduced in full below. Follow your normal flow (parse → route → dispatch
 → verify → /commit per task).
 
@@ -393,6 +394,8 @@ scan, git status in this repo) do NOT catch cross-repo dirty state.
 Report back with: commits per task, exit gate results, human-only TODOs,
 deviations, cross-repo flags (if any), and the worktree path + branch name.
 ```
+
+**Right after dispatch**, tell the user in one line that the wave is running in the background of this session and that closing the session stops it. Record the worktree path and agent ID in project memory so a later session can `SendMessage` the agent to resume.
 
 ## Step 11: Report back
 

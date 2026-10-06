@@ -47,7 +47,7 @@ task_id = {spec_basename}:{task_marker}
 - **`spec_basename`** — the basename (filename component) of the spec file the task came from. Example: for `docs/specs/2026-04-19-harness-model-pin-and-effort-routing.md`, the `spec_basename` is `2026-04-19-harness-model-pin-and-effort-routing.md`.
 - **`task_marker`** — the literal task identifier as it appears in the spec body. Examples: `Task 3`, `B1`, `Phase 1 T2`, `Task 7a`. Use the marker verbatim — do not normalize, renumber, or strip prefixes.
 
-**Synthetic-spec case (worktree dispatches via `/run-wave`).** When a task is dispatched from a synthetic spec at `/tmp/wave-N-*.md`, the orchestrator uses the **synthetic basename** as the `spec_basename` (e.g. `wave-2-20260425-142132.md`). The underlying source specs are documented in the synthetic file's `Source specs referenced:` header for downstream attribution; the orchestrator does NOT walk through to the source spec for `task_id` purposes — that would break log-join stability across runs of the same synthetic.
+**Synthetic-spec case (worktree dispatches via `/run-wave`).** When a task is dispatched from a synthetic spec at `.harness-state/wave-N-*.md` (absolute main-checkout path), the orchestrator uses the **synthetic basename** as the `spec_basename` (e.g. `wave-2-20260425-142132.md`). The underlying source specs are documented in the synthetic file's `Source specs referenced:` header for downstream attribution; the orchestrator does NOT walk through to the source spec for `task_id` purposes — that would break log-join stability across runs of the same synthetic.
 
 **Composed examples:**
 
@@ -200,6 +200,8 @@ For each task (respecting execution plan order):
    - "Implement this task. When done, verify by: [Verify step]. Report back with what you built and the verification result."
 
 2. **For parallel tasks:** Spawn subagents with `isolation: "worktree"` so each works on an independent copy. Wait for all parallel tasks to complete before proceeding to dependent tasks.
+
+   **How to wait:** end your turn and let the harness wake you. A finished async subagent or `run_in_background` command delivers a completion notification on its own; for a log or condition you must watch, use the `Monitor` tool. Reserve Bash for work, never for waiting: `sleep`/`until` loops on output files hit the 600s timeout or get killed (exit 137) and burn turns. Write helper scripts and commands with literal absolute paths, since the worktree guard blocks commands that build a path or argument from a runtime `$VAR`.
 
 3. **Collect the result.** Read what the subagent built.
 
