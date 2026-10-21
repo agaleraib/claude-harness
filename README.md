@@ -385,6 +385,19 @@ Runs an accessibility audit using axe-core via Playwright. Flags WCAG violations
 /a11y-check http://localhost:3000/dashboard,http://localhost:3000/settings
 ```
 
+#### `local-launcher`
+
+Builds a one-click desktop launcher for a project: a Dock icon that boots the dev servers and opens the UI in a window with its own Cmd+Tab entry. macOS only.
+
+**When to use:** A project whose dev loop needs several servers started by hand, or a teammate who validates work without developing and should not need a terminal to reach a local UI.
+
+```
+/local-launcher            # walks the full setup
+/local-launcher icon       # regenerate the icon only
+```
+
+Two bundles, one Dock tile: a small `LSUIElement` launcher you own boots the servers and opens a Chrome "installed app" shortcut, which supplies the window and its own Cmd+Tab entry (~2 MB, normal profile, so extensions work). One step is unavoidably manual — Chrome must mint the shortcut itself. `references/macos-app-bundles.md` covers why, and why the shortcut bundle must never be modified: Chrome repairs it on launch, so a wrapped bundle works exactly once.
+
 ### Authoring Skills
 
 #### `skill-creator` (vendored)
